@@ -3,7 +3,7 @@
 > **The AI-native development studio for Roblox creators.**
 
 **Current version: `0.11.0-alpha`**  
-**Status: Phases 0–11 core implemented + production-hardening core**  
+**Status: Phases 0–11 core implemented + production-hardening core + installable Studio plugin**  
 **Release channel: Alpha / active development**
 
 LUA-X is designed around one idea: a Roblox creator should be able to describe a feature, let a project-aware AI engineering system plan it, build it, test it, inspect the result, and iterate without losing control of the project.
@@ -35,6 +35,20 @@ LUA-X is not just a prompt box that returns Luau. It is a project-aware developm
 - 🔌 Studio integration architecture
 - 🧩 Prompt/context-engineering system
 
+## Install LUA-X in Roblox Studio
+
+The repository now includes an installable local Studio plugin at [`studio-plugin/LUA-X.plugin.lua`](studio-plugin/LUA-X.plugin.lua).
+
+1. Put `LUA-X.plugin.lua` into Roblox Studio's local Plugins folder.
+2. Restart Roblox Studio.
+3. Open the **Plugins** tab and launch **LUA-X**.
+4. Select relevant scripts/models and describe the change in the LUA-X dock.
+5. Generate the structured plan, review it, then explicitly apply the supported script changes.
+
+Full installation and troubleshooting notes are in [`studio-plugin/README.md`](studio-plugin/README.md).
+
+The plugin does **not** contain NVIDIA/provider API keys. It talks to the LUA-X backend, whose current AI endpoint is `https://lua-x-api.vercel.app/api/ai/generate` by default. Unsupported instance mutations remain deferred instead of being executed blindly.
+
 ## Roadmap status
 
 | Phase | System | Status |
@@ -42,7 +56,7 @@ LUA-X is not just a prompt box that returns Luau. It is a project-aware developm
 | 0 | Foundation | **Core complete** |
 | 1 | Project Intelligence | **Core implemented** |
 | 2 | AI Engineering Brain | **Core implemented** |
-| 3 | Studio Bridge | **Core architecture** |
+| 3 | Studio Bridge | **Core implementation + installable plugin** |
 | 4 | Code Builder | **Core implemented** |
 | 5 | Animation Studio | **Core implemented** |
 | 6 | UI Studio | **Core implemented** |
@@ -122,12 +136,18 @@ See [`docs/PROMPT_ENGINE.md`](docs/PROMPT_ENGINE.md) and [`prompts/MASTER_SYSTEM
 
 ```text
 LUA-X
+├── apps/
+│   ├── api/
+│   └── web/
 ├── packages/
 │   ├── verification-engine/
 │   ├── autonomous-engine/
 │   ├── fusion-core/
 │   ├── cloud-core/
 │   └── hardening-core/
+├── studio-plugin/
+│   ├── LUA-X.plugin.lua
+│   └── README.md
 ├── prompts/
 │   ├── MASTER_SYSTEM.md
 │   ├── LUau.md
