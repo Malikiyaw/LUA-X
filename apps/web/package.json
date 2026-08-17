@@ -11,9 +11,6 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/server.js"
   },
-  "dependencies": {
-    "@lua-x/orchestrator": "0.1.0",
-    "@lua-x/shared": "0.1.0"
-  },
+  "dependencies": {},
   "devDependencies": { "typescript": "^5.9.2" }
 }
