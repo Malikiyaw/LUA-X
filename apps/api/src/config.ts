@@ -32,11 +32,11 @@ function floatEnv(name: string, fallback: number, min: number, max: number): num
 export function loadConfig(): ApiConfig {
   const port = intEnv('PORT', 4000);
   if (port > 65535) throw new Error('PORT must be <= 65535.');
-  return {
+  const apiKey = process.env.NVIDIA_API_KEY?.trim();
+  const config: ApiConfig = {
     host: process.env.HOST ?? '127.0.0.1',
     port,
     nodeEnv: process.env.NODE_ENV ?? 'development',
-    nvidiaApiKey: process.env.NVIDIA_API_KEY?.trim() || undefined,
     nvidiaBaseUrl: (process.env.NVIDIA_BASE_URL ?? 'https://integrate.api.nvidia.com/v1').replace(/\/$/, ''),
     nvidiaModel: process.env.NVIDIA_MODEL ?? 'nvidia/llama-3.3-nemotron-super-49b-v1',
     aiMaxTokens: intEnv('AI_MAX_TOKENS', 4096),
@@ -46,4 +46,6 @@ export function loadConfig(): ApiConfig {
     rateLimitMaxRequests: Math.max(1, intEnv('RATE_LIMIT_MAX_REQUESTS', 30)),
     corsOrigin: process.env.CORS_ORIGIN ?? 'http://127.0.0.1:3000',
   };
+  if (apiKey) config.nvidiaApiKey = apiKey;
+  return config;
 }
