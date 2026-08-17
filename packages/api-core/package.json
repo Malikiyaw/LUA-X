@@ -1,0 +1,34 @@
+{
+  "name": "@lua-x/api-core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/**/*.test.js",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@lua-x/animation-engine": "0.1.0",
+    "@lua-x/autonomous-engine": "0.1.0",
+    "@lua-x/cloud-core": "0.1.0",
+    "@lua-x/execution-engine": "0.4.0",
+    "@lua-x/fusion-core": "0.1.0",
+    "@lua-x/hardening-core": "0.1.0",
+    "@lua-x/nvidia-provider": "0.2.0",
+    "@lua-x/orchestrator": "0.1.0",
+    "@lua-x/roblox-mcp-bridge": "0.1.0",
+    "@lua-x/shared": "0.1.0",
+    "@lua-x/ui-engine": "0.1.0",
+    "@lua-x/verification-engine": "0.1.0",
+    "@lua-x/world-engine": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.2"
+  }
+}
