@@ -5,6 +5,7 @@
   "rewrites": [
     { "source": "/api/studio/:path*", "destination": "/api/studio" },
     { "source": "/api/ai/generate", "destination": "/api/ai/generate" },
+    { "source": "/api/ai/status", "destination": "/api/ai/status" },
     { "source": "/api/:path*", "destination": "/api/index" }
   ],
   "headers": [
