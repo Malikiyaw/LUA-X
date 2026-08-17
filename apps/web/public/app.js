@@ -52,7 +52,7 @@ async function getJson(path){
 }
 async function refreshHealth(){
   try{
-    const h=await getJson('/health');
+    const h=await getJson('/api/health');
     backendStatus.textContent=h.status==='ok'?'Online':'Degraded';
     const a=await getJson('/api/ai/status');
     aiStatus.textContent=a.configured?'Ready':'Not configured';
