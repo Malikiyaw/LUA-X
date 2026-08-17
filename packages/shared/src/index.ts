@@ -18,10 +18,7 @@ export interface CreatorRequest {
 }
 
 export interface ExecutionBrief {
-  readonly objective: {
-    readonly summary: string;
-    readonly userIntent: string;
-  };
+  readonly objective: { readonly summary: string; readonly userIntent: string };
   readonly project: {
     readonly projectId: string | null;
     readonly relevantFiles: readonly string[];
@@ -43,7 +40,7 @@ export interface HealthStatus {
   readonly version: string;
 }
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.2.0";
 
 export function healthStatus(): HealthStatus {
   return { service: "lua-x", status: "ok", version: VERSION };
