@@ -52,7 +52,14 @@ export function parseAIPlan(text: string): AIPlan {
       throw new Error('AI plan contains an invalid change proposal.');
     }
     if (item.content !== undefined && typeof item.content !== 'string') throw new Error('Change proposal content must be a string.');
-    validated.push({ operation: item.operation as ChangeProposal['operation'], target: item.target, content: item.content as string | undefined, reason: item.reason, risk: item.risk as ChangeProposal['risk'] });
+    const proposal: ChangeProposal = {
+      operation: item.operation as ChangeProposal['operation'],
+      target: item.target,
+      reason: item.reason,
+      risk: item.risk as ChangeProposal['risk'],
+      ...(typeof item.content === 'string' ? { content: item.content } : {}),
+    };
+    validated.push(proposal);
   }
   return { summary, assumptions, changes: validated, acceptanceCriteria, verification, risks };
 }
