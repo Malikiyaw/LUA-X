@@ -40,7 +40,8 @@ export class NvidiaClient {
       if (!response.ok) {
         const message = typeof payload === 'object' && payload !== null && 'error' in payload ? String((payload as { error?: unknown }).error) : `NVIDIA request failed with HTTP ${response.status}.`;
         const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-        throw new NvidiaApiError(message, response.status, retryable, requestId);
+        const errorOptions = requestId ? { requestId } : {};
+        throw new NvidiaApiError(message, response.status, retryable, errorOptions.requestId);
       }
       if (!payload || typeof payload !== 'object') throw new NvidiaApiError('NVIDIA returned an invalid response.', 502, true, requestId);
       const choices = (payload as { choices?: unknown }).choices;
@@ -48,7 +49,8 @@ export class NvidiaClient {
       const message = typeof choice === 'object' && choice !== null ? (choice as { message?: unknown }).message : undefined;
       const content = typeof message === 'object' && message !== null ? (message as { content?: unknown }).content : undefined;
       if (typeof content !== 'string' || !content.trim()) throw new NvidiaApiError('NVIDIA returned no assistant content.', 502, true, requestId);
-      return { content, model: typeof (payload as { model?: unknown }).model === 'string' ? (payload as { model: string }).model : undefined, requestId };
+      const model = typeof (payload as { model?: unknown }).model === 'string' ? (payload as { model: string }).model : undefined;
+      return requestId ? (model ? { content, model, requestId } : { content, requestId }) : (model ? { content, model } : { content });
     } catch (error) {
       if (error instanceof NvidiaApiError) throw error;
       if (error instanceof Error && error.name === 'AbortError') throw new NvidiaApiError('NVIDIA request timed out.', 504, true);
