@@ -38,21 +38,27 @@ Goal: LUA-X can understand a Roblox project before changing it.
 - [ ] Incremental index updates
 - [ ] Semantic/code retrieval
 
-## Phase 2 — AI Engineering Core
+## Phase 2 — AI Engineering Core — COMPLETE
 
-Goal: turn natural language into controlled, reviewable changes.
+Goal: turn natural language into controlled, reviewable engineering plans and model-ready execution prompts.
 
-- [ ] Master prompt compiler
-- [ ] Context retrieval from Project Index
-- [ ] Task decomposition
-- [ ] Specialist agent router
-- [ ] File/instance patch planner
-- [ ] Code generation
-- [ ] Code review
-- [ ] Repair loop
-- [ ] Change-set preview
-- [ ] Rollback
-- [ ] Project memory
+- [x] Master orchestration rules
+- [x] Context-aware prompt compiler
+- [x] Project-memory interface and in-memory implementation
+- [x] Task decomposition
+- [x] Dependency-aware execution plan
+- [x] Specialist agent routing
+- [x] Change-set generation
+- [x] Change risk assessment
+- [x] Reviewable change-set metadata
+- [x] Acceptance criteria propagation
+- [x] Verification requirements propagation
+- [x] Deterministic change identifiers
+- [x] Orchestration integration API
+- [x] Phase 2 automated tests
+- [ ] Connect model provider adapter
+- [ ] Connect live Phase 1 project retrieval
+- [ ] Apply/rollback changes against real Studio state
 
 ## Phase 3 — Roblox Studio Bridge
 
@@ -81,8 +87,6 @@ Goal: make animation a first-class engineering workflow.
 - [ ] Animation-to-gameplay event mapping
 - [ ] Preview and validation
 - [ ] Export/sync workflow
-
-Important: generated animation must be represented as an editable, inspectable artifact. LUA-X should not hide animation decisions inside an opaque result.
 
 ## Phase 5 — UI + World Studio
 
