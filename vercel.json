@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run build --workspace=@lua-x/web",
+  "buildCommand": "npm run build",
   "outputDirectory": "apps/web/public",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index.ts" }
@@ -10,6 +10,15 @@
       "source": "/api/:path*",
       "headers": [
         { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/LUA-X.plugin.lua",
+      "headers": [
+        { "key": "Content-Type", "value": "application/octet-stream" },
+        { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.plugin.lua\"" },
+        { "key": "Cache-Control", "value": "public, max-age=300" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     }
   ]
