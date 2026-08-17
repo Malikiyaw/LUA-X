@@ -1,0 +1,21 @@
+{
+  "name": "@lua-x/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test dist/server.test.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@lua-x/orchestrator": "0.1.0",
+    "@lua-x/shared": "0.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
