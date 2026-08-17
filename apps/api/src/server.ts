@@ -2,13 +2,18 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
-import { NvidiaApiError, NvidiaClient } from './nvidia.js';
+import { NvidiaApiError } from './nvidia.js';
+import { NvidiaClientPool } from './nvidia-pool.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompt.js';
 import { parseAIPlan, type AIGenerateRequest } from './schema.js';
 
 export const API_VERSION = '0.11.0-alpha';
 
-export interface ApiDependencies { config: ReturnType<typeof loadConfig>; nvidia: NvidiaClient; limiter: FixedWindowRateLimiter }
+export interface ApiDependencies {
+  config: ReturnType<typeof loadConfig>;
+  nvidia: NvidiaClientPool;
+  limiter: FixedWindowRateLimiter;
+}
 
 function sendJson(response: ServerResponse, status: number, payload: unknown, headers: Record<string, string> = {}): void {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers });
@@ -46,8 +51,8 @@ function clientKey(request: IncomingMessage): string {
 
 function createDependencies(): ApiDependencies {
   const config = loadConfig();
-  const nvidia = new NvidiaClient({
-    ...(config.nvidiaApiKey ? { apiKey: config.nvidiaApiKey } : {}),
+  const nvidia = new NvidiaClientPool({
+    apiKeys: config.nvidiaApiKeys,
     baseUrl: config.nvidiaBaseUrl,
     model: config.nvidiaModel,
     maxTokens: config.aiMaxTokens,
@@ -81,7 +86,7 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
     }
 
     if (method === 'GET' && (url.pathname === '/' || url.pathname === '/health' || url.pathname === '/api/health')) {
-      sendJson(response, 200, { service: 'lua-x-api', status: 'ok', version: API_VERSION }, { ...commonHeaders, ...rateHeaders });
+      sendJson(response, 200, { service: 'lua-x-api', status: 'ok', version: API_VERSION, aiKeysConfigured: deps.nvidia.size }, { ...commonHeaders, ...rateHeaders });
       return;
     }
 
@@ -92,7 +97,7 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
     }
 
     if (method === 'GET' && (url.pathname === '/api/ai/status' || url.pathname === '/ai/status')) {
-      sendJson(response, 200, { provider: 'nvidia', configured: deps.nvidia.isConfigured(), model: deps.config.nvidiaModel }, { ...commonHeaders, ...rateHeaders });
+      sendJson(response, 200, { provider: 'nvidia', configured: deps.nvidia.isConfigured(), keyPoolSize: deps.nvidia.size, model: deps.config.nvidiaModel }, { ...commonHeaders, ...rateHeaders });
       return;
     }
 
