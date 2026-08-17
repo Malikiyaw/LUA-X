@@ -3,6 +3,7 @@
   "buildCommand": "npm run sync:plugin && npm run build --workspace=@lua-x/web",
   "outputDirectory": "apps/web/public",
   "rewrites": [
+    { "source": "/api/health", "destination": "/api/health" },
     { "source": "/api/studio/:path*", "destination": "/api/studio-bridge" },
     { "source": "/api/ai/generate", "destination": "/api/ai-generate" },
     { "source": "/api/ai/status", "destination": "/api/ai-status" },
