@@ -1,27 +1,20 @@
-type Change = {
-  operation: 'create_script' | 'update_script' | 'create_instance' | 'update_instance' | 'delete_instance' | 'note';
-  target: string;
-  reason: string;
-  risk: 'low' | 'medium' | 'high' | 'critical';
-  content?: string;
-};
-
-type Plan = {
-  summary: string;
-  assumptions: string[];
-  changes: Change[];
-  acceptanceCriteria: string[];
-  verification: string[];
-  risks: string[];
-};
+import { randomUUID } from 'node:crypto';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODELS = [
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
-const MAX_BODY = 64 * 1024;
+const MAX_BODY = 128 * 1024;
 const MAX_ATTEMPTS_PER_PAIR = 2;
+
+const SYSTEM_PROMPT = [
+  'You are LUA-X, an AI-native Roblox development assistant.',
+  'Help Roblox creators write Luau code, design game systems, and solve scripting problems.',
+  'Follow Roblox best practices: respect server/client boundaries, treat client-originated input as untrusted, and keep authoritative gameplay logic on the server.',
+  'Return plain text answers. Put Luau code inside ```lua ... ``` code blocks when code is relevant.',
+  'Never claim a Studio mutation, test, playtest, or publish succeeded. Describe what the creator must verify instead.',
+].join('\n');
 
 function json(status: number, payload: unknown, headers: Record<string, string> = {}) {
   return new Response(JSON.stringify(payload), {
@@ -31,7 +24,7 @@ function json(status: number, payload: unknown, headers: Record<string, string> 
 }
 
 function requestId(request: Request): string {
-  return request.headers.get('x-request-id') || crypto.randomUUID();
+  return request.headers.get('x-request-id') || randomUUID();
 }
 
 function keys(): string[] {
@@ -50,61 +43,6 @@ function models(): string[] {
   return configured ? [configured, ...DEFAULT_MODELS.filter((model) => model !== configured)] : DEFAULT_MODELS;
 }
 
-function normalizePlanText(text: string): string {
-  let value = text.trim();
-  value = value.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  value = value.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
-  const first = value.indexOf('{');
-  const last = value.lastIndexOf('}');
-  if (first >= 0 && last > first) value = value.slice(first, last + 1);
-  return value;
-}
-
-function isPlan(value: unknown): value is Plan {
-  if (!value || typeof value !== 'object') return false;
-  const plan = value as Record<string, unknown>;
-  if (typeof plan.summary !== 'string' || !plan.summary.trim()) return false;
-  const stringArrays = ['assumptions', 'acceptanceCriteria', 'verification', 'risks'];
-  if (!stringArrays.every((key) => Array.isArray(plan[key]) && (plan[key] as unknown[]).every((item) => typeof item === 'string'))) return false;
-  if (!Array.isArray(plan.changes)) return false;
-  const operations = new Set(['create_script', 'update_script', 'create_instance', 'update_instance', 'delete_instance', 'note']);
-  const risks = new Set(['low', 'medium', 'high', 'critical']);
-  return plan.changes.every((item) => {
-    if (!item || typeof item !== 'object') return false;
-    const change = item as Record<string, unknown>;
-    return typeof change.operation === 'string' && operations.has(change.operation)
-      && typeof change.target === 'string' && change.target.trim().length > 0
-      && typeof change.reason === 'string' && change.reason.trim().length > 0
-      && typeof change.risk === 'string' && risks.has(change.risk)
-      && (change.content === undefined || typeof change.content === 'string');
-  });
-}
-
-function parsePlan(text: string): Plan {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(normalizePlanText(text));
-  } catch (error) {
-    throw new Error(`AI returned invalid JSON: ${error instanceof Error ? error.message : 'parse failed'}`);
-  }
-  if (!isPlan(parsed)) throw new Error('AI returned an invalid LUA-X plan shape.');
-  return parsed;
-}
-
-function systemPrompt(): string {
-  return [
-    'You are LUA-X, an AI-native Roblox development engineer.',
-    'Return ONLY valid JSON. Never return Markdown fences, comments, or prose outside JSON.',
-    'Create a safe, reviewable implementation plan for Roblox Studio.',
-    'Never claim Studio execution, tests, playtests, publishing, or runtime verification succeeded.',
-    'Preserve existing creator-authored architecture and behavior.',
-    'Prefer small, targeted, reversible changes.',
-    'Keep authoritative gameplay logic server-side.',
-    'JSON shape: {summary, assumptions, changes, acceptanceCriteria, verification, risks}.',
-    'Each change must include operation, target, reason, risk. content is optional for script operations.',
-  ].join('\n');
-}
-
 async function readBody(request: Request): Promise<Record<string, unknown>> {
   const declared = Number(request.headers.get('content-length') || 0);
   if (declared > MAX_BODY) throw new Error('Request body is too large.');
@@ -120,6 +58,16 @@ function validRequest(body: Record<string, unknown>): boolean {
   return typeof body.prompt === 'string' && body.prompt.trim().length >= 2 && body.prompt.length <= 12000
     && (body.projectId === undefined || typeof body.projectId === 'string')
     && (body.context === undefined || (typeof body.context === 'object' && body.context !== null));
+}
+
+function userPrompt(body: Record<string, unknown>): string {
+  const prompt = String(body.prompt ?? '').trim();
+  const project = typeof body.projectId === 'string' && body.projectId ? body.projectId : 'unknown';
+  const context = body.context ?? {};
+  const contextText = typeof context === 'object' && context !== null && Object.keys(context).length > 0
+    ? `\nProject context: ${JSON.stringify(context)}`
+    : '';
+  return `Project: ${project}\nCreator: ${prompt}${contextText}`;
 }
 
 async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string) {
@@ -140,8 +88,8 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: systemPrompt() },
-          { role: 'user', content: `Creator request: ${String(body.prompt).trim()}\nProject ID: ${typeof body.projectId === 'string' ? body.projectId : 'unknown'}\nProject context: ${JSON.stringify(body.context ?? {})}` },
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt(body) },
         ],
         max_tokens: maxTokens,
         temperature,
@@ -174,7 +122,7 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
     const messageObject = first && typeof first === 'object' ? (first as { message?: unknown }).message : undefined;
     const content = messageObject && typeof messageObject === 'object' ? (messageObject as { content?: unknown }).content : undefined;
     if (typeof content !== 'string' || !content.trim()) throw new Error('NVIDIA returned no assistant content.');
-    return { plan: parsePlan(content), model, status: 200 };
+    return { response: content, model, status: 200 };
   } finally {
     clearTimeout(timer);
   }
@@ -207,8 +155,7 @@ export default async function handler(request: Request): Promise<Response> {
               requestId: id,
               provider: 'nvidia',
               model: result.model,
-              plan: result.plan,
-              rawTextAvailable: false,
+              response: result.response,
               retriesUsed,
             }, { 'x-request-id': id });
           } catch (error) {
@@ -225,7 +172,7 @@ export default async function handler(request: Request): Promise<Response> {
     }
 
     return json(lastStatus >= 500 ? 502 : lastStatus, {
-      error: 'LUA-X could not generate a plan right now.',
+      error: 'LUA-X could not generate a response right now.',
       detail: lastMessage,
       requestId: id,
       retryable: true,
