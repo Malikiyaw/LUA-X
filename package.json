@@ -5,7 +5,7 @@
   "description": "LUA-X — AI-native development studio for Roblox creators.",
   "license": "MIT",
   "packageManager": "npm@11.5.1",
-  "engines": { "node": ">=24" },
+  "engines": { "node": ">=22.9.0" },
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "sync:plugin": "node scripts/sync-plugin.mjs",
