@@ -11,4 +11,6 @@ build/
 .idea/
 .turbo/
 .next/
-.cache/
+api key
+api-key
+*.key
