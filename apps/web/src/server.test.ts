@@ -27,13 +27,24 @@ test('health endpoint reports the current LUA-X web service', async () => {
   });
 });
 
-test('static web app serves the installable Studio plugin as a download asset', async () => {
+test('static web app serves the Studio plugin with executable filename and download headers', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/download/LUA-X.plugin.lua`);
     assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'application/octet-stream');
+    assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8');
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="LUA-X.plugin.lua"');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     const content = await response.text();
-    assert.match(content, /LUA-X Roblox Studio plugin/);
+    assert.match(content, /LUA-X Studio Plugin/);
+    assert.match(content, /DEFAULT_ENDPOINT/);
+  });
+});
+
+test('root plugin path remains a compatible direct download alias', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/LUA-X.plugin.lua`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-disposition'), 'attachment; filename="LUA-X.plugin.lua"');
   });
 });
 

@@ -14,6 +14,7 @@ const CONTENT_TYPES: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
+  '.lua': 'text/plain; charset=utf-8',
   '.svg': 'image/svg+xml',
 };
 
@@ -33,10 +34,16 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
   try {
     const file = await readFile(join(PUBLIC_DIR, relative));
     const extension = relative.includes('.') ? `.${relative.split('.').pop()}` : '';
-    response.writeHead(200, {
-      'content-type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
-      'cache-control': relative === 'index.html' ? 'no-cache' : 'public, max-age=3600',
-    });
+    const isPluginDownload = relative === 'LUA-X.plugin.lua' || relative === 'download/LUA-X.plugin.lua';
+    const headers: Record<string, string> = {
+      'content-type': isPluginDownload ? 'text/plain; charset=utf-8' : (CONTENT_TYPES[extension] ?? 'application/octet-stream'),
+      'cache-control': isPluginDownload ? 'no-store' : (relative === 'index.html' ? 'no-cache' : 'public, max-age=3600'),
+    };
+    if (isPluginDownload) {
+      headers['content-disposition'] = 'attachment; filename="LUA-X.plugin.lua"';
+      headers['x-content-type-options'] = 'nosniff';
+    }
+    response.writeHead(200, headers);
     response.end(file);
     return true;
   } catch {
@@ -44,7 +51,7 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
   }
 }
 
-export const server = createServer(async (request, response) => {
+export const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const method = request.method ?? 'GET';
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
 
