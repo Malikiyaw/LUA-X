@@ -1,22 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { RobloxMcpBridge, type RobloxMcpTransport } from './index';
+import {
+  RobloxMcpBridge,
+  type RobloxMcpRequest,
+  type RobloxMcpTransport,
+} from './index.js';
 
-function transport(): { transport: RobloxMcpTransport; calls: unknown[] } {
-  const calls: unknown[] = [];
-  return {
-    calls,
-    transport: {
-      async call(request) {
-        calls.push(request);
-        return { ok: true, tool: request.tool, data: { accepted: true } };
-      },
+function createTestTransport(): { transport: RobloxMcpTransport; calls: RobloxMcpRequest[] } {
+  const calls: RobloxMcpRequest[] = [];
+  const transport: RobloxMcpTransport = {
+    async call(request: RobloxMcpRequest) {
+      calls.push(request);
+      return { ok: true, tool: request.tool, data: { accepted: true } };
     },
   };
+  return { calls, transport };
 }
 
 describe('RobloxMcpBridge', () => {
   it('classifies supported read and write tools', () => {
-    const { transport } = transport();
+    const { transport } = createTestTransport();
     const bridge = new RobloxMcpBridge({ transport });
     expect(bridge.classify('script_read')).toBe('read');
     expect(bridge.classify('multi_edit')).toBe('write');
@@ -24,7 +26,7 @@ describe('RobloxMcpBridge', () => {
   });
 
   it('rejects unknown tools before transport execution', async () => {
-    const { transport, calls } = transport();
+    const { transport, calls } = createTestTransport();
     const bridge = new RobloxMcpBridge({ transport });
     const result = await bridge.call({ tool: 'made_up_tool', arguments: {} });
     expect(result.ok).toBe(false);
@@ -32,7 +34,7 @@ describe('RobloxMcpBridge', () => {
   });
 
   it('requires confirmation for mutations when configured', async () => {
-    const { transport, calls } = transport();
+    const { transport, calls } = createTestTransport();
     const bridge = new RobloxMcpBridge({ transport, requireConfirmation: true });
     const blocked = await bridge.editScript('game.ServerScriptService.Main', [], false);
     expect(blocked.ok).toBe(false);
@@ -44,7 +46,7 @@ describe('RobloxMcpBridge', () => {
   });
 
   it('builds safe read requests', async () => {
-    const { transport, calls } = transport();
+    const { transport, calls } = createTestTransport();
     const bridge = new RobloxMcpBridge({ transport });
     await bridge.readScript('game.ServerScriptService.Main', 5, 12);
     expect(calls[0]).toEqual({
@@ -54,7 +56,7 @@ describe('RobloxMcpBridge', () => {
   });
 
   it('passes Studio execution mode explicitly', async () => {
-    const { transport, calls } = transport();
+    const { transport, calls } = createTestTransport();
     const bridge = new RobloxMcpBridge({ transport });
     await bridge.executeLuau('return 1', 'Edit');
     expect(calls[0]).toEqual({
