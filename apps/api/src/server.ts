@@ -99,7 +99,14 @@ export function createApiServer(deps: ApiDependencies): ReturnType<typeof create
 
 if (process.env.NODE_ENV !== 'test') {
   const config = loadConfig();
-  const nvidia = new NvidiaClient({ apiKey: config.nvidiaApiKey, baseUrl: config.nvidiaBaseUrl, model: config.nvidiaModel, maxTokens: config.aiMaxTokens, temperature: config.aiTemperature, timeoutMs: config.aiTimeoutMs });
+  const nvidia = new NvidiaClient({
+    ...(config.nvidiaApiKey ? { apiKey: config.nvidiaApiKey } : {}),
+    baseUrl: config.nvidiaBaseUrl,
+    model: config.nvidiaModel,
+    maxTokens: config.aiMaxTokens,
+    temperature: config.aiTemperature,
+    timeoutMs: config.aiTimeoutMs,
+  });
   const limiter = new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests);
   const server = createApiServer({ config, nvidia, limiter });
   server.listen(config.port, config.host, () => console.log(`LUA-X API listening on http://${config.host}:${config.port}`));
