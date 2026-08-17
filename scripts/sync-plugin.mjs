@@ -3,11 +3,9 @@ import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
 
 const root = resolve(process.cwd());
-const source = resolve(root, "studio-plugin", "LUA-X.plugin.lua");
+const source = resolve(root, "studio-plugin", "LUA-X-connected.lua");
 const targets = [
-  resolve(root, "apps", "web", "public", "LUA-X.plugin.lua"),
   resolve(root, "apps", "web", "public", "LUA-X.lua"),
-  resolve(root, "apps", "web", "public", "download", "LUA-X.plugin.lua"),
   resolve(root, "apps", "web", "public", "download", "LUA-X.lua"),
 ];
 const manifest = resolve(root, "apps", "web", "public", "download", "plugin-manifest.json");
@@ -25,12 +23,12 @@ await writeFile(
   manifest,
   JSON.stringify({
     name: "LUA-X Studio Plugin",
-    filename: "LUA-X.plugin.lua",
-    version: "0.11.0-alpha",
-    source: "studio-plugin/LUA-X.plugin.lua",
+    filename: "LUA-X.lua",
+    version: "1.1.0",
+    source: "studio-plugin/LUA-X-connected.lua",
     sha256,
   }, null, 2) + "\n",
   "utf8",
 );
 
-console.log(`[LUA-X] Synchronized canonical Studio plugin (sha256=${sha256.slice(0, 12)}…) into web download assets.`);
+console.log(`[LUA-X] Canonical connected Studio plugin synchronized (sha256=${sha256.slice(0, 12)}…).`);
