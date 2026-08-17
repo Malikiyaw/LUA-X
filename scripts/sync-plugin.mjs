@@ -5,7 +5,9 @@ const root = resolve(process.cwd());
 const source = resolve(root, "studio-plugin", "LUA-X.plugin.lua");
 const targets = [
   resolve(root, "apps", "web", "public", "LUA-X.lua"),
+  resolve(root, "apps", "web", "public", "LUA-X.plugin.lua"),
   resolve(root, "apps", "web", "public", "download", "LUA-X.lua"),
+  resolve(root, "apps", "web", "public", "download", "LUA-X.plugin.lua"),
 ];
 
 for (const target of targets) {
@@ -13,4 +15,4 @@ for (const target of targets) {
   await copyFile(source, target);
 }
 
-console.log("[LUA-X] Synchronized canonical Studio plugin into web download assets.");
+console.log("[LUA-X] Synchronized canonical Studio plugin into all web download assets.");
