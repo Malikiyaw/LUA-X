@@ -3,7 +3,7 @@
   "buildCommand": "npm run sync:plugin && npm run build --workspace=@lua-x/web",
   "outputDirectory": "apps/web/public",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index.ts" }
+    { "source": "/api/:path*", "destination": "/api/index" }
   ],
   "headers": [
     {
