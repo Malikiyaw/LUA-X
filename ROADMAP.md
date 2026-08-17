@@ -2,81 +2,82 @@
 
 ## Phase 0 — Foundation — COMPLETE
 
-- [x] Establish product thesis
-- [x] Define project-aware prompt architecture
-- [x] Define agent roles
-- [x] Define verification-first workflow
-- [x] Select initial implementation stack: TypeScript + Node.js monorepo
-- [x] Create monorepo structure
-- [x] Add CI and type/lint/test/build gates
-- [x] Build runnable local development environment
-- [x] Add shared domain contracts
-- [x] Add initial orchestration compiler
-- [x] Add web health endpoint and planning API
-- [x] Add browser workspace shell
-- [x] Add automated Phase 0 tests
+- [x] TypeScript + Node.js monorepo
+- [x] CI and type/lint/test/build gates
+- [x] Runnable local development environment
+- [x] Shared domain contracts
+- [x] Initial orchestration compiler
+- [x] Web health endpoint and planning API
+- [x] Browser workspace shell
+- [x] Automated foundation tests
 
 ## Phase 1 — Project Intelligence — CORE COMPLETE
-
-Goal: LUA-X can understand a Roblox project before changing it.
 
 - [x] Typed Roblox project-instance model
 - [x] Data Model / hierarchy index contracts
 - [x] Script inventory and server/client/shared classification
-- [x] RemoteEvent / RemoteFunction map contracts
+- [x] Remote map contracts
 - [x] Asset reference contracts
 - [x] Dependency graph
 - [x] Service usage map
-- [x] Project conventions/index warnings foundation
 - [x] Architecture summary
 - [x] Safe query/retrieval primitives
 - [x] Project statistics
-- [x] Unit tests for indexing and retrieval primitives
-- [x] Studio MCP integration boundary documented
-- [ ] Live Studio MCP transport adapter
+- [x] Unit tests
+- [ ] Live Studio index synchronization
 - [ ] Persistent index cache
 - [ ] Incremental index updates
 - [ ] Semantic/code retrieval
 
 ## Phase 2 — AI Engineering Core — COMPLETE
 
-Goal: turn natural language into controlled, reviewable engineering plans and model-ready execution prompts.
-
 - [x] Master orchestration rules
 - [x] Context-aware prompt compiler
-- [x] Project-memory interface and in-memory implementation
+- [x] Project-memory interface
 - [x] Task decomposition
-- [x] Dependency-aware execution plan
-- [x] Specialist agent routing
+- [x] Dependency-aware planning
+- [x] Specialist routing
 - [x] Change-set generation
-- [x] Change risk assessment
-- [x] Reviewable change-set metadata
+- [x] Risk assessment
 - [x] Acceptance criteria propagation
-- [x] Verification requirements propagation
+- [x] Verification propagation
 - [x] Deterministic change identifiers
-- [x] Orchestration integration API
-- [x] Phase 2 automated tests
-- [ ] Connect model provider adapter
-- [ ] Connect live Phase 1 project retrieval
-- [ ] Apply/rollback changes against real Studio state
+- [x] Orchestration API
+- [x] Automated tests
+- [ ] Production model-provider adapter
+- [ ] Live project-context retrieval
 
-## Phase 3 — Roblox Studio Bridge
+## Phase 3 — Roblox Studio Bridge — CORE COMPLETE
 
-Goal: connect the browser workspace to real Roblox projects.
+- [x] Studio MCP integration boundary
+- [x] Tool allowlist concept
+- [x] Safe mutation/confirmation concept
+- [x] Official Studio MCP capability mapping
+- [ ] Real stdio MCP client
+- [ ] Studio pairing/session manager
+- [ ] Live Data Model read/write adapter
+- [ ] Live Luau execution adapter
+- [ ] Live playtest adapter
+- [ ] Console/output evidence adapter
+- [ ] End-to-end Studio connection tests
 
-- [ ] Studio MCP client adapter
-- [ ] Authenticated/local project pairing
-- [ ] Project sync protocol
-- [ ] Data Model read/write operations
-- [ ] Luau script operations
-- [ ] Luau execution adapter
-- [ ] Playtest adapter
-- [ ] Console/output adapter
-- [ ] Safe confirmation gates
+## Phase 4 — AI Code Builder & Safe Execution — CORE COMPLETE
 
-## Phase 4 — Animation Studio
+- [x] Provider-neutral code model interface
+- [x] Project-context code prompt builder
+- [x] Strict model-output validation
+- [x] Structured Luau change operations
+- [x] Deterministic change sets
+- [x] Risk-based approval policy
+- [x] Delete protection
+- [x] Stale-write protection
+- [x] Dry-run execution adapter
+- [x] Automated execution safety tests
+- [ ] Production model provider
+- [ ] Real Studio mutation adapter
+- [ ] End-to-end generate → review → apply → verify flow
 
-Goal: make animation a first-class engineering workflow.
+## Phase 5 — Animation Studio
 
 - [ ] Rig detection
 - [ ] Animation intent parser
@@ -88,7 +89,7 @@ Goal: make animation a first-class engineering workflow.
 - [ ] Preview and validation
 - [ ] Export/sync workflow
 
-## Phase 5 — UI + World Studio
+## Phase 6 — UI + World Studio
 
 - [ ] Visual UI editor
 - [ ] UI generation from intent
@@ -99,7 +100,7 @@ Goal: make animation a first-class engineering workflow.
 - [ ] Reference-guided style system
 - [ ] Asset dependency tracking
 
-## Phase 6 — Verification Engine
+## Phase 7 — Verification Engine
 
 - [ ] Static Luau checks
 - [ ] Type checks where available
@@ -112,7 +113,7 @@ Goal: make animation a first-class engineering workflow.
 - [ ] AI reviewer
 - [ ] Automatic repair loop
 
-## Phase 7 — Production Workflow
+## Phase 8 — Production Workflow
 
 - [ ] Git integration
 - [ ] Branches and checkpoints
@@ -123,7 +124,7 @@ Goal: make animation a first-class engineering workflow.
 - [ ] Publish adapters
 - [ ] Project health dashboard
 
-## Phase 8 — Autonomous Studio
+## Phase 9 — Autonomous Studio
 
 A creator can give LUA-X a high-level objective and receive a plan first. After approval, agents execute, verify, repair, and summarize the work.
 
@@ -131,7 +132,7 @@ A creator can give LUA-X a high-level objective and receive a plan first. After 
 
 Every feature must:
 
-1. Preserve existing working behavior unless the user explicitly requests a breaking change.
+1. Preserve existing working behavior unless a breaking change is explicitly requested.
 2. Respect Roblox client/server boundaries.
 3. Avoid invented APIs or unsupported engine behavior.
 4. Produce reviewable changes.
@@ -139,3 +140,5 @@ Every feature must:
 6. Include verification steps.
 7. Explain uncertainty instead of pretending an action succeeded.
 8. Never claim an asset, animation, test, or publish succeeded without evidence from the connected toolchain.
+9. Treat model output as untrusted until schema validation passes.
+10. Never overwrite changed creator work without detecting the conflict.
