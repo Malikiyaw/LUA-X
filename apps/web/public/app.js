@@ -14,43 +14,63 @@ const studioCard = document.querySelector('#studio-card');
 const pingButton = document.querySelector('#ping-studio');
 const downloadPlugin = document.querySelector('#download-plugin');
 const downloadPlugin2 = document.querySelector('#download-plugin-2');
+const versionDownload = document.querySelector('#version-download');
 const pingButton2 = document.querySelector('#ping-studio-2');
-const syncContextButton = document.querySelector('#sync-context');
+const disconnectStudioButton = document.querySelector('#disconnect-studio');
 const connectNow = document.querySelector('#connect-now');
-const openStudio = document.querySelector('#open-studio');
+const openGuide = document.querySelector('#open-guide');
 const waitingBox = document.querySelector('#waiting-box');
+const troubleshootBox = document.querySelector('#troubleshoot-box');
 const pluginStatus = document.querySelector('#plugin-status');
 const studioBigStatus = document.querySelector('#studio-big-status');
 const studioSubtitle = document.querySelector('#studio-subtitle');
+const installState = document.querySelector('#install-state');
+const installPanel = document.querySelector('#install-panel');
+const versionWarning = document.querySelector('#version-warning');
+const versionInstalled = document.querySelector('#version-installed');
+const rowConnection = document.querySelector('#row-connection');
 const rowProject = document.querySelector('#row-project');
 const rowPlace = document.querySelector('#row-place');
+const rowPlugin = document.querySelector('#row-plugin');
+const rowHeartbeat = document.querySelector('#row-heartbeat');
 const rowSession = document.querySelector('#row-session');
-const rowLastPing = document.querySelector('#row-lastping');
-const rowContext = document.querySelector('#row-context');
+const checkDownload = document.querySelector('#check-download');
+const checkBackend = document.querySelector('#check-backend');
+const checkAi = document.querySelector('#check-ai');
+const checkSession = document.querySelector('#check-session');
 const pluginMeta = document.querySelector('#plugin-meta');
 const viewTitle = document.querySelector('#view-title');
 const comingTitle = document.querySelector('#coming-title');
 const comingText = document.querySelector('#coming-text');
 let toastTimer;
 let sending = false;
-let studioSessionId = null;
-let studioConnected = false;
-let studioPlaceName = null;
-let studioPlaceId = null;
-let studioContext = null;
-let studioLastCommand = null;
-let connectWaiting = false;
 
 const PLUGIN_VERSION = '1.1.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
-const DOWNLOAD_COPY = 'Roblox Plugin installed by LUA-X.';
+const POLL_NORMAL_MS = 4000;
+const POLL_CONNECTING_MS = 1500;
+const CONNECT_TIMEOUT_MS = 45000;
+
+let studioConnected = false;
+let studioSessionId = null;
+let studioPlaceName = null;
+let studioPlaceId = null;
+let studioPluginVersion = null;
+let studioContext = null;
+let studioLastCommand = null;
+let studioLastSeen = null;
+let connectState = 'offline'; // offline | connecting | connected | failed
+let connectTimer = null;
+let connectStartedAt = 0;
+let backendOk = false;
+let aiOk = false;
 
 function showToast(message) {
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 3400);
 }
 
 function esc(v) {
@@ -82,6 +102,16 @@ function relativeTime(ms) {
   return `${Math.floor(mins / 60)}h ago`;
 }
 
+function versionAtLeast(installed, required) {
+  const parse = v => String(v || '').split('.').map(n => parseInt(n, 10) || 0);
+  const a = parse(installed);
+  const b = parse(required);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return true;
+}
+
 async function getJson(path) {
   const r = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
   const b = await r.json().catch(() => ({}));
@@ -103,18 +133,80 @@ async function postJson(path, body) {
 async function refreshHealth() {
   try {
     const h = await getJson('/api/health');
-    backendStatus.textContent = h.status === 'ok' ? 'Online' : 'Degraded';
+    backendOk = h.status === 'ok';
+    backendStatus.textContent = backendOk ? 'Online' : 'Degraded';
     backendStatus.classList.add('ok');
     const a = await getJson('/api/ai/status');
-    aiStatus.textContent = a.configured ? 'AI Ready' : 'AI not configured';
-    aiStatus.classList.toggle('ok', Boolean(a.configured));
-    modelLabel.textContent = a.configured ? `NVIDIA · ${a.model}` : 'NVIDIA · not configured';
+    aiOk = Boolean(a.configured);
+    aiStatus.textContent = aiOk ? 'AI Ready' : 'AI not configured';
+    aiStatus.classList.toggle('ok', aiOk);
+    modelLabel.textContent = aiOk ? `NVIDIA · ${a.model}` : 'NVIDIA · not configured';
   } catch {
+    backendOk = false;
+    aiOk = false;
     backendStatus.textContent = 'Offline';
     backendStatus.classList.remove('ok');
     aiStatus.textContent = 'AI —';
     aiStatus.classList.remove('ok');
     modelLabel.textContent = 'NVIDIA · not configured';
+  }
+}
+
+function renderChecklist() {
+  if (!checkDownload) return;
+  checkDownload.textContent = '✓ LUA-X download available';
+  checkBackend.textContent = `${backendOk ? '✓' : '✗'} Backend online`;
+  checkBackend.className = backendOk ? 'ok' : 'bad';
+  checkAi.textContent = `${aiOk ? '✓' : '✗'} NVIDIA backend online`;
+  checkAi.className = aiOk ? 'ok' : 'bad';
+  checkSession.textContent = '✗ Studio session not detected';
+}
+
+function setConnectState(next) {
+  connectState = next;
+  const btn = connectNow;
+  const pingBtn = pingButton2;
+  const discBtn = disconnectStudioButton;
+  const waiting = waitingBox;
+  const trouble = troubleshootBox;
+  if (!btn) return;
+  switch (next) {
+    case 'offline':
+      btn.textContent = 'Connect to Studio';
+      btn.disabled = false;
+      pingBtn.classList.add('hidden');
+      discBtn.classList.add('hidden');
+      waiting.classList.add('hidden');
+      trouble.classList.add('hidden');
+      rowConnection.textContent = 'Waiting for Studio…';
+      break;
+    case 'connecting':
+      btn.textContent = 'Connecting…';
+      btn.disabled = true;
+      pingBtn.classList.add('hidden');
+      discBtn.classList.add('hidden');
+      waiting.classList.remove('hidden');
+      trouble.classList.add('hidden');
+      rowConnection.textContent = 'Waiting for Roblox Studio…';
+      break;
+    case 'connected':
+      btn.textContent = 'Connected ✓';
+      btn.disabled = false;
+      pingBtn.classList.remove('hidden');
+      discBtn.classList.remove('hidden');
+      waiting.classList.add('hidden');
+      trouble.classList.add('hidden');
+      break;
+    case 'failed':
+      btn.textContent = 'Retry Connection';
+      btn.disabled = false;
+      pingBtn.classList.add('hidden');
+      discBtn.classList.add('hidden');
+      waiting.classList.add('hidden');
+      trouble.classList.remove('hidden');
+      rowConnection.textContent = 'Could not connect';
+      renderChecklist();
+      break;
   }
 }
 
@@ -125,52 +217,72 @@ function renderStudioCard() {
     studioLabel.textContent = `Studio connected · ${studioPlaceName || 'Roblox Studio'}`;
     studioDetail.textContent = `session ${(studioSessionId || '—').slice(0, 8)} · seen ${secs}s ago · v${studioPluginVersion || '?'}`;
     pingButton.disabled = false;
-    pingButton2.disabled = false;
-    syncContextButton.disabled = false;
     studioCard?.classList.add('connected');
     studioBigStatus.textContent = '● Online';
     studioBigStatus.className = 'plugin-status online';
-    studioSubtitle.textContent = 'Session bridge · online';
+    studioSubtitle.textContent = 'Connected — bridge is live.';
     rowProject.textContent = studioPlaceName || '—';
     rowPlace.textContent = studioPlaceId || '—';
-    rowSession.textContent = studioSessionId ? studioSessionId.slice(0, 8) : '—';
-    rowLastPing.textContent = relativeTime(studioLastCommand && studioLastCommand.type === 'ping' ? studioLastCommand.at : null);
-    rowContext.textContent = studioContext
-      ? `Synced · ${studioContext.scripts} script${studioContext.scripts === 1 ? '' : 's'} · ${studioContext.selection} selected`
-      : 'Not synced';
+    rowPlugin.textContent = `v${studioPluginVersion || '?'}`;
+    rowHeartbeat.textContent = relativeTime(studioLastSeen);
+    rowSession.textContent = studioSessionId ? `${studioSessionId.slice(0, 8)}…` : '—';
     pluginStatus.textContent = 'Installed · connected';
     pluginStatus.className = 'plugin-status online';
-    if (connectWaiting) {
-      connectWaiting = false;
-      waitingBox?.classList.add('hidden');
-      connectNow.textContent = 'Connect Now';
+    if (installState) installState.textContent = '✓ Installed (Studio connected)';
+    const outdated = !versionAtLeast(studioPluginVersion, PLUGIN_VERSION);
+    versionWarning?.classList.toggle('hidden', !outdated);
+    if (outdated && versionInstalled) versionInstalled.textContent = studioPluginVersion || '?';
+    if (connectState === 'connecting') {
+      clearInterval(connectTimer);
+      connectTimer = null;
+      setConnectState('connected');
       showToast('Studio session detected — you are online. ✓');
+    } else if (connectState === 'failed') {
+      setConnectState('connected');
+    } else {
+      setConnectState('connected');
+    }
+    const lastPing = studioLastCommand && studioLastCommand.type === 'ping' ? studioLastCommand.at : null;
+    if (lastPing && Date.now() - lastPing < 8000) {
+      pingBtnText('✓ Studio responded');
+      setTimeout(() => pingBtnText('Ping Studio'), 8000);
+    } else {
+      pingBtnText('Ping Studio');
     }
   } else {
     studioSessionId = null;
     studioPulse.classList.remove('online');
     studioLabel.textContent = 'Studio offline';
-    studioDetail.textContent = 'Open the LUA-X plugin in Roblox Studio and press Connect';
+    studioDetail.textContent = 'Open the LUA-X plugin in Roblox Studio to connect';
     pingButton.disabled = true;
-    pingButton2.disabled = true;
-    syncContextButton.disabled = true;
     studioCard?.classList.remove('connected');
     studioBigStatus.textContent = '● Offline';
     studioBigStatus.className = 'plugin-status';
-    studioSubtitle.textContent = 'Session bridge';
+    studioSubtitle.textContent = 'LUA-X Studio plugin has not connected.';
     rowProject.textContent = '—';
     rowPlace.textContent = '—';
+    rowPlugin.textContent = '—';
+    rowHeartbeat.textContent = '—';
     rowSession.textContent = '—';
-    rowLastPing.textContent = '—';
-    rowContext.textContent = 'Not synced';
-    if (connectWaiting) {
-      waitingBox?.classList.remove('hidden');
+    pluginStatus.textContent = 'Not detected';
+    pluginStatus.className = 'plugin-status';
+    if (installState && !pluginDownloaded()) installState.textContent = 'Download available';
+    versionWarning?.classList.add('hidden');
+    if (connectState === 'connecting') {
+      if (Date.now() - connectStartedAt > CONNECT_TIMEOUT_MS) {
+        clearInterval(connectTimer);
+        connectTimer = null;
+        setConnectState('failed');
+      }
+    } else if (connectState === 'connected') {
+      setConnectState('offline');
     }
   }
 }
 
-let studioLastSeen = null;
-let studioPluginVersion = null;
+function pingBtnText(text) {
+  if (pingButton2) pingButton2.textContent = text;
+}
 
 async function refreshStudio() {
   try {
@@ -179,10 +291,10 @@ async function refreshStudio() {
       studioSessionId = s.sessionId || null;
       studioPlaceName = s.placeName || null;
       studioPlaceId = s.placeId || null;
+      studioPluginVersion = s.pluginVersion || null;
       studioContext = s.context || null;
       studioLastCommand = s.lastCommand || null;
       studioLastSeen = s.lastSeenAt || Date.now();
-      studioPluginVersion = s.pluginVersion || null;
       studioConnected = true;
     } else {
       studioConnected = false;
@@ -193,30 +305,46 @@ async function refreshStudio() {
   renderStudioCard();
 }
 
+function pluginDownloaded() {
+  try { return localStorage.getItem(PLUGIN_DOWNLOADED_KEY) === '1'; } catch { return false; }
+}
+
+function markPluginDownloaded() {
+  try { localStorage.setItem(PLUGIN_DOWNLOADED_KEY, '1'); } catch { /* ignore */ }
+  pluginStatus.textContent = 'Downloaded · waiting for Studio';
+  pluginStatus.className = 'plugin-status';
+  if (installState) installState.textContent = '✓ Downloaded (browser confirmed)';
+  installPanel?.classList.remove('hidden');
+  showToast('LUA-X.lua downloaded — follow the installation steps.');
+}
+
 async function pingStudio() {
   if (!studioSessionId) {
     showToast('Studio is not connected.');
     return;
   }
+  pingBtnText('Ping sent…');
   try {
     await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'ping' });
-    showToast('Ping sent to Studio — watch for the handshake flash.');
+    showToast('Ping sent — watch for the handshake in Studio.');
   } catch (e) {
+    pingBtnText('Ping Studio');
     showToast(e instanceof Error ? e.message : 'Ping failed.');
   }
 }
 
-async function syncContext() {
+async function disconnectStudio() {
   if (!studioSessionId) {
     showToast('Studio is not connected.');
     return;
   }
   try {
-    await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'refresh_context' });
-    showToast('Context sync requested from Studio.');
-  } catch (e) {
-    showToast(e instanceof Error ? e.message : 'Sync failed.');
-  }
+    await postJson('/api/studio/disconnect', { sessionId: studioSessionId });
+    showToast('Studio session disconnected.');
+  } catch { /* presence will expire via TTL */ }
+  studioConnected = false;
+  setConnectState('offline');
+  refreshStudio();
 }
 
 function connectNowFlow() {
@@ -224,21 +352,15 @@ function connectNowFlow() {
     showToast('Studio is already connected.');
     return;
   }
-  connectWaiting = true;
-  waitingBox?.classList.remove('hidden');
-  connectNow.textContent = 'Waiting for Studio…';
-  showToast('Waiting for Roblox Studio to connect…');
+  connectStartedAt = Date.now();
+  setConnectState('connecting');
+  clearInterval(connectTimer);
+  connectTimer = setInterval(refreshStudio, POLL_CONNECTING_MS);
+  showToast('Waiting for Roblox Studio…');
 }
 
-function openStudioFlow() {
-  showToast('1. Download LUA-X.lua  →  2. Put it in your Roblox Plugins folder  →  3. Restart Studio and click the LUA-X button');
-}
-
-function markPluginDownloaded() {
-  try { localStorage.setItem(PLUGIN_DOWNLOADED_KEY, '1'); } catch { /* ignore */ }
-  pluginStatus.textContent = 'Downloaded · waiting for Studio';
-  pluginStatus.className = 'plugin-status';
-  showToast('Downloading LUA-X.lua — place it in your Roblox Plugins folder.');
+function openGuideFlow() {
+  showToast('Steps: 1) Download LUA-X.lua  2) Plugins → Manage Plugins → Open Plugins Folder  3) Copy LUA-X.lua there  4) Restart Studio  5) Plugins → LUA-X');
 }
 
 async function loadManifest() {
@@ -274,7 +396,7 @@ async function send() {
     typing.remove();
     addMessage(reply, 'assistant');
     composerNote.textContent = studioConnected
-      ? 'Answered with your live Studio context. Use Sync Context in Plugins to refresh it.'
+      ? 'Answered with your live Studio context. Use Sync Context to refresh it.'
       : 'Answered by LUA-X. Connect Studio (Plugins) to make chat project-aware.';
   } catch (e) {
     typing.remove();
@@ -314,11 +436,12 @@ function bindViewNav() {
 sendButton?.addEventListener('click', send);
 pingButton?.addEventListener('click', pingStudio);
 pingButton2?.addEventListener('click', pingStudio);
-syncContextButton?.addEventListener('click', syncContext);
 connectNow?.addEventListener('click', connectNowFlow);
-openStudio?.addEventListener('click', openStudioFlow);
+disconnectStudioButton?.addEventListener('click', disconnectStudio);
 downloadPlugin?.addEventListener('click', markPluginDownloaded);
 downloadPlugin2?.addEventListener('click', markPluginDownloaded);
+versionDownload?.addEventListener('click', markPluginDownloaded);
+openGuide?.addEventListener('click', e => { e.preventDefault(); openGuideFlow(); });
 promptEl?.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
@@ -331,6 +454,10 @@ addMessage('Hi, I\'m LUA-X. Ask me to write Luau code, design a Roblox system, o
 refreshHealth();
 refreshStudio();
 loadManifest();
+if (pluginDownloaded()) {
+  installPanel?.classList.remove('hidden');
+  if (installState) installState.textContent = '✓ Downloaded (browser confirmed)';
+}
 setInterval(refreshHealth, 30000);
-setInterval(refreshStudio, 4000);
+setInterval(refreshStudio, POLL_NORMAL_MS);
 setInterval(() => renderStudioCard(), 1000);

@@ -322,6 +322,76 @@ nav { display: flex; flex-direction: column; gap: 3px; }
 }
 .studio-row span { color: #6d7587; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .studio-row b { color: #e9edf6; font-weight: 600; font-family: ui-monospace, monospace; font-size: 12px; }
+.meta-rows { display: flex; flex-direction: column; gap: 7px; }
+.meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px dashed #1c212b;
+  padding-bottom: 7px;
+}
+.meta-row span { color: #6d7587; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.meta-row b { color: #e9edf6; font-weight: 600; font-family: ui-monospace, monospace; font-size: 12px; }
+.install-panel {
+  border: 1px solid #202630;
+  border-radius: 10px;
+  background: #10141b;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.install-step { display: flex; gap: 10px; align-items: flex-start; }
+.install-step > span {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid #2c3342;
+  color: #6d7587;
+  font-size: 10.5px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.install-step.done > span { background: #123322; border-color: #21402f; color: #7ee0ad; }
+.install-step > div { display: flex; flex-direction: column; gap: 1px; }
+.install-step b { font-size: 12.5px; color: #e9edf6; font-weight: 600; }
+.install-step em { font-size: 11px; color: #6d7587; font-style: normal; line-height: 1.5; }
+.version-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #4a3a1a;
+  border-radius: 10px;
+  background: #1d180e;
+  color: #f5c26b;
+  font-size: 12.5px;
+  padding: 10px 14px;
+}
+.version-warning b { color: #ffd98f; }
+.troubleshoot-box {
+  border: 1px solid #4a2430;
+  border-radius: 10px;
+  background: #170f14;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.checklist { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.9; color: #9aa3b5; }
+.checklist li.ok { color: #7ee0ad; }
+.checklist li.bad { color: #ff9b9b; }
+.help-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+}
+.help-row span { font-size: 12.5px; color: #9aa3b5; }
+.help-row a { font-size: 12.5px; color: #aeb9ff; text-decoration: none; }
+.help-row a:hover { text-decoration: underline; }
 .studio-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .waiting-box {
   border: 1px solid #2c3342;

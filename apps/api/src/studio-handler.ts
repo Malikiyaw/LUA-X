@@ -4,6 +4,7 @@ type Presence = {
   placeName: string;
   placeId?: string;
   pluginVersion: string;
+  capabilities?: string[];
   context?: { selection: number; scripts: number; at: number };
   at: number;
 };
@@ -62,6 +63,31 @@ function cleanString(value: unknown, max = 256): string {
 function cleanCount(value: unknown): number | undefined {
   const n = Number(value);
   return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.floor(n) : undefined;
+}
+
+function parsePresence(body: Record<string, unknown>): Presence | null {
+  const projectId = cleanString(body.projectId, 100);
+  const sessionId = cleanString(body.sessionId, 100);
+  if (!projectId || !sessionId) return null;
+  const capabilities = Array.isArray(body.capabilities)
+    ? body.capabilities.map((item) => cleanString(item, 40)).filter(Boolean).slice(0, 20)
+    : [];
+  return {
+    projectId,
+    sessionId,
+    placeName: cleanString(body.placeName, 160) || 'Roblox Studio',
+    placeId: cleanString(body.placeId, 100) || undefined,
+    pluginVersion: cleanString(body.pluginVersion, 40) || 'unknown',
+    ...(capabilities.length > 0 ? { capabilities } : {}),
+    context: body.context && typeof body.context === 'object'
+      ? {
+          selection: cleanCount((body.context as Record<string, unknown>).selection) ?? 0,
+          scripts: cleanCount((body.context as Record<string, unknown>).scripts) ?? 0,
+          at: Date.now(),
+        }
+      : undefined,
+    at: Date.now(),
+  };
 }
 
 async function storePresence(presence: Presence): Promise<void> {
@@ -132,29 +158,25 @@ export default async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/^\/api\/studio\/?/, '').replace(/^\/studio\/?/, '').replace(/\/$/, '');
 
+  if (request.method === 'POST' && pathname === 'register') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const presence = parsePresence(body);
+      if (!presence) return json(400, { error: 'projectId and sessionId are required.' });
+      await storePresence(presence);
+      return json(200, { connected: true, sessionId: presence.sessionId, projectId: presence.projectId, expiresIn: PRESENCE_TTL });
+    } catch {
+      return json(400, { error: 'Invalid register payload.' });
+    }
+  }
+
   if (request.method === 'POST' && pathname === 'heartbeat') {
     try {
       const body = await request.json() as Record<string, unknown>;
-      const projectId = cleanString(body.projectId, 100);
-      const sessionId = cleanString(body.sessionId, 100);
-      if (!projectId || !sessionId) return json(400, { error: 'projectId and sessionId are required.' });
-      const presence: Presence = {
-        projectId,
-        sessionId,
-        placeName: cleanString(body.placeName, 160) || 'Roblox Studio',
-        placeId: cleanString(body.placeId, 100) || undefined,
-        pluginVersion: cleanString(body.pluginVersion, 40) || 'unknown',
-        context: body.context && typeof body.context === 'object'
-          ? {
-              selection: cleanCount((body.context as Record<string, unknown>).selection) ?? 0,
-              scripts: cleanCount((body.context as Record<string, unknown>).scripts) ?? 0,
-              at: Date.now(),
-            }
-          : undefined,
-        at: Date.now(),
-      };
+      const presence = parsePresence(body);
+      if (!presence) return json(400, { error: 'projectId and sessionId are required.' });
       await storePresence(presence);
-      return json(200, { ok: true, connected: true, projectId, sessionId, expiresIn: PRESENCE_TTL });
+      return json(200, { ok: true, connected: true, projectId: presence.projectId, sessionId: presence.sessionId, expiresIn: PRESENCE_TTL });
     } catch {
       return json(400, { error: 'Invalid heartbeat payload.' });
     }
@@ -185,6 +207,7 @@ export default async function handler(request: Request): Promise<Response> {
       placeName: presence.placeName,
       placeId: presence.placeId || presence.projectId,
       pluginVersion: presence.pluginVersion,
+      capabilities: presence.capabilities ?? [],
       context: presence.context ?? null,
       lastSeenAt: presence.at,
       lastCommand: last ? { type: last.type, at: last.at } : null,

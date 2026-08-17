@@ -25,7 +25,7 @@ local toolbar = plugin:CreateToolbar("LUA-X")
 local toolbarButton = toolbar:CreateButton("LUA-X", "Open connected LUA-X Studio", "rbxassetid://14978048121")
 toolbarButton.ClickableWhenViewportHidden = true
 
-local widget, statusLabel, statusDot, connectionLabel, connectionDot
+local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
 local endpointBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
 local websiteChip, aiChip, errorLabel
 local currentPlan, currentContext = nil, {}
@@ -138,13 +138,55 @@ local function refreshContext()
 end
 local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
 
-local function heartbeat()
+local function heartbeatBody()
 	local context = type(currentContext) == "table" and currentContext or {}
-	local ok, response = safe("POST", rootUrl() .. "/api/studio/heartbeat", {projectId=tostring(game.PlaceId), sessionId=sessionId, placeName=tostring(game.Name), placeId=tostring(game.PlaceId), pluginVersion="1.1.0", context={selection=#Selection:Get(), scripts=#(type(context.relevantFiles)=="table" and context.relevantFiles or {})}}, 2)
+	return {
+		projectId = tostring(game.PlaceId),
+		sessionId = sessionId,
+		placeName = tostring(game.Name),
+		placeId = tostring(game.PlaceId),
+		pluginVersion = "1.1.0",
+		capabilities = {"chat", "context", "build", "apply", "verify"},
+		context = {selection=#Selection:Get(), scripts=#(type(context.relevantFiles)=="table" and context.relevantFiles or {})},
+	}
+end
+
+local lastDiagnostic = ""
+local function reportError(message)
+	local text = tostring(message or "")
+	if text == lastDiagnostic then return end
+	lastDiagnostic = text
+	if text:find("not enabled", 1, true) or text:find("HttpService", 1, true) then
+		setStatus("HTTP Requests disabled — Game Settings → Security → Allow HTTP Requests", "bad")
+	else
+		setStatus("Backend unreachable: " .. trim(text, 120), "bad")
+	end
+end
+
+local function heartbeat()
+	local ok, response = safe("POST", rootUrl() .. "/api/studio/heartbeat", heartbeatBody(), 2)
 	if ok then
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		setConnected(true, dOk and type(data)=="table" and data.projectId and ("Place " .. tostring(data.projectId)) or "online")
-	else setConnected(false) end
+		lastDiagnostic = ""
+	else
+		setConnected(false)
+		reportError(response and (response.StatusMessage or response.Body) or "network error")
+	end
+end
+
+local function registerSession()
+	local ok, response = safe("POST", rootUrl() .. "/api/studio/register", heartbeatBody(), 3)
+	if ok then
+		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
+		if dOk and type(data) == "table" and data.connected then
+			setConnected(true, "Place " .. tostring(data.projectId or ""))
+			lastDiagnostic = ""
+			return true
+		end
+	end
+	reportError(response and (response.StatusMessage or response.Body) or "network error")
+	return false
 end
 
 local function refreshRemoteStatus()
@@ -255,9 +297,10 @@ local function buildWidget()
 	local hero=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,94),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=1},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,16,0,13),Size=UDim2.new(1,-200,0,28),BackgroundTransparency=1,Text="LUA-X",Font=Enum.Font.GothamBold,TextSize=22,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},hero)
 	ui("TextLabel",{Position=UDim2.new(0,16,0,47),Size=UDim2.new(1,-200,0,20),BackgroundTransparency=1,Text="AI-native Roblox engineering · connected bridge · v1.1.0",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},hero)
-	local conn=round(ui("Frame",{Position=UDim2.new(1,-188,0,20),Size=UDim2.new(0,172,0,42),BackgroundColor3=C.field,BorderSizePixel=0},hero),12)
+	local conn=round(ui("Frame",{Position=UDim2.new(1,-188,0,14),Size=UDim2.new(0,172,0,56),BackgroundColor3=C.field,BorderSizePixel=0},hero),12)
 	connectionDot=round(ui("Frame",{Position=UDim2.new(0,12,0.5,-5),Size=UDim2.new(0,10,0,10),BackgroundColor3=C.bad,BorderSizePixel=0},conn),5)
-	connectionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,0),Size=UDim2.new(1,-35,1,0),BackgroundTransparency=1,Text="Studio offline",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},conn)
+	connectionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,4),Size=UDim2.new(1,-35,0,14),BackgroundTransparency=1,Text="Studio offline",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},conn)
+	sessionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,22),Size=UDim2.new(1,-35,0,14),BackgroundTransparency=1,Text="Session "..string.sub(sessionId,1,9).."…",Font=Enum.Font.Code,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},conn)
 	local metrics=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,60),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=2},scroll)))
 	local p1=ui("Frame",{Position=UDim2.new(0,0,0,0),Size=UDim2.new(.34,-1,1,0),BackgroundTransparency=1},metrics); local p2=ui("Frame",{Position=UDim2.new(.34,0,0,0),Size=UDim2.new(.33,-1,1,0),BackgroundTransparency=1},metrics); local p3=ui("Frame",{Position=UDim2.new(.67,0,0,0),Size=UDim2.new(.33,0,1,0),BackgroundTransparency=1},metrics)
 	for _,f in ipairs({p1,p2,p3}) do ui("TextLabel",{Position=UDim2.new(0,13,0,8),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},f); ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Font=Enum.Font.GothamBold,TextSize=12,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},f) end
@@ -315,12 +358,12 @@ toolbarButton.Click:Connect(function()
 		end
 	end)
 	if not ok then
-		showErrorWidget(err)
+		pcall(showErrorWidget, err)
 		warn("[LUA-X] startup failed: " .. tostring(err))
 	end
 end)
 
-task.spawn(function() while true do local ok=pcall(heartbeat); if not ok then warn("[LUA-X] heartbeat failed") end; task.wait(HEARTBEAT_SECONDS) end end)
+task.spawn(function() local okReg=pcall(registerSession); if not okReg then warn("[LUA-X] register failed") end; task.wait(1); while true do local ok=pcall(heartbeat); if not ok then warn("[LUA-X] heartbeat failed") end; task.wait(HEARTBEAT_SECONDS) end end)
 task.spawn(function() while true do if widget and widget.Enabled then local ok=pcall(pollCommands); if not ok then warn("[LUA-X] command poll failed") end end; task.wait(COMMAND_SECONDS) end end)
 task.spawn(function() while true do task.wait(30); local ok=pcall(refreshRemoteStatus); if not ok then warn("[LUA-X] remote status refresh failed") end end end)
 task.spawn(function() pcall(refreshContext) end)
