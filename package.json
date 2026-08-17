@@ -1,6 +1,6 @@
 {
   "name": "lua-x",
-  "version": "0.1.0",
+  "version": "0.11.0-alpha",
   "private": true,
   "description": "LUA-X — AI-native development studio for Roblox creators.",
   "license": "MIT",
@@ -13,6 +13,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "dev": "npm run dev --workspace=@lua-x/web"
+    "dev": "npm run dev --workspace=@lua-x/web",
+    "dev:api": "npm run dev --workspace=@lua-x/api",
+    "start:api": "npm run start --workspace=@lua-x/api"
   }
 }
