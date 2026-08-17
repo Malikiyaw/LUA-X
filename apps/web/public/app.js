@@ -1,4 +1,5 @@
 const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:4000' : '';
+const PLUGIN_URL = 'https://raw.githubusercontent.com/Malikiyaw/LUA-X/main/studio-plugin/LUA-X.plugin.lua?download=1';
 const prompt = document.querySelector('#prompt');
 const buildButton = document.querySelector('#build-button');
 const composerNote = document.querySelector('#composer-note');
@@ -12,132 +13,13 @@ const systemStatus = document.querySelector('#system-status');
 const modelLabel = document.querySelector('#model-label');
 const pipeline = document.querySelector('#pipeline');
 const installPluginButton = document.querySelector('#install-plugin');
+const downloadPlugin = document.querySelector('#download-plugin');
 let toastTimer;
-
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
-}
-function esc(value) {
-  return String(value).replace(/[&<>\"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-}
-function setPipeline(step, state, detail) {
-  const nodes = [...pipeline.querySelectorAll('.pipeline-step')];
-  const node = nodes[step];
-  if (!node) return;
-  const icon = node.querySelector('.step-icon');
-  const status = node.querySelector(':scope > span:last-child');
-  node.classList.toggle('complete', state === 'complete');
-  node.classList.toggle('running', state === 'running');
-  icon.textContent = state === 'complete' ? '✓' : state === 'running' ? '•' : String(step + 1);
-  status.textContent = state === 'complete' ? 'Ready' : state === 'running' ? 'Working' : 'Idle';
-  if (detail) node.querySelector('p').textContent = detail;
-}
-async function getJson(path) {
-  const response = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' } });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
-  return body;
-}
-async function refreshHealth() {
-  try {
-    const health = await getJson('/health');
-    backendStatus.textContent = health.status === 'ok' ? 'Online' : 'Degraded';
-    const ai = await getJson('/api/ai/status');
-    aiStatus.textContent = ai.configured ? 'Ready' : 'Not configured';
-    modelLabel.textContent = ai.configured ? `NVIDIA · ${ai.model}` : 'NVIDIA · not configured';
-    systemStatus.textContent = ai.configured ? 'Ready' : 'Backend online';
-    systemStatus.classList.toggle('ok', true);
-  } catch (error) {
-    backendStatus.textContent = 'Offline';
-    aiStatus.textContent = 'Unavailable';
-    systemStatus.textContent = 'Offline';
-    systemStatus.classList.remove('ok');
-  }
-}
-async function build() {
-  const value = prompt.value.trim();
-  if (value.length < 2) {
-    showToast('Describe what you want LUA-X to build first.');
-    prompt.focus();
-    return;
-  }
-  buildButton.disabled = true;
-  composerNote.textContent = 'LUA-X is compiling project context and preparing a reviewable build plan…';
-  setPipeline(1, 'running', 'Compiling your request into an execution brief');
-  try {
-    const response = await fetch(`${API_BASE}/api/ai/generate`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ prompt: value, projectId: 'my-roblox-game', context: { relevantFiles: [], relevantInstances: [], architecture: 'Roblox project', constraints: ['Preserve existing working behavior', 'Server-authoritative protected state', 'Produce reviewable changes'] } })
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(body.error || `AI request failed (${response.status})`);
-    setPipeline(1, 'complete', body.plan.summary || 'Plan generated successfully');
-    setPipeline(2, 'running', `${body.plan.changes?.length ?? 0} proposed change(s) ready for review`);
-    composerNote.innerHTML = `<strong>${esc(body.plan.summary || 'Build plan ready')}</strong> · ${body.plan.changes?.length ?? 0} change(s), ${body.plan.tests?.length ?? 0} test(s). Nothing has been pushed to Studio.`;
-    setPipeline(2, 'complete', `${body.plan.changes?.length ?? 0} proposed change(s) ready for review`);
-    setPipeline(3, 'complete', `${body.plan.tests?.length ?? 0} verification test(s) defined`);
-    showToast('Build plan ready for review.');
-  } catch (error) {
-    setPipeline(1, 'idle', 'Waiting for the next build request');
-    composerNote.textContent = error instanceof Error ? error.message : 'AI generation failed.';
-    showToast(composerNote.textContent);
-  } finally {
-    buildButton.disabled = false;
-  }
-}
-async function downloadStudioPlugin(event) {
-  event?.preventDefault();
-  if (!installPluginButton || installPluginButton.dataset.downloading === 'true') return;
-  installPluginButton.dataset.downloading = 'true';
-  const originalText = installPluginButton.textContent;
-  installPluginButton.textContent = 'Preparing download…';
-  installPluginButton.disabled = true;
-  try {
-    const response = await fetch('/download/LUA-X.plugin.lua', {
-      method: 'GET',
-      cache: 'no-store',
-      headers: { accept: 'text/plain,*/*' },
-    });
-    if (!response.ok) throw new Error(`Plugin download failed (${response.status}).`);
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = objectUrl;
-    link.download = 'LUA-X.plugin.lua';
-    link.style.display = 'none';
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-    showToast('LUA-X Studio plugin download started.');
-  } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Plugin download failed.');
-  } finally {
-    installPluginButton.textContent = originalText;
-    installPluginButton.disabled = false;
-    delete installPluginButton.dataset.downloading;
-  }
-}
-buildButton?.addEventListener('click', build);
-prompt?.addEventListener('keydown', (event) => {
-  if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); build(); }
-});
-document.querySelectorAll('[data-surface]').forEach((button) => button.addEventListener('click', () => {
-  const surface = button.getAttribute('data-surface');
-  if (surface) {
-    prompt.value = `${surface.charAt(0).toUpperCase() + surface.slice(1)} task for my Roblox project: `;
-    prompt.focus();
-    prompt.setSelectionRange(prompt.value.length, prompt.value.length);
-  }
-}));
-document.querySelector('#connect-studio')?.addEventListener('click', () => showToast('Studio pairing will be available through the LUA-X plugin.'));
-installPluginButton?.addEventListener('click', downloadStudioPlugin);
-studioPulse.classList.remove('online');
-studioLabel.textContent = 'Studio not connected';
-studioStatus.textContent = 'Offline';
-refreshHealth();
-setInterval(refreshHealth, 30000);
+function showToast(message){if(!toast)return;toast.textContent=message;toast.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>toast.classList.remove('show'),2600)}
+function esc(v){return String(v).replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function setPipeline(i,state,detail){const n=[...pipeline.querySelectorAll('.pipeline-step')][i];if(!n)return;const icon=n.querySelector('.step-icon');const s=n.querySelector(':scope > span:last-child');n.classList.toggle('complete',state==='complete');n.classList.toggle('running',state==='running');icon.textContent=state==='complete'?'✓':state==='running'?'•':String(i+1);s.textContent=state==='complete'?'Ready':state==='running'?'Working':'Idle';if(detail)n.querySelector('p').textContent=detail}
+async function getJson(path){const r=await fetch(`${API_BASE}${path}`,{headers:{accept:'application/json'}});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||`Request failed (${r.status})`);return b}
+async function refreshHealth(){try{const h=await getJson('/health');backendStatus.textContent=h.status==='ok'?'Online':'Degraded';const a=await getJson('/api/ai/status');aiStatus.textContent=a.configured?'Ready':'Not configured';modelLabel.textContent=a.configured?`NVIDIA · ${a.model}`:'NVIDIA · not configured';systemStatus.textContent=a.configured?'Ready':'Backend online';systemStatus.classList.add('ok')}catch{backendStatus.textContent='Offline';aiStatus.textContent='Unavailable';systemStatus.textContent='Offline';systemStatus.classList.remove('ok')}}
+async function build(){const v=prompt.value.trim();if(v.length<2){showToast('Describe what you want LUA-X to build first.');prompt.focus();return}buildButton.disabled=true;composerNote.textContent='LUA-X is preparing a reviewable build plan…';setPipeline(1,'running','Compiling your request into an execution brief');try{const r=await fetch(`${API_BASE}/api/ai/generate`,{method:'POST',headers:{'content-type':'application/json',accept:'application/json'},body:JSON.stringify({prompt:v,projectId:'my-roblox-game',context:{relevantFiles:[],relevantInstances:[],architecture:'Roblox project',constraints:['Preserve existing working behavior','Server-authoritative protected state','Produce reviewable changes']}})});const b=await r.json().catch(()=>({}));if(!r.ok)throw new Error(b.error||`AI request failed (${r.status})`);const count=b.plan?.changes?.length??0;setPipeline(1,'complete',b.plan?.summary||'Plan generated successfully');setPipeline(2,'complete',`${count} proposed change(s) ready for review`);setPipeline(3,'complete','Verification requirements defined');composerNote.innerHTML=`<strong>${esc(b.plan?.summary||'Build plan ready')}</strong> · ${count} change(s). Nothing has been pushed to Studio.`;showToast('Build plan ready for review.')}catch(e){setPipeline(1,'idle','Waiting for the next build request');composerNote.textContent=e instanceof Error?e.message:'AI generation failed.';showToast(composerNote.textContent)}finally{buildButton.disabled=false}}
+async function downloadPluginFile(e){e?.preventDefault();if(!downloadPlugin||downloadPlugin.dataset.busy==='1')return;downloadPlugin.dataset.busy='1';const old=downloadPlugin.textContent;downloadPlugin.textContent='Downloading…';try{const r=await fetch(PLUGIN_URL,{method:'GET',mode:'cors',cache:'no-store',headers:{accept:'text/plain,*/*'}});if(!r.ok)throw new Error(`Plugin download failed (${r.status}).`);const blob=await r.blob();const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='LUA-X.plugin.lua';a.style.display='none';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),1000);showToast('LUA-X Studio plugin download started.')}catch(err){showToast('Download failed. Opening the plugin file directly…');window.location.href=PLUGIN_URL}finally{downloadPlugin.textContent=old;delete downloadPlugin.dataset.busy}}
+buildButton?.addEventListener('click',build);prompt?.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();build()}});document.querySelectorAll('[data-surface]').forEach(b=>b.addEventListener('click',()=>{const s=b.getAttribute('data-surface');if(s){prompt.value=`${s.charAt(0).toUpperCase()+s.slice(1)} task for my Roblox project: `;prompt.focus()}}));document.querySelector('#connect-studio')?.addEventListener('click',()=>showToast('Install the LUA-X Studio Plugin, then reopen Studio.'));installPluginButton?.addEventListener('click',()=>downloadPlugin?.click());downloadPlugin?.addEventListener('click',downloadPluginFile);studioPulse.classList.remove('online');studioLabel.textContent='Studio not connected';studioStatus.textContent='Offline';refreshHealth();setInterval(refreshHealth,30000);
