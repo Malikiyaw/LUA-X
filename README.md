@@ -39,11 +39,20 @@ LUA-X is not just a prompt box that returns Luau. It is a project-aware developm
 
 The repository now includes an installable local Studio plugin at [`studio-plugin/LUA-X.plugin.lua`](studio-plugin/LUA-X.plugin.lua).
 
-1. Put `LUA-X.plugin.lua` into Roblox Studio's local Plugins folder.
-2. Restart Roblox Studio.
-3. Open the **Plugins** tab and launch **LUA-X**.
-4. Select relevant scripts/models and describe the change in the LUA-X dock.
-5. Generate the structured plan, review it, then explicitly apply the supported script changes.
+On Windows, the one-click installer locates the correct folder for you:
+
+```powershell
+.\install-plugin.ps1
+```
+
+Manual install (Studio only loads local plugins from this exact folder with the `.plugin.lua` suffix):
+
+1. In Studio, open **Plugins** → **Manage Plugins** → **Open Plugins Folder** (opens `%USERPROFILE%\Documents\Roblox\Plugins`).
+2. Copy `LUA-X.plugin.lua` into that folder.
+3. Restart Roblox Studio.
+4. Open the **Plugins** tab and launch **LUA-X**.
+5. Select relevant scripts/models and describe the change in the LUA-X dock.
+6. Generate the structured plan, review it, then explicitly apply the supported script changes.
 
 Full installation and troubleshooting notes are in [`studio-plugin/README.md`](studio-plugin/README.md).
 
