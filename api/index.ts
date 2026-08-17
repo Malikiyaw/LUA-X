@@ -8,6 +8,7 @@ const DEFAULT_MODEL = 'nvidia/llama-3.3-nemotron-super-49b-v1';
 const MAX_BODY_BYTES = 64 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 30;
+const PLUGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/Malikiyaw/LUA-X/main/studio-plugin/LUA-X.plugin.lua';
 const rateState = new Map<string, { count: number; resetAt: number }>();
 
 function json(status: number, body: unknown, extraHeaders: Record<string, string> = {}): Response {
@@ -51,6 +52,26 @@ function parsePlan(text: string): AIPlan {
 async function readJson(request: Request): Promise<unknown> { const contentLength = Number(request.headers.get('content-length') || '0'); if (contentLength > MAX_BODY_BYTES) throw new Error('Request body is too large.'); const text = await request.text(); if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) throw new Error('Request body is too large.'); if (!text.trim()) throw new Error('Request body is required.'); return JSON.parse(text); }
 function validGenerateRequest(value: unknown): value is AIRequest { if (!isRecord(value)) return false; if (typeof value.prompt !== 'string' || value.prompt.trim().length < 2 || value.prompt.length > 12000) return false; if (value.projectId !== undefined && typeof value.projectId !== 'string') return false; if (value.context !== undefined && !isRecord(value.context)) return false; return true; }
 
+async function downloadPlugin(cors: string): Promise<Response> {
+  try {
+    const upstream = await fetch(PLUGIN_DOWNLOAD_URL, { headers: { accept: 'text/plain,*/*' }, cache: 'no-store' });
+    if (!upstream.ok) return json(502, { error: 'Unable to retrieve the current LUA-X Studio plugin.', status: upstream.status }, { 'access-control-allow-origin': cors });
+    const content = await upstream.text();
+    return new Response(content, {
+      status: 200,
+      headers: {
+        'content-type': 'application/octet-stream',
+        'content-disposition': 'attachment; filename="LUA-X.plugin.lua"',
+        'cache-control': 'no-store, max-age=0',
+        'access-control-allow-origin': cors,
+        'x-content-type-options': 'nosniff',
+      },
+    });
+  } catch {
+    return json(502, { error: 'Unable to download the LUA-X Studio plugin.' }, { 'access-control-allow-origin': cors });
+  }
+}
+
 async function generate(request: Request, id: string, cors: string): Promise<Response> {
   const apiKey = process.env.NVIDIA_API_KEY?.trim();
   if (!apiKey) return json(503, { error: 'AI provider is not configured.', requestId: id }, { 'x-request-id': id, 'access-control-allow-origin': cors });
@@ -86,6 +107,7 @@ export default async function handler(request: Request): Promise<Response> {
     if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health' || url.pathname === '/api/health')) return json(200, { service:'lua-x-api', status:'ok', version:VERSION }, { ...common, ...rateHeaders });
     if (request.method === 'GET' && (url.pathname === '/ready' || url.pathname === '/api/ready')) { const configured = Boolean(process.env.NVIDIA_API_KEY?.trim()); return json(configured ? 200 : 503, { service:'lua-x-api', ready:configured, aiProvider:configured?'nvidia-configured':'not-configured', version:VERSION }, { ...common, ...rateHeaders }); }
     if (request.method === 'GET' && (url.pathname === '/api/ai/status' || url.pathname === '/ai/status')) return json(200, { provider:'nvidia', configured:Boolean(process.env.NVIDIA_API_KEY?.trim()), model:process.env.NVIDIA_MODEL?.trim() || DEFAULT_MODEL }, { ...common, ...rateHeaders });
+    if (request.method === 'GET' && (url.pathname === '/api/plugin/download' || url.pathname === '/plugin/download')) return downloadPlugin(cors);
     if (request.method === 'POST' && (url.pathname === '/api/ai/generate' || url.pathname === '/ai/generate')) { const result = await generate(request, id, cors); for (const [key,value] of Object.entries(rateHeaders)) result.headers.set(key,value); return result; }
     return json(404, { error:'Not found.', requestId:id }, { ...common, ...rateHeaders });
   } catch (error) { return json(500, { error:'Internal server error.', requestId:id, detail:error instanceof Error ? error.message : 'Unknown error.' }, common); }
