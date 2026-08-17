@@ -73,6 +73,23 @@ nav { display: flex; flex-direction: column; gap: 3px; }
 .pulse { width: 8px; height: 8px; border-radius: 50%; background: #6b7385; flex-shrink: 0; }
 .pulse.online { background: #7ee0ad; box-shadow: 0 0 10px #7ee0ad66; }
 .connection-card small { display: block; margin-top: 6px; color: #6d7587; font-size: 11px; }
+.connection-card.connected { border-color: #21402f; }
+.connection-card.connected .pulse { background: #7ee0ad; box-shadow: 0 0 10px #7ee0ad66; }
+.ping-button {
+  margin-top: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #3a4a6b;
+  background: #151a24;
+  color: #e9edf6;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.ping-button:hover:not(:disabled) { background: #1d2432; border-color: #7ee0ad66; }
+.ping-button:disabled { opacity: 0.45; cursor: not-allowed; }
 .sidebar-links { display: flex; flex-direction: column; gap: 6px; padding: 0 4px; }
 .sidebar-links a { color: #6d7587; font-size: 11px; text-decoration: none; }
 .sidebar-links a:hover { color: #c3cadb; }

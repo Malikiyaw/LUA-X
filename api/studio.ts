@@ -117,6 +117,26 @@ export default async function handler(request: Request): Promise<Response> {
     }
   }
 
+  if (request.method === 'POST' && pathname === 'disconnect') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const sessionId = cleanString(body.sessionId, 100);
+      if (!sessionId) return json(400, { error: 'sessionId is required.' });
+      let foundProjectId: string | undefined;
+      for (const [key, presence] of memoryPresence) {
+        if (presence.sessionId === sessionId) {
+          foundProjectId = presence.projectId;
+          memoryPresence.delete(key);
+        }
+      }
+      if (foundProjectId) await redisCommand(['DEL', `studio:presence:${foundProjectId}`]);
+      await redisCommand(['DEL', 'studio:presence:latest']);
+      return json(200, { ok: true, connected: false });
+    } catch {
+      return json(400, { error: 'Invalid disconnect payload.' });
+    }
+  }
+
   if (request.method === 'GET' && pathname === 'status') {
     const projectId = cleanString(url.searchParams.get('projectId'), 100) || undefined;
     const presence = await loadPresence(projectId);

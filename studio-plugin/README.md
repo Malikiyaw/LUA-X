@@ -2,6 +2,16 @@
 
 This directory contains the installable LUA-X Studio bridge plugin.
 
+## What it does
+
+The plugin links your Roblox Studio session to the LUA-X website:
+
+- **Connect** registers the session with the LUA-X backend and keeps it alive with heartbeats, so the website shows **Studio connected**.
+- **Ping** lets the website reach into Studio; when you press *Ping Studio* on the website, the plugin flashes and logs *Ping received*.
+- **Disconnect** removes the session instantly, and the website flips back to **Studio offline**.
+
+The actual LUA-X chat lives on the website — open `https://lua-x-api.vercel.app` to talk to LUA-X. The plugin intentionally has no chat UI.
+
 ## Install
 
 ### Windows (recommended)
@@ -38,34 +48,30 @@ The plugin is intentionally a normal local Studio plugin script so you can inspe
 
 The plugin defaults to:
 
-`https://lua-x-api.vercel.app/api/ai/generate`
+`https://lua-x-api.vercel.app`
 
-The backend endpoint can be changed and saved in the plugin UI (stored with the plugin's own settings). **Test Connection** checks the backend's health endpoint and reports the result in the status bar.
+The backend endpoint can be changed and saved in the plugin UI (stored with the plugin's own settings). **Test** checks the backend's health endpoint and reports the result in the log.
 
-No NVIDIA or provider API key is stored in the plugin. The plugin only sends the creator prompt, selected Studio context, and the place ID to the LUA-X API.
+No NVIDIA or provider API key is stored in the plugin. The plugin only sends the place ID, session ID, place name, and plugin version to the LUA-X API.
 
 ## Current capabilities
 
 - Toolbar button created first, so the plugin is visible as soon as Studio successfully loads the local plugin script.
 - Dock opens on demand when you click the LUA-X toolbar button.
-- Reads the current Studio selection and selected Luau source.
-- Sends structured project context to the LUA-X backend.
-- Receives and previews a validated LUA-X `AIPlan`.
-- Applies `update_script` proposals through `ScriptEditorService` with a direct `Source` fallback.
-- Creates `Script` instances for `create_script` proposals.
-- Two-click confirmation before applying changes.
-- Uses `ChangeHistoryService` waypoints so Studio Undo can revert applied changes.
-- Leaves unsupported instance mutations and notes as deferred review items.
-- Never automatically executes arbitrary AI code.
+- Manual **Connect** registers the session; heartbeats every 8s keep it alive while connected.
+- Polls the backend for queued commands (every 4s) and answers **ping** with a visual flash and an immediate heartbeat.
+- **Disconnect** (or closing Studio) removes the session so the website shows offline immediately.
+- Session card shows place name, session ID, and endpoint; live log shows connection and ping events.
+- Saves the endpoint in plugin settings; auto-retries after network failures.
 
 ## Troubleshooting
 
 - **Plugin is not visible:** first verify the file is inside the exact folder opened by **Plugins → Manage Plugins → Open Plugins Folder**. Then fully restart Studio. If needed, run `install-plugin.ps1 -PluginsDir "<that exact folder>"`.
 - **Filename problem:** make sure the installed file is `LUA-X.lua`, not `LUA-X.lua.txt`. Enable Windows Explorer's **File name extensions** option when checking.
 - **Plugin loads but no button appears:** open Studio's Output window and PluginDebugService/debugger to check for a plugin runtime error. The plugin's first statements create the toolbar, so a startup error should be visible there.
-- **Connection fails:** enable **Game Settings → Security → Allow HTTP Requests**, then use **Test Connection**.
-- **No plan / API error:** confirm the deployed LUA-X API is healthy and has an NVIDIA provider configured.
+- **Connection fails:** enable **Game Settings → Security → Allow HTTP Requests**, then use **Test**.
+- **Website shows offline while connected:** the session expires if heartbeats stop (e.g. Studio closed, or the backend is unreachable). Reconnect by pressing Connect again. Presence is held in the serverless registry; if it flaps, consider adding Vercel KV env vars (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`) — the backend already supports it.
 
 ## Architecture
 
-The plugin is the Studio-side adapter. The backend remains responsible for AI provider access and orchestration. This keeps model credentials out of Studio and keeps the Studio mutation surface bounded and reviewable.
+The plugin is the Studio-side presence/command adapter. The backend (`api/studio.ts`) holds the session registry and command queue; the website polls it for status and can queue pings. AI chat stays entirely on the website, so no model credentials ever enter Studio.
