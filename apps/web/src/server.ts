@@ -34,13 +34,13 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
   try {
     const file = await readFile(join(PUBLIC_DIR, relative));
     const extension = relative.includes('.') ? `.${relative.split('.').pop()}` : '';
-    const isPluginDownload = relative === 'LUA-X.plugin.lua' || relative === 'download/LUA-X.plugin.lua';
+    const isPluginDownload = relative === 'LUA-X.lua' || relative === 'download/LUA-X.lua';
     const headers: Record<string, string> = {
       'content-type': isPluginDownload ? 'text/plain; charset=utf-8' : (CONTENT_TYPES[extension] ?? 'application/octet-stream'),
       'cache-control': isPluginDownload ? 'no-store' : (relative === 'index.html' ? 'no-cache' : 'public, max-age=3600'),
     };
     if (isPluginDownload) {
-      headers['content-disposition'] = 'attachment; filename="LUA-X.plugin.lua"';
+      headers['content-disposition'] = 'attachment; filename="LUA-X.lua"';
       headers['x-content-type-options'] = 'nosniff';
     }
     response.writeHead(200, headers);
