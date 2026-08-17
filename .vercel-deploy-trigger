@@ -1,0 +1,2 @@
+LUA-X Vercel deployment trigger
+Commit this file whenever a Git-to-Vercel deployment needs an explicit fresh commit.
