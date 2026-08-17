@@ -16,109 +16,112 @@
 - [x] Add browser workspace shell
 - [x] Add automated Phase 0 tests
 
-## Phase 1 — Project Intelligence
+## Phase 1 — Project Intelligence — CORE COMPLETE
 
 Goal: LUA-X can understand a Roblox project before changing it.
 
-- [ ] Roblox project ingestion
-- [ ] Data Model / hierarchy index
-- [ ] Luau symbol index
-- [ ] dependency graph
-- [ ] RemoteEvent / RemoteFunction map
-- [ ] service usage map
-- [ ] asset references map
-- [ ] project conventions memory
-- [ ] architecture summary
-- [ ] safe change planner
+- [x] Typed Roblox project-instance model
+- [x] Data Model / hierarchy index contracts
+- [x] Script inventory and server/client/shared classification
+- [x] RemoteEvent / RemoteFunction map contracts
+- [x] Asset reference contracts
+- [x] Dependency graph
+- [x] Service usage map
+- [x] Project conventions/index warnings foundation
+- [x] Architecture summary
+- [x] Safe query/retrieval primitives
+- [x] Project statistics
+- [x] Unit tests for indexing and retrieval primitives
+- [x] Studio MCP integration boundary documented
+- [ ] Live Studio MCP transport adapter
+- [ ] Persistent index cache
+- [ ] Incremental index updates
+- [ ] Semantic/code retrieval
 
 ## Phase 2 — AI Engineering Core
 
 Goal: turn natural language into controlled, reviewable changes.
 
 - [ ] Master prompt compiler
-- [ ] task decomposition
-- [ ] specialist agent router
-- [ ] file/instance patch planner
-- [ ] code generation
-- [ ] code review
-- [ ] repair loop
-- [ ] change-set preview
-- [ ] rollback
-- [ ] project memory
+- [ ] Context retrieval from Project Index
+- [ ] Task decomposition
+- [ ] Specialist agent router
+- [ ] File/instance patch planner
+- [ ] Code generation
+- [ ] Code review
+- [ ] Repair loop
+- [ ] Change-set preview
+- [ ] Rollback
+- [ ] Project memory
 
 ## Phase 3 — Roblox Studio Bridge
 
 Goal: connect the browser workspace to real Roblox projects.
 
-- [ ] Studio plugin
-- [ ] authenticated project pairing
-- [ ] project sync protocol
-- [ ] command execution bridge
+- [ ] Studio MCP client adapter
+- [ ] Authenticated/local project pairing
+- [ ] Project sync protocol
 - [ ] Data Model read/write operations
 - [ ] Luau script operations
-- [ ] test/playtest bridge
-- [ ] safe confirmation gates
+- [ ] Luau execution adapter
+- [ ] Playtest adapter
+- [ ] Console/output adapter
+- [ ] Safe confirmation gates
 
 ## Phase 4 — Animation Studio
 
 Goal: make animation a first-class engineering workflow.
 
-- [ ] rig detection
-- [ ] animation intent parser
-- [ ] pose planning
-- [ ] keyframe/timeline representation
-- [ ] procedural animation generation
-- [ ] animation refinement prompts
-- [ ] animation-to-gameplay event mapping
-- [ ] preview and validation
-- [ ] export/sync workflow
+- [ ] Rig detection
+- [ ] Animation intent parser
+- [ ] Pose planning
+- [ ] Keyframe/timeline representation
+- [ ] Procedural animation generation
+- [ ] Animation refinement prompts
+- [ ] Animation-to-gameplay event mapping
+- [ ] Preview and validation
+- [ ] Export/sync workflow
 
 Important: generated animation must be represented as an editable, inspectable artifact. LUA-X should not hide animation decisions inside an opaque result.
 
 ## Phase 5 — UI + World Studio
 
-- [ ] visual UI editor
+- [ ] Visual UI editor
 - [ ] UI generation from intent
-- [ ] responsive layout rules
+- [ ] Responsive layout rules
 - [ ] UI style memory
-- [ ] scene planning
-- [ ] world/asset generation adapters
-- [ ] reference-guided style system
-- [ ] asset dependency tracking
+- [ ] Scene planning
+- [ ] World/asset generation adapters
+- [ ] Reference-guided style system
+- [ ] Asset dependency tracking
 
 ## Phase 6 — Verification Engine
 
-- [ ] static Luau checks
-- [ ] type checks where available
-- [ ] unit tests
-- [ ] integration tests
+- [ ] Static Luau checks
+- [ ] Type checks where available
+- [ ] Unit tests
+- [ ] Integration tests
 - [ ] Studio playtest scenarios
-- [ ] regression detection
-- [ ] performance checks
-- [ ] security checks
+- [ ] Regression detection
+- [ ] Performance checks
+- [ ] Security checks
 - [ ] AI reviewer
-- [ ] automatic repair loop
+- [ ] Automatic repair loop
 
 ## Phase 7 — Production Workflow
 
 - [ ] Git integration
-- [ ] branches and checkpoints
-- [ ] reviewable change sets
-- [ ] release snapshots
-- [ ] environment configuration
-- [ ] publish preparation
-- [ ] deployment/publish adapters
-- [ ] project health dashboard
+- [ ] Branches and checkpoints
+- [ ] Reviewable change sets
+- [ ] Release snapshots
+- [ ] Environment configuration
+- [ ] Publish preparation
+- [ ] Publish adapters
+- [ ] Project health dashboard
 
 ## Phase 8 — Autonomous Studio
 
 A creator can give LUA-X a high-level objective and receive a plan first. After approval, agents execute, verify, repair, and summarize the work.
-
-Example:
-
-> Build a round-based survival game with a lobby, progression, currency, shop, enemy waves, boss encounters, UI, animations, saving, and analytics.
-
-LUA-X should convert that into a dependency-aware project plan rather than attempting a giant unstructured generation.
 
 ## Non-negotiable quality gates
 
