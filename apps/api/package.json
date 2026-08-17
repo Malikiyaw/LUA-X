@@ -9,7 +9,10 @@
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@lua-x/api-core": "0.2.0",
+    "@lua-x/nvidia-provider": "0.2.0"
+  },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
