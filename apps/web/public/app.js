@@ -11,6 +11,7 @@ const backendStatus = document.querySelector('#backend-status');
 const systemStatus = document.querySelector('#system-status');
 const modelLabel = document.querySelector('#model-label');
 const pipeline = document.querySelector('#pipeline');
+const installPluginButton = document.querySelector('#install-plugin');
 let toastTimer;
 
 function showToast(message) {
@@ -88,6 +89,39 @@ async function build() {
     buildButton.disabled = false;
   }
 }
+async function downloadStudioPlugin(event) {
+  event?.preventDefault();
+  if (!installPluginButton || installPluginButton.dataset.downloading === 'true') return;
+  installPluginButton.dataset.downloading = 'true';
+  const originalText = installPluginButton.textContent;
+  installPluginButton.textContent = 'Preparing download…';
+  installPluginButton.disabled = true;
+  try {
+    const response = await fetch('/download/LUA-X.plugin.lua', {
+      method: 'GET',
+      cache: 'no-store',
+      headers: { accept: 'text/plain,*/*' },
+    });
+    if (!response.ok) throw new Error(`Plugin download failed (${response.status}).`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = objectUrl;
+    link.download = 'LUA-X.plugin.lua';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    showToast('LUA-X Studio plugin download started.');
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : 'Plugin download failed.');
+  } finally {
+    installPluginButton.textContent = originalText;
+    installPluginButton.disabled = false;
+    delete installPluginButton.dataset.downloading;
+  }
+}
 buildButton?.addEventListener('click', build);
 prompt?.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); build(); }
@@ -101,7 +135,7 @@ document.querySelectorAll('[data-surface]').forEach((button) => button.addEventL
   }
 }));
 document.querySelector('#connect-studio')?.addEventListener('click', () => showToast('Studio pairing will be available through the LUA-X plugin.'));
-document.querySelector('#install-plugin')?.addEventListener('click', () => showToast('Plugin setup docs are being prepared for the Studio bridge.'));
+installPluginButton?.addEventListener('click', downloadStudioPlugin);
 studioPulse.classList.remove('online');
 studioLabel.textContent = 'Studio not connected';
 studioStatus.textContent = 'Offline';
