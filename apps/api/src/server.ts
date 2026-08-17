@@ -97,7 +97,10 @@ export function createApiServer(deps: ApiDependencies): ReturnType<typeof create
   });
 }
 
-if (process.env.NODE_ENV !== 'test') {
+const isVercelRuntime = process.env.VERCEL === '1' || process.env.VERCEL_ENV !== undefined;
+const shouldListenLocally = process.env.NODE_ENV !== 'test' && !isVercelRuntime;
+
+if (shouldListenLocally) {
   const config = loadConfig();
   const nvidia = new NvidiaClient({
     ...(config.nvidiaApiKey ? { apiKey: config.nvidiaApiKey } : {}),
