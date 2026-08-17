@@ -7,6 +7,14 @@ import { FixedWindowRateLimiter } from './rate-limit.js';
 
 export const API_VERSION = '0.11.0-alpha';
 
+const CHAT_SYSTEM_PROMPT = [
+  'You are LUA-X, an AI-native Roblox development assistant.',
+  'Help Roblox creators write Luau code, design game systems, and solve scripting problems.',
+  'Follow Roblox best practices: respect server/client boundaries, treat client-originated input as untrusted, and keep authoritative gameplay logic on the server.',
+  'Return plain text answers. Put Luau code inside ```lua ... ``` code blocks when code is relevant.',
+  'Never claim a Studio mutation, test, playtest, or publish succeeded. Describe what the creator must verify instead.',
+].join('\n');
+
 export interface ApiDependencies {
   config: ReturnType<typeof loadConfig>;
   nvidia: NvidiaClientPool;
@@ -37,7 +45,7 @@ function isGenerateRequest(value: unknown): value is AIRequest {
   const body = value as Record<string, unknown>;
   if (typeof body.prompt !== 'string' || body.prompt.trim().length < 2 || body.prompt.length > 12000) return false;
   if (body.projectId !== undefined && typeof body.projectId !== 'string') return false;
-  if (body.mode !== undefined && !['plan', 'build', 'verify', 'repair'].includes(String(body.mode))) return false;
+  if (body.mode !== undefined && !['plan', 'build', 'verify', 'repair', 'chat'].includes(String(body.mode))) return false;
   if (body.context !== undefined && (typeof body.context !== 'object' || body.context === null)) return false;
   return true;
 }
@@ -148,6 +156,19 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
       }
 
       try {
+        if ((payload as { mode?: string }).mode === 'chat') {
+          const chatResult = await deps.nvidia.chat([
+            { role: 'system', content: CHAT_SYSTEM_PROMPT },
+            { role: 'user', content: (payload as { prompt: string }).prompt },
+          ]);
+          sendJson(response, 200, {
+            requestId,
+            provider: 'nvidia',
+            model: chatResult.model ?? deps.config.nvidiaModel,
+            response: chatResult.content,
+          }, { ...commonHeaders, ...rateHeaders });
+          return;
+        }
         const generated = await generateAIPlan(payload, deps.nvidia);
         sendJson(response, 200, {
           requestId: generated.requestId ?? requestId,
