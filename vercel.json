@@ -15,9 +15,9 @@
     {
       "source": "/LUA-X.plugin.lua",
       "headers": [
-        { "key": "Content-Type", "value": "application/octet-stream" },
-        { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.plugin.lua\"" },
-        { "key": "Cache-Control", "value": "public, max-age=300" },
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
+        { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.lua\"" },
+        { "key": "Cache-Control", "value": "no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
     }
