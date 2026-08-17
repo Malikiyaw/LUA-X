@@ -9,7 +9,7 @@ This directory contains the installable LUA-X Studio bridge plugin.
 3. Restart Roblox Studio.
 4. Open the **Plugins** tab and launch **LUA-X**.
 
-The plugin is intentionally a normal local Studio plugin script so you can inspect the source before installing it.
+The plugin is a normal local Studio plugin script so you can inspect the source before installing it.
 
 ## First run
 
@@ -17,28 +17,44 @@ The plugin defaults to:
 
 `https://lua-x-api.vercel.app/api/ai/generate`
 
-The backend endpoint can be changed in the plugin UI and is stored using the plugin's own settings.
+You can also enter the Vercel base URL (for example `https://lua-x-api.vercel.app`) and the plugin will normalize it to `/api/ai/generate` automatically. The selected endpoint is persisted with the plugin settings.
 
-No NVIDIA or provider API key is stored in the plugin. The plugin only sends the creator prompt, selected Studio context, and the place ID to the LUA-X API.
+Before generating, use **Test Connection**. Roblox Studio must have **Allow HTTP Requests** enabled for the place. The test checks `GET /api/health` and reports the HTTP status/body in the plugin.
+
+No NVIDIA or provider API key is stored in the plugin. The plugin sends only the creator prompt, place ID, selected instance paths, and bounded source context to the configured LUA-X API.
 
 ## Current capabilities
 
-- Open a dockable LUA-X Studio window.
-- Read the current Studio selection and selected Luau source.
-- Send structured project context to the LUA-X backend.
+- Open a dockable LUA-X Studio window from the Plugins toolbar.
+- Persist and normalize the backend endpoint.
+- Test backend connectivity before generation.
+- Automatically refresh context when Studio selection changes.
+- Collect selected instances plus a bounded set of descendant Luau scripts.
+- Send structured project context to the canonical LUA-X AI pipeline.
 - Receive and preview a validated LUA-X `AIPlan`.
-- Apply `update_script` proposals through `ScriptEditorService`.
+- Require a second explicit click before mutating Studio.
+- Apply `update_script` proposals through `ScriptEditorService` with a `Source` fallback.
 - Create `Script` instances for `create_script` proposals.
-- Leave instance mutations and other unsupported proposal types as deferred review items.
-- Add `ChangeHistoryService` waypoints around applied changes for Studio undo/history.
+- Add `ChangeHistoryService` waypoints before and after application for Studio undo/history.
+- Show per-change success/failure results.
+- Run plugin-side state verification without falsely claiming that runtime playtests passed.
+- Leave `create_instance`, `update_instance`, `delete_instance`, and `note` operations deferred and visible rather than executing unsupported mutations.
 - Never automatically execute arbitrary AI code.
 
 ## Architecture
 
-The plugin is the Studio-side adapter. The backend remains responsible for AI provider access and orchestration. This matches the repository's Roblox Bridge and change-set architecture instead of putting model credentials or provider logic into Studio.
+The plugin is the Studio-side adapter. The backend remains responsible for AI provider access and orchestration. The Studio plugin does not contain model credentials or provider implementation code.
+
+The intended flow is:
+
+`Studio context → AI plan → review → explicit apply → Studio history`
+
+The current installable surface deliberately limits automatic mutation to script creation/update. Full instance mutation and automated runtime verification require the remaining live Studio bridge components.
 
 ## Troubleshooting
 
-If generation fails, verify that the endpoint is reachable from Studio and that the deployed LUA-X API has an NVIDIA provider configured. The plugin surfaces the backend HTTP status/body in its status area.
+If **Test Connection** fails, enable Studio HTTP Requests and verify that the endpoint is reachable. If the backend returns `503`, the deployed API is reachable but its NVIDIA provider is not configured.
 
-If a generated plan contains `create_instance`, `update_instance`, `delete_instance`, or `note`, those entries remain visible but are not automatically applied by this first installable plugin. That keeps the Studio mutation surface bounded while the full change-set/verification bridge is integrated.
+If generation returns an API error, the plugin displays the backend HTTP status and response body. If the response is valid but contains no `plan.changes`, generation is rejected without touching the place.
+
+If a generated plan contains `create_instance`, `update_instance`, `delete_instance`, or `note`, those entries remain review/deferred items and are not automatically applied. This is intentional: the plugin should not mutate arbitrary Studio instances until the corresponding verified bridge operations are implemented.
