@@ -1,10 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { loadConfig } from '../apps/api/src/config.js';
-import { NvidiaApiError, NvidiaClient } from '../apps/api/src/nvidia.js';
-import { FixedWindowRateLimiter } from '../apps/api/src/rate-limit.js';
-import { buildSystemPrompt, buildUserPrompt } from '../apps/api/src/prompt.js';
-import { parseAIPlan, type AIGenerateRequest } from '../apps/api/src/schema.js';
+import { loadConfig } from '../apps/api/dist/config.js';
+import { NvidiaApiError, NvidiaClient } from '../apps/api/dist/nvidia.js';
+import { FixedWindowRateLimiter } from '../apps/api/dist/rate-limit.js';
+import { buildSystemPrompt, buildUserPrompt } from '../apps/api/dist/prompt.js';
+import { parseAIPlan } from '../apps/api/dist/schema.js';
 
 let state: {
   config: ReturnType<typeof loadConfig>;
@@ -53,7 +53,7 @@ async function readBody(request: IncomingMessage, maxBytes = 64 * 1024): Promise
   return JSON.parse(raw);
 }
 
-function isGenerateRequest(value: unknown): value is AIGenerateRequest {
+function isGenerateRequest(value: unknown): value is { prompt: string; projectId?: string; context?: { relevantFiles?: string[]; relevantInstances?: string[]; architecture?: string; constraints?: string[] } } {
   if (typeof value !== 'object' || value === null) return false;
   const body = value as Record<string, unknown>;
   if (typeof body.prompt !== 'string' || body.prompt.trim().length < 2 || body.prompt.length > 12000) return false;
