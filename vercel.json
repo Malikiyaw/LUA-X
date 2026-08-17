@@ -3,6 +3,8 @@
   "buildCommand": "npm run sync:plugin && npm run build --workspace=@lua-x/web",
   "outputDirectory": "apps/web/public",
   "rewrites": [
+    { "source": "/api/studio/:path*", "destination": "/api/studio" },
+    { "source": "/api/ai/generate", "destination": "/api/ai/generate" },
     { "source": "/api/:path*", "destination": "/api/index" }
   ],
   "headers": [
@@ -26,24 +28,6 @@
       "headers": [
         { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
         { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.lua\"" },
-        { "key": "Cache-Control", "value": "no-store" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
-    },
-    {
-      "source": "/LUA-X.plugin.lua",
-      "headers": [
-        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
-        { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.plugin.lua\"" },
-        { "key": "Cache-Control", "value": "no-store" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
-    },
-    {
-      "source": "/download/LUA-X.plugin.lua",
-      "headers": [
-        { "key": "Content-Type", "value": "text/plain; charset=utf-8" },
-        { "key": "Content-Disposition", "value": "attachment; filename=\"LUA-X.plugin.lua\"" },
         { "key": "Cache-Control", "value": "no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
       ]
