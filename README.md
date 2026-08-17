@@ -2,37 +2,100 @@
 
 > **The AI-native development studio for Roblox creators.**
 
-LUA-X is designed around one idea: a Roblox creator should be able to describe a feature, watch an AI engineering team plan it, build it, test it, inspect the result, and iterate without losing control of the project.
+**Current version: `0.11.0-alpha`**  
+**Status: Phases 0–11 core implemented + production-hardening core**  
+**Release channel: Alpha / active development**
+
+LUA-X is designed around one idea: a Roblox creator should be able to describe a feature, let a project-aware AI engineering system plan it, build it, test it, inspect the result, and iterate without losing control of the project.
+
+> **Important:** LUA-X is currently an engineering alpha. The repository contains the core architecture and domain implementations for the roadmap, but it is **not yet a fully deployed production service**. Live Roblox Studio execution, cloud infrastructure, billing, and end-to-end autonomous operation are not claimed complete until those integrations are actually connected and verified.
 
 ## Product thesis
 
-LUA-X is not just a prompt box that returns Luau. It is a project-aware development system with a shared game model, specialized agents, verification loops, animation workflows, visual editing, and Roblox Studio integration.
+LUA-X is not just a prompt box that returns Luau. It is a project-aware development system with shared project context, specialized agents, verification loops, animation workflows, UI generation, world generation, autonomous orchestration, a unified workspace, and a production-oriented cloud architecture.
 
 ### Core loop
 
-`Intent → Understand → Plan → Build → Verify → Playtest → Repair → Review → Export/Sync`
+`Intent → Understand → Plan → Build → Apply → Verify → Playtest → Repair → Review → Sync`
 
-## Planned capabilities
+## Core capabilities
 
-- 🧠 Project-aware AI orchestration
+- 🧠 Project-aware AI orchestration architecture
 - 🏗️ Game architecture and feature planning
-- 💻 Luau generation and refactoring
-- 🎬 AI-directed animation and keyframe workflows
-- 🎨 Roblox UI generation and visual editing
-- 🌎 World / scene generation workflows
-- 🧪 Automated verification and playtesting
-- 🛡️ Roblox-specific security analysis
-- ⚡ Performance analysis and optimization
-- 🔀 Git-aware change sets, review, rollback, and history
-- 🔌 Roblox Studio plugin / MCP integration
-- 📦 Asset and project export workflows
-- 🧩 Persistent project memory and design rules
+- 💻 Luau generation/refactoring architecture
+- 🎬 Animation workflow model
+- 🎨 Structured Roblox UI engine
+- 🌎 Structured world/scene engine
+- 🧪 Verification, evidence, failure classification, and bounded repair
+- 🤖 Autonomous build planning with dependency-aware execution
+- 🔗 Unified multi-surface Fusion workspace
+- ☁️ Cloud project/team/audit/snapshot domain models
+- 🛡️ Production-hardening primitives for security, permissions, reliability, and scaling
+- 🔀 Change-set, approval, audit, snapshot, and rollback foundations
+- 🔌 Studio integration architecture
+- 🧩 Prompt/context-engineering system
+
+## Roadmap status
+
+| Phase | System | Status |
+|---|---|---|
+| 0 | Foundation | **Core complete** |
+| 1 | Project Intelligence | **Core implemented** |
+| 2 | AI Engineering Brain | **Core implemented** |
+| 3 | Studio Bridge | **Core architecture** |
+| 4 | Code Builder | **Core implemented** |
+| 5 | Animation Studio | **Core implemented** |
+| 6 | UI Studio | **Core implemented** |
+| 7 | World Studio | **Core implemented** |
+| 8 | Verification & Playtest Intelligence | **Core implemented** |
+| 9 | Autonomous Game Builder | **Core implemented** |
+| 10 | LUA-X Fusion | **Core implemented** |
+| 11 | Cloud / Production | **Core implemented** |
+| H | Production Hardening | **Core implemented** |
+
+### What “core implemented” means
+
+A phase marked **core implemented** has repository-level domain logic, contracts, validation, tests, and/or prompts for the capability. It does **not** automatically mean that every external integration is production-ready.
+
+## Production hardening
+
+The hardening layer is designed around four priorities:
+
+### 🔐 Security
+
+- Explicit authorization policies
+- Project-scoped access control
+- Least-privilege operations
+- Approval gates for risky mutations
+- AI output treated as untrusted input
+- Secret-safe audit design
+
+### 🛡️ Reliability
+
+- Bounded retries
+- Exponential backoff
+- Idempotency-aware operation design
+- Dependency health states
+- Bounded autonomous repair loops
+- Evidence-backed completion
+
+### 👥 Permissions
+
+Supported role model:
+
+`OWNER → ADMIN → DEVELOPER → DESIGNER → REVIEWER → VIEWER`
+
+High-risk operations require appropriate authorization and, where configured, explicit approval.
+
+### ⚡ Scaling
+
+The intended production architecture separates interactive API requests from long-running AI, Studio, verification, and cloud jobs. Stateless application nodes can dispatch durable jobs to specialized workers while persistent storage maintains project state, history, audit records, and usage data.
 
 ## Competitive direction
 
-Current Roblox creation tools demonstrate the value of AI asset generation, code generation, planning, and direct Studio actions. LUA-X combines those ideas into a single project-aware loop rather than treating code, assets, animation, UI, and testing as disconnected generations.
+LUA-X is intentionally broader than a Roblox-only AI code generator. Its product direction combines project intelligence, code, animation, UI, world building, verification, autonomous orchestration, and controlled Studio operations into one development lifecycle.
 
-ForgeGUI currently emphasizes AI-generated game assets and connected visual editing. Lemonade AI is a Roblox Studio plugin focused on turning creator instructions into game-building/code workflows. Roblox Assistant itself now includes planning, actions, and verification-oriented workflows. LUA-X's product goal is to go deeper on the complete engineering lifecycle: architecture, implementation, animation, integration, verification, and iteration. citeturn0search0turn0search13turn0search9
+The goal is not to win by producing the longest prompt. The goal is to produce **better context, safer changes, stronger verification, and more useful iteration**.
 
 ## Prompt engine philosophy
 
@@ -55,17 +118,47 @@ Every request should be transformed into a structured execution brief containing
 
 See [`docs/PROMPT_ENGINE.md`](docs/PROMPT_ENGINE.md) and [`prompts/MASTER_SYSTEM.md`](prompts/MASTER_SYSTEM.md).
 
-## Repository status
+## Repository architecture
 
-This repository is currently the **product blueprint and engineering foundation** for LUA-X. Implementation will be delivered in vertical slices so every major feature is connected to the same orchestration and verification architecture.
+```text
+LUA-X
+├── packages/
+│   ├── verification-engine/
+│   ├── autonomous-engine/
+│   ├── fusion-core/
+│   ├── cloud-core/
+│   └── hardening-core/
+├── prompts/
+│   ├── MASTER_SYSTEM.md
+│   ├── LUau.md
+│   ├── ANIMATION.md
+│   ├── UI.md
+│   ├── WORLD.md
+│   ├── VERIFICATION.md
+│   └── AUTONOMOUS.md
+└── docs/
+    ├── ARCHITECTURE.md
+    ├── PHASE_6.md
+    ├── PHASE_8.md
+    ├── PHASE_9.md
+    ├── PHASE_10_11.md
+    └── PRODUCTION_HARDENING.md
+```
+
+## Versioning
+
+LUA-X uses a **pre-1.0 development version** because complete external product integrations are not yet production-complete.
+
+- **`0.11.0-alpha`** — roadmap core through Phase 11
+- **`0.11.x`** — stabilization, integration, testing, and hardening iterations
+- **`0.12.x`** — live integration milestones as they are actually verified
+- **`1.0.0`** — reserved for a genuinely production-ready end-to-end release
+
+Version numbers are not claims that every Phase 0–11 external dependency is already deployed.
 
 ## Roadmap
 
 See [`ROADMAP.md`](ROADMAP.md).
-
-## Architecture
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Prompt library
 
@@ -74,11 +167,11 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - [`prompts/ANIMATION.md`](prompts/ANIMATION.md)
 - [`prompts/UI.md`](prompts/UI.md)
 - [`prompts/WORLD.md`](prompts/WORLD.md)
-- [`prompts/TEST.md`](prompts/TEST.md)
-- [`prompts/SECURITY.md`](prompts/SECURITY.md)
+- [`prompts/VERIFICATION.md`](prompts/VERIFICATION.md)
+- [`prompts/AUTONOMOUS.md`](prompts/AUTONOMOUS.md)
 
 ## Guiding principle
 
 **LUA-X should never optimize for impressive-looking generation at the expense of a working Roblox project.**
 
-A generation is only considered successful when it satisfies its acceptance criteria and survives verification.
+A generation is only considered successful when it satisfies its acceptance criteria, passes appropriate verification, and has evidence supporting the result.
