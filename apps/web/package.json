@@ -15,7 +15,5 @@
     "@lua-x/orchestrator": "0.1.0",
     "@lua-x/shared": "0.1.0"
   },
-  "devDependencies": {
-    "typescript": "^5.9.2"
-  }
+  "devDependencies": { "typescript": "^5.9.2" }
 }
