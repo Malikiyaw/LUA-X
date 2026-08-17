@@ -1,15 +1,20 @@
 # LUA-X Roadmap
 
-## Phase 0 — Foundation
+## Phase 0 — Foundation — COMPLETE
 
 - [x] Establish product thesis
 - [x] Define project-aware prompt architecture
 - [x] Define agent roles
 - [x] Define verification-first workflow
-- [ ] Select implementation stack
-- [ ] Create monorepo structure
-- [ ] Add CI and type/lint/test gates
-- [ ] Build local development environment
+- [x] Select initial implementation stack: TypeScript + Node.js monorepo
+- [x] Create monorepo structure
+- [x] Add CI and type/lint/test/build gates
+- [x] Build runnable local development environment
+- [x] Add shared domain contracts
+- [x] Add initial orchestration compiler
+- [x] Add web health endpoint and planning API
+- [x] Add browser workspace shell
+- [x] Add automated Phase 0 tests
 
 ## Phase 1 — Project Intelligence
 
