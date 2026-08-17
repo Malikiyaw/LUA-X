@@ -12,32 +12,101 @@
   <div class="shell">
     <aside class="sidebar" aria-label="Primary navigation">
       <div class="brand"><div class="brand-mark">X</div><div><strong>LUA-X</strong><span>Roblox engineering</span></div></div>
-      <nav><a class="nav-item active" href="#chat"><span>✦</span>Chat</a><a class="nav-item" href="#projects"><span>▦</span>Projects</a><a class="nav-item" href="#history"><span>◷</span>History</a></nav>
+      <nav>
+        <a class="nav-item active" data-view="chat" href="#chat"><span>✦</span>Chat</a>
+        <a class="nav-item" data-view="plugins" href="#plugins"><span>▦</span>Plugins</a>
+        <a class="nav-item" data-view="projects" href="#projects"><span>▤</span>Projects</a>
+        <a class="nav-item" data-view="history" href="#history"><span>◷</span>History</a>
+      </nav>
       <div class="sidebar-bottom">
-        <div class="connection-card studio-card">
+        <div class="connection-card studio-card" id="studio-card">
           <div class="connection-line"><span class="pulse" id="studio-pulse"></span><span id="studio-label">Studio offline</span></div>
           <small id="studio-detail">Open the LUA-X plugin in Roblox Studio and press Connect</small>
           <button class="ping-button" id="ping-studio" type="button" disabled>◉ Ping Studio</button>
         </div>
-        <div class="sidebar-links"><a href="#settings">Settings</a><a href="#docs">Docs</a><a class="download-link" id="download-plugin" href="/LUA-X.plugin.lua" download="LUA-X.plugin.lua">↓ Download Studio plugin</a></div>
+        <div class="sidebar-links"><a href="#settings">Settings</a><a href="#docs">Docs</a><a class="download-link" id="download-plugin" href="/LUA-X.lua" download="LUA-X.lua">↓ Download Studio plugin</a></div>
       </div>
     </aside>
-    <main class="main" id="chat">
+
+    <main class="main">
       <header class="topbar">
-        <div class="breadcrumbs"><span>LUA-X</span><b>/</b><strong>Chat</strong></div>
+        <div class="breadcrumbs"><span>LUA-X</span><b>/</b><strong id="view-title">Chat</strong></div>
         <div class="top-actions">
           <span class="status-pill" id="backend-status">Checking…</span>
           <span class="status-pill" id="ai-status">AI —</span>
           <span class="model-label" id="model-label">NVIDIA · not configured</span>
         </div>
       </header>
-      <section class="chat-panel">
-        <div class="messages" id="messages" aria-live="polite"></div>
-        <div class="composer">
-          <textarea id="prompt" rows="2" placeholder="Ask LUA-X to write Luau, design a system, or solve a Roblox scripting problem…" aria-label="Message LUA-X"></textarea>
-          <button class="send-button" id="send-button" type="button"><span class="button-mark">✦</span><span>Send</span></button>
+
+      <section class="view" id="view-chat">
+        <div class="chat-panel">
+          <div class="messages" id="messages" aria-live="polite"></div>
+          <div class="composer">
+            <textarea id="prompt" rows="2" placeholder="Ask LUA-X to write Luau, design a system, or solve a Roblox scripting problem…" aria-label="Message LUA-X"></textarea>
+            <button class="send-button" id="send-button" type="button"><span class="button-mark">✦</span><span>Send</span></button>
+          </div>
+          <div class="composer-note" id="composer-note">LUA-X answers with plain text and Luau code. Nothing is pushed to Studio automatically.</div>
         </div>
-        <div class="composer-note" id="composer-note">LUA-X answers with plain text and Luau code. Nothing is pushed to Studio automatically.</div>
+      </section>
+
+      <section class="view hidden" id="view-plugins">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head">
+              <div class="plugin-logo">X</div>
+              <div class="plugin-title">
+                <strong>LUA-X Studio Plugin</strong>
+                <span>Version 1.1.0 · single canonical build</span>
+              </div>
+              <span class="plugin-status" id="plugin-status">Not detected</span>
+            </div>
+            <p class="plugin-desc">Bridges Roblox Studio to LUA-X: heartbeat, live context, and command execution (ping, sync context, build plans, apply, verify). Chat stays here on the website.</p>
+            <div class="plugin-actions">
+              <button class="primary-button" id="download-plugin-2" type="button">Download LUA-X.lua</button>
+              <span class="plugin-meta" id="plugin-meta">SHA-256 from manifest</span>
+            </div>
+          </div>
+
+          <div class="plugin-card" id="studio-panel">
+            <div class="plugin-card-head">
+              <div class="plugin-logo small">S</div>
+              <div class="plugin-title">
+                <strong>Studio</strong>
+                <span id="studio-subtitle">Session bridge</span>
+              </div>
+              <span class="plugin-status" id="studio-big-status">● Offline</span>
+            </div>
+            <div class="studio-rows" id="studio-rows">
+              <div class="studio-row"><span>Project</span><b id="row-project">—</b></div>
+              <div class="studio-row"><span>Place</span><b id="row-place">—</b></div>
+              <div class="studio-row"><span>Session</span><b id="row-session">—</b></div>
+              <div class="studio-row"><span>Last ping</span><b id="row-lastping">—</b></div>
+              <div class="studio-row"><span>Context</span><b id="row-context">Not synced</b></div>
+            </div>
+            <div class="studio-actions">
+              <button class="primary-button" id="connect-now" type="button">Connect Now</button>
+              <button class="secondary-button" id="ping-studio-2" type="button" disabled>Ping Studio</button>
+              <button class="secondary-button" id="sync-context" type="button" disabled>Sync Context</button>
+              <button class="ghost-button" id="open-studio" type="button">Open Studio</button>
+            </div>
+            <div class="waiting-box hidden" id="waiting-box">
+              <div class="waiting-title">Waiting for Studio…</div>
+              <ol class="waiting-steps">
+                <li>Download the plugin (above) and place <b>LUA-X.lua</b> in your Roblox Plugins folder.</li>
+                <li>Open Roblox Studio and click the <b>LUA-X</b> toolbar button.</li>
+                <li>Keep the dock open — the website detects your session automatically.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-coming">
+        <div class="coming-panel">
+          <div class="coming-mark">▤</div>
+          <h2 id="coming-title">Coming soon</h2>
+          <p id="coming-text">This section is on the LUA-X roadmap.</p>
+        </div>
       </section>
     </main>
   </div>

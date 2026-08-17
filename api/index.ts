@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-type ChatRequest = { prompt?: unknown; projectId?: unknown; context?: unknown; mode?: unknown };
+type ChatRequest = { prompt?: unknown; projectId?: unknown; context?: unknown; sessionId?: unknown; mode?: unknown };
 
 const VERSION = '0.11.0-chat';
 const DEFAULT_BASE_URL = 'https://integrate.api.nvidia.com/v1';
@@ -8,7 +8,7 @@ const DEFAULT_MODEL = 'nvidia/llama-3.3-nemotron-super-49b-v1';
 const MAX_BODY_BYTES = 128 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX = 60;
-const PLUGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/Malikiyaw/LUA-X/main/studio-plugin/LUA-X.plugin.lua';
+const PLUGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/Malikiyaw/LUA-X/main/studio-plugin/LUA-X-connected.lua';
 
 const rateState = new Map<string, { count: number; resetAt: number }>();
 
@@ -57,8 +57,9 @@ function buildUserPrompt(input: ChatRequest): string {
   const prompt = String(input.prompt ?? '').trim();
   const project = typeof input.projectId === 'string' && input.projectId ? input.projectId : 'unknown';
   const context = isRecord(input.context) ? input.context : {};
-  const contextText = Object.keys(context).length > 0 ? `\nProject context: ${JSON.stringify(context)}` : '';
-  return `Project: ${project}\nCreator: ${prompt}${contextText}`;
+  const contextText = Object.keys(context).length > 0 ? `\nLive Studio context: ${JSON.stringify(context)}` : '';
+  const sessionText = typeof input.sessionId === 'string' && input.sessionId ? `\nConnected Studio session: ${input.sessionId}` : '';
+  return `Project: ${project}\nCreator: ${prompt}${sessionText}${contextText}`;
 }
 
 async function readJson(request: Request): Promise<unknown> {
@@ -87,7 +88,7 @@ async function downloadPlugin(cors: string): Promise<Response> {
       status: 200,
       headers: {
         'content-type': 'application/octet-stream',
-        'content-disposition': 'attachment; filename="LUA-X.plugin.lua"',
+        'content-disposition': 'attachment; filename="LUA-X.lua"',
         'cache-control': 'no-store, max-age=0',
         'access-control-allow-origin': cors,
         'x-content-type-options': 'nosniff',

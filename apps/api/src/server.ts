@@ -4,6 +4,7 @@ import { generateAIPlan, type AIRequest } from '@lua-x/api-core';
 import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
+import studioHandler from './studio-handler.js';
 
 export const API_VERSION = '0.11.0-alpha';
 
@@ -69,6 +70,26 @@ function createDependencies(): ApiDependencies {
   return { config, nvidia, limiter: new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests) };
 }
 
+async function adaptStudioRequest(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of request) chunks.push(Buffer.from(chunk));
+  const body = Buffer.concat(chunks);
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (typeof value === 'string') headers.set(key, value);
+    else if (Array.isArray(value)) headers.set(key, value.join(', '));
+  }
+  const target = new URL(request.url ?? '/', `http://${request.headers.host ?? 'localhost'}`);
+  const fetchRequest = new Request(target, {
+    method: request.method ?? 'GET',
+    headers,
+    ...(request.method === 'POST' || request.method === 'PUT' ? { body: body.length > 0 ? body : undefined } : {}),
+  });
+  const fetchResponse = await studioHandler(fetchRequest);
+  response.writeHead(fetchResponse.status, Object.fromEntries(fetchResponse.headers.entries()));
+  response.end(await fetchResponse.text());
+}
+
 export async function handleApiRequest(deps: ApiDependencies, request: IncomingMessage, response: ServerResponse): Promise<void> {
   const requestId = typeof request.headers['x-request-id'] === 'string' && request.headers['x-request-id'].length > 0
     ? request.headers['x-request-id']
@@ -88,6 +109,11 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
         'access-control-allow-headers': 'content-type,authorization,x-request-id',
       });
       response.end();
+      return;
+    }
+
+    if (url.pathname.startsWith('/api/studio') || url.pathname.startsWith('/studio/')) {
+      await adaptStudioRequest(request, response);
       return;
     }
 
@@ -157,9 +183,16 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
 
       try {
         if ((payload as { mode?: string }).mode === 'chat') {
+          const requestBody = payload as { prompt: string; context?: unknown; sessionId?: string };
+          const contextBlock = requestBody.context && typeof requestBody.context === 'object'
+            ? `\n\nLive Studio context:\n${JSON.stringify(requestBody.context)}`
+            : '';
+          const sessionBlock = typeof requestBody.sessionId === 'string' && requestBody.sessionId
+            ? `\nConnected Studio session: ${requestBody.sessionId}`
+            : '';
           const chatResult = await deps.nvidia.chat([
             { role: 'system', content: CHAT_SYSTEM_PROMPT },
-            { role: 'user', content: (payload as { prompt: string }).prompt },
+            { role: 'user', content: requestBody.prompt + sessionBlock + contextBlock },
           ]);
           sendJson(response, 200, {
             requestId,

@@ -27,6 +27,7 @@ toolbarButton.ClickableWhenViewportHidden = true
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot
 local endpointBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
+local websiteChip, aiChip, errorLabel
 local currentPlan, currentContext = nil, {}
 local busy, applyArmed = false, false
 local sessionId = plugin:GetSetting(SESSION_KEY)
@@ -138,11 +139,27 @@ end
 local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
 
 local function heartbeat()
-	local ok, response = safe("POST", rootUrl() .. "/api/studio/heartbeat", {projectId=tostring(game.PlaceId), sessionId=sessionId, placeName=tostring(game.Name), pluginVersion="1.1.0"}, 2)
+	local context = type(currentContext) == "table" and currentContext or {}
+	local ok, response = safe("POST", rootUrl() .. "/api/studio/heartbeat", {projectId=tostring(game.PlaceId), sessionId=sessionId, placeName=tostring(game.Name), placeId=tostring(game.PlaceId), pluginVersion="1.1.0", context={selection=#Selection:Get(), scripts=#(type(context.relevantFiles)=="table" and context.relevantFiles or {})}}, 2)
 	if ok then
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		setConnected(true, dOk and type(data)=="table" and data.projectId and ("Place " .. tostring(data.projectId)) or "online")
 	else setConnected(false) end
+end
+
+local function refreshRemoteStatus()
+	if not websiteChip or not aiChip then return end
+	local wOk, wResponse = safe("GET", rootUrl() .. "/api/health", nil, 1)
+	websiteChip.Text = wOk and "Website: Online" or "Website: Offline"
+	websiteChip.TextColor3 = wOk and C.good or C.bad
+	local aOk, aResponse = safe("GET", rootUrl() .. "/api/ai/status", nil, 1)
+	local configured = false
+	if aOk and aResponse then
+		local dOk, data = pcall(function() return HttpService:JSONDecode(aResponse.Body) end)
+		configured = dOk and type(data) == "table" and data.configured == true
+	end
+	aiChip.Text = configured and "AI: Ready" or "AI: —"
+	aiChip.TextColor3 = configured and C.good or C.warn
 end
 
 local function pollCommands()
@@ -151,8 +168,11 @@ local function pollCommands()
 	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 	if not dOk or type(data) ~= "table" or type(data.command) ~= "table" then return end
 	local command = data.command
-	if command.type == "ping" then setStatus("Website handshake received.", "good")
-	elseif command.type == "refresh_context" then refreshContext(); setStatus("Context refresh requested by website.", "good")
+	if command.type == "ping" then setStatus("Website handshake received · ping answered.", "good")
+	elseif command.type == "refresh_context" then refreshContext(); setStatus("Context refresh requested by website · synced.", "good")
+	elseif command.type == "analyze" then refreshContext(); setStatus("Analyze requested by website · context synced.", "good")
+	elseif command.type == "verify" then verifyLocal(); setStatus("Verify requested by website · done.", "good")
+	elseif command.type == "stop" then setStatus("Stop requested by website · idle.", "warn")
 	elseif command.type == "build" and type(command.prompt) == "string" then
 		promptBox.Text = command.prompt
 		setStatus("Build request received from LUA-X web.", "good")
@@ -234,7 +254,7 @@ local function buildWidget()
 	ui("UIListLayout", {Padding=UDim.new(0,10),SortOrder=Enum.SortOrder.LayoutOrder}, scroll)
 	local hero=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,94),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=1},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,16,0,13),Size=UDim2.new(1,-200,0,28),BackgroundTransparency=1,Text="LUA-X",Font=Enum.Font.GothamBold,TextSize=22,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},hero)
-	ui("TextLabel",{Position=UDim2.new(0,16,0,47),Size=UDim2.new(1,-200,0,20),BackgroundTransparency=1,Text="AI-native Roblox engineering · connected bridge",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},hero)
+	ui("TextLabel",{Position=UDim2.new(0,16,0,47),Size=UDim2.new(1,-200,0,20),BackgroundTransparency=1,Text="AI-native Roblox engineering · connected bridge · v1.1.0",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},hero)
 	local conn=round(ui("Frame",{Position=UDim2.new(1,-188,0,20),Size=UDim2.new(0,172,0,42),BackgroundColor3=C.field,BorderSizePixel=0},hero),12)
 	connectionDot=round(ui("Frame",{Position=UDim2.new(0,12,0.5,-5),Size=UDim2.new(0,10,0,10),BackgroundColor3=C.bad,BorderSizePixel=0},conn),5)
 	connectionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,0),Size=UDim2.new(1,-35,1,0),BackgroundTransparency=1,Text="Studio offline",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},conn)
@@ -242,11 +262,13 @@ local function buildWidget()
 	local p1=ui("Frame",{Position=UDim2.new(0,0,0,0),Size=UDim2.new(.34,-1,1,0),BackgroundTransparency=1},metrics); local p2=ui("Frame",{Position=UDim2.new(.34,0,0,0),Size=UDim2.new(.33,-1,1,0),BackgroundTransparency=1},metrics); local p3=ui("Frame",{Position=UDim2.new(.67,0,0,0),Size=UDim2.new(.33,0,1,0),BackgroundTransparency=1},metrics)
 	for _,f in ipairs({p1,p2,p3}) do ui("TextLabel",{Position=UDim2.new(0,13,0,8),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},f); ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Font=Enum.Font.GothamBold,TextSize=12,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},f) end
 	p1:FindFirstChildOfClass("TextLabel").Text="PROJECT"; p1:GetChildren()[2].Text=tostring(game.PlaceId); p2:FindFirstChildOfClass("TextLabel").Text="SELECTION"; selectionLabel=p2:GetChildren()[2]; selectionLabel.Text="0 selected"; p3:FindFirstChildOfClass("TextLabel").Text="ACTIVITY"; activityLabel=p3:GetChildren()[2]; activityLabel.Text="Ready"
-	local net=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,110),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=3},scroll)))
+	local net=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,150),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=3},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="BACKEND CONNECTION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},net)
 	endpointBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,34),Size=UDim2.new(1,-26,0,32),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left,Text=type(plugin:GetSetting(ENDPOINT_KEY))=="string" and plugin:GetSetting(ENDPOINT_KEY) or DEFAULT_ENDPOINT},net),7)
-	local test=round(ui("TextButton",{Position=UDim2.new(0,13,0,73),Size=UDim2.new(.5,-17,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Test Backend",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
-	local save=round(ui("TextButton",{Position=UDim2.new(.5,3,0,73),Size=UDim2.new(.5,-16,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Save Endpoint",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
+	websiteChip=round(ui("TextLabel",{Position=UDim2.new(0,13,0,73),Size=UDim2.new(.5,-17,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="Website: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
+	aiChip=round(ui("TextLabel",{Position=UDim2.new(.5,3,0,73),Size=UDim2.new(.5,-16,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="AI: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
+	local test=round(ui("TextButton",{Position=UDim2.new(0,13,0,105),Size=UDim2.new(.5,-17,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Test Backend",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
+	local save=round(ui("TextButton",{Position=UDim2.new(.5,3,0,105),Size=UDim2.new(.5,-16,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Save Endpoint",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
 	local comp=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,220),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=4},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="LUA-X ARCHITECT",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},comp)
 	ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Text="Describe the system. LUA-X will build a reviewable change set.",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},comp)
@@ -264,17 +286,43 @@ local function buildWidget()
 	statusLabel=ui("TextLabel",{Size=UDim2.new(1,0,0,42),BackgroundTransparency=1,Text="Connected bridge starting…",Font=Enum.Font.GothamMedium,TextSize=10,TextWrapped=true,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left,LayoutOrder=7},scroll)
 	statusDot=round(ui("Frame",{Size=UDim2.new(0,8,0,8),BackgroundColor3=C.muted,BorderSizePixel=0,Visible=false},scroll),4)
 
-	test.MouseButton1Click:Connect(function() local ok,r=safe("GET",rootUrl().."/api/health",nil,2); if ok then setStatus("Backend online and responding.","good") else setStatus("Backend error: "..(r and bodyError(r) or "unreachable"),"bad") end end)
+	test.MouseButton1Click:Connect(function() local ok,r=safe("GET",rootUrl().."/api/health",nil,2); if ok then setStatus("Backend online and responding.","good") else setStatus("Backend error: "..(r and bodyError(r) or "unreachable"),"bad") end; refreshRemoteStatus() end)
 	save.MouseButton1Click:Connect(function() saveEndpoint(); setStatus("Endpoint saved.","good") end)
-	refresh.MouseButton1Click:Connect(refreshContext); verify.MouseButton1Click:Connect(verifyLocal); gen.MouseButton1Click:Connect(generatePlan); applyButton.MouseButton1Click:Connect(applyPlan)
+	refresh.MouseButton1Click:Connect(function() refreshContext(); setStatus("Context synced.","good") end); verify.MouseButton1Click:Connect(verifyLocal); gen.MouseButton1Click:Connect(generatePlan); applyButton.MouseButton1Click:Connect(applyPlan)
 	Selection.SelectionChanged:Connect(function() if widget and widget.Enabled then refreshContext() end end)
 	refreshContext()
+	refreshRemoteStatus()
 	return true
 end
 
-toolbarButton.Click:Connect(function() if buildWidget() then widget.Enabled=not widget.Enabled; if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good") end end end)
+local function showErrorWidget(message)
+	warn("[LUA-X] widget error: " .. tostring(message))
+	local errWidget = plugin:CreateDockWidgetPluginGui("LUAXError", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 360, 180, 320, 160))
+	errWidget.Title = "LUA-X Studio · startup error"
+	local err = round(ui("Frame", {Size=UDim2.fromScale(1,1), BackgroundColor3=C.bg, BorderSizePixel=0}, errWidget))
+	ui("UIPadding", {PaddingTop=UDim.new(0,14),PaddingBottom=UDim.new(0,14),PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)}, err)
+	ui("TextLabel",{Size=UDim2.new(1,0,0,22),BackgroundTransparency=1,Text="LUA-X failed to start",Font=Enum.Font.GothamBold,TextSize=14,TextColor3=C.bad,TextXAlignment=Enum.TextXAlignment.Left},err)
+	errorLabel=ui("TextLabel",{Position=UDim2.new(0,0,0,28),Size=UDim2.new(1,0,1,-28),BackgroundTransparency=1,Text=trim(tostring(message), 400),Font=Enum.Font.Code,TextSize=9,TextColor3=C.text,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top},err)
+	errWidget.Enabled = true
+	return errWidget
+end
 
-task.spawn(function() while true do heartbeat(); task.wait(HEARTBEAT_SECONDS) end end)
-task.spawn(function() while true do if widget and widget.Enabled then pollCommands() end; task.wait(COMMAND_SECONDS) end end)
+toolbarButton.Click:Connect(function()
+	local ok, err = pcall(function()
+		if buildWidget() then
+			widget.Enabled = not widget.Enabled
+			if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good") end
+		end
+	end)
+	if not ok then
+		pcall(showErrorWidget, err)
+		warn("[LUA-X] startup failed: " .. tostring(err))
+	end
+end)
 
-print("[LUA-X] Connected Studio bridge active · session " .. sessionId)
+task.spawn(function() while true do local ok=pcall(heartbeat); if not ok then warn("[LUA-X] heartbeat failed") end; task.wait(HEARTBEAT_SECONDS) end end)
+task.spawn(function() while true do if widget and widget.Enabled then local ok=pcall(pollCommands); if not ok then warn("[LUA-X] command poll failed") end end; task.wait(COMMAND_SECONDS) end end)
+task.spawn(function() while true do task.wait(30); local ok=pcall(refreshRemoteStatus); if not ok then warn("[LUA-X] remote status refresh failed") end end end)
+task.spawn(function() pcall(refreshContext) end)
+
+print("[LUA-X] Connected Studio bridge v1.1.0 active · session " .. sessionId)

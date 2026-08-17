@@ -65,9 +65,10 @@ function userPrompt(body: Record<string, unknown>): string {
   const project = typeof body.projectId === 'string' && body.projectId ? body.projectId : 'unknown';
   const context = body.context ?? {};
   const contextText = typeof context === 'object' && context !== null && Object.keys(context).length > 0
-    ? `\nProject context: ${JSON.stringify(context)}`
+    ? `\nLive Studio context: ${JSON.stringify(context)}`
     : '';
-  return `Project: ${project}\nCreator: ${prompt}${contextText}`;
+  const sessionText = typeof body.sessionId === 'string' && body.sessionId ? `\nConnected Studio session: ${body.sessionId}` : '';
+  return `Project: ${project}\nCreator: ${prompt}${sessionText}${contextText}`;
 }
 
 async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string) {

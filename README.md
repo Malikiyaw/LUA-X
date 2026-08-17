@@ -37,7 +37,7 @@ LUA-X is not just a prompt box that returns Luau. It is a project-aware developm
 
 ## Install LUA-X in Roblox Studio
 
-The repository now includes an installable local Studio plugin at [`studio-plugin/LUA-X.plugin.lua`](studio-plugin/LUA-X.plugin.lua).
+The repository now includes an installable local Studio plugin at [`studio-plugin/LUA-X-connected.lua`](studio-plugin/LUA-X-connected.lua).
 
 On Windows, the one-click installer locates the correct folder for you:
 
@@ -48,7 +48,7 @@ On Windows, the one-click installer locates the correct folder for you:
 Manual install (Studio only loads local plugins from this exact folder with the `.plugin.lua` suffix):
 
 1. In Studio, open **Plugins** → **Manage Plugins** → **Open Plugins Folder** (opens `%USERPROFILE%\Documents\Roblox\Plugins`).
-2. Copy `LUA-X.plugin.lua` into that folder.
+2. Copy `LUA-X.lua` into that folder.
 3. Restart Roblox Studio.
 4. Open the **Plugins** tab and launch **LUA-X**.
 5. Select relevant scripts/models and describe the change in the LUA-X dock.
@@ -155,7 +155,7 @@ LUA-X
 │   ├── cloud-core/
 │   └── hardening-core/
 ├── studio-plugin/
-│   ├── LUA-X.plugin.lua
+│   ├── LUA-X-connected.lua
 │   └── README.md
 ├── prompts/
 │   ├── MASTER_SYSTEM.md

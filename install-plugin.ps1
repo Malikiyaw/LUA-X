@@ -8,15 +8,15 @@
     The installer defaults to %LOCALAPPDATA%\Roblox\Plugins, but accepts -PluginsDir
     so the exact directory opened by Studio can be used without changing this script.
 
-    The source plugin is kept as studio-plugin\LUA-X.plugin.lua in the repository, while
-    the installed local plugin is written as LUA-X.lua for compatibility with the normal
-    local-plugin workflow.
+    The canonical source plugin is studio-plugin\LUA-X-connected.lua; the installed
+    local plugin is written as LUA-X.lua for compatibility with the normal local-plugin
+    workflow. There is no other plugin implementation.
 .NOTES
     Close Roblox Studio before running this installer, then reopen Studio afterward.
 #>
 [CmdletBinding()]
 param(
-    [string]$PluginPath = (Join-Path $PSScriptRoot 'studio-plugin\LUA-X.plugin.lua'),
+    [string]$PluginPath = (Join-Path $PSScriptRoot 'studio-plugin\LUA-X-connected.lua'),
     [string]$PluginsDir = (Join-Path $env:LOCALAPPDATA 'Roblox\Plugins')
 )
 
