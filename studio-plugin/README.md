@@ -2,14 +2,25 @@
 
 This directory contains the installable LUA-X Studio bridge plugin.
 
-## Install
+## Install correctly
 
-1. Open Roblox Studio's local **Plugins** folder from Studio's plugin-management UI.
-2. Copy `LUA-X.plugin.lua` into that folder.
-3. Restart Roblox Studio.
-4. Open the **Plugins** tab and launch **LUA-X**.
+Roblox local plugins are loaded from Studio's configured **Plugins Dir**. The safest way to find the exact directory is **Plugins → Plugins Folder** inside Roblox Studio, or check Studio's plugin-directory setting. Roblox documentation exposes this as Studio's local plugins directory, and community guidance consistently uses the configured Plugins Dir rather than an arbitrary folder. citeturn180901search1turn180901search3
 
-The plugin is a normal local Studio plugin script so you can inspect the source before installing it.
+1. In Roblox Studio, open **Plugins → Plugins Folder**.
+2. Download the plugin from the LUA-X website. The website now downloads it as **`LUA-X.lua`**.
+3. Put **`LUA-X.lua`** directly inside that exact Plugins Dir — not inside another folder.
+4. Fully close and reopen Roblox Studio.
+5. Open the **Plugins** tab. The local plugin creates a **LUA-X** toolbar button; local plugins are executed from the local Plugins directory rather than being installed through the normal marketplace/plugin manager UI. citeturn180901search2turn180901search9
+
+### Important filename check
+
+Make sure Windows has not saved the file as `LUA-X.lua.txt`. In File Explorer, enable **View → Show → File name extensions** and confirm the filename ends exactly in **`.lua`**.
+
+### If LUA-X still does not appear
+
+Use **Plugins → Plugins Folder** again and confirm the file is in the directory Studio actually opened. Studio can be configured to use a different Plugins Dir, so `%localappdata%\Roblox\Plugins` is only the default on Windows, not a guaranteed path for every installation. citeturn180901search3
+
+If Studio reports a local-plugin load error, open **View → Output** after restarting; that will show whether the file was found but failed while loading.
 
 ## First run
 
@@ -50,11 +61,3 @@ The intended flow is:
 `Studio context → AI plan → review → explicit apply → Studio history`
 
 The current installable surface deliberately limits automatic mutation to script creation/update. Full instance mutation and automated runtime verification require the remaining live Studio bridge components.
-
-## Troubleshooting
-
-If **Test Connection** fails, enable Studio HTTP Requests and verify that the endpoint is reachable. If the backend returns `503`, the deployed API is reachable but its NVIDIA provider is not configured.
-
-If generation returns an API error, the plugin displays the backend HTTP status and response body. If the response is valid but contains no `plan.changes`, generation is rejected without touching the place.
-
-If a generated plan contains `create_instance`, `update_instance`, `delete_instance`, or `note`, those entries remain review/deferred items and are not automatically applied. This is intentional: the plugin should not mutate arbitrary Studio instances until the corresponding verified bridge operations are implemented.
