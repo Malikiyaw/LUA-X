@@ -115,12 +115,53 @@ describe('API server', () => {
     const response = await fetch(`${url}/api/studio/diagnostics`);
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.service).toBe('lua-x-studio');
+    expect(body.service).toBe('studio');
+    expect(body.runtime).toBe('nodejs');
+    expect(body.handler).toBe('loaded');
     expect(body.api).toBe('ok');
     expect(body.connectRoute).toBe('ok');
     expect(body.statusRoute).toBe('ok');
     expect(body.registerRoute).toBe('ok');
     expect(body.heartbeatRoute).toBe('ok');
     expect(body.commandRoute).toBe('ok');
+    expect(body.redisConfigured).toBe(false);
+    expect(body.redisReachable).toBe(false);
+  }));
+
+  it('exposes a minimal studio ping without any dependencies', async () => withServer(async url => {
+    const response = await fetch(`${url}/api/studio/ping`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.ok).toBe(true);
+    expect(body.service).toBe('studio');
+    expect(body.runtime).toBe('nodejs');
+  }));
+
+  it('creates a connection request for a minimal valid payload', async () => withServer(async url => {
+    const response = await fetch(`${url}/api/studio/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'web' }) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.status).toBe('waiting');
+    expect(body.expiresIn).toBe(30);
+    expect(typeof body.requestId).toBe('string');
+    expect(body.requestId.startsWith('connect_')).toBe(true);
+  }));
+
+  it('never crashes the connect endpoint on bad input', async () => withServer(async url => {
+    const post = (body: string | null) => fetch(`${url}/api/studio/connect`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      ...(body === null ? {} : { body }),
+    });
+    const emptyProject = await post(JSON.stringify({ projectId: '' }));
+    expect(emptyProject.status).toBe(200);
+    expect((await emptyProject.json()).requestId).toBeTruthy();
+    const emptyObject = await post('{}');
+    expect(emptyObject.status).toBe(200);
+    expect((await emptyObject.json()).requestId).toBeTruthy();
+    const malformed = await post('{not json');
+    expect(malformed.status).toBe(400);
+    const missingBody = await post(null);
+    expect(missingBody.status).toBe(400);
   }));
 });

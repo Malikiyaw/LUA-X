@@ -259,11 +259,7 @@ async function connectRequestStatus(requestId: string): Promise<{ status: 'waiti
   return { status: 'waiting' };
 }
 
-export default async function handler(request: Request): Promise<Response> {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
-
-  const url = new URL(request.url);
-  const pathname = url.pathname.replace(/^\/api\/studio\/?/, '').replace(/^\/studio\/?/, '').replace(/\/$/, '');
+async function handleStudioRequest(request: Request, url: URL, pathname: string): Promise<Response> {
 
   if (request.method === 'POST' && pathname === 'connect') {
     try {
@@ -357,9 +353,22 @@ export default async function handler(request: Request): Promise<Response> {
     }
   }
 
+  if (request.method === 'GET' && pathname === 'ping') {
+    return json(200, { ok: true, service: 'studio', runtime: 'nodejs' });
+  }
+
   if (request.method === 'GET' && pathname === 'diagnostics') {
+    let redisReachable = false;
+    try {
+      const pong = await redisCommand(['PING']);
+      redisReachable = pong === 'PONG';
+    } catch {
+      redisReachable = false;
+    }
     return json(200, {
-      service: 'lua-x-studio',
+      service: 'studio',
+      runtime: 'nodejs',
+      handler: 'loaded',
       version: REQUIRED_PLUGIN_VERSION,
       api: 'ok',
       connectRoute: 'ok',
@@ -370,7 +379,8 @@ export default async function handler(request: Request): Promise<Response> {
       disconnectRoute: 'ok',
       commandRoute: 'ok',
       diagnosticsRoute: 'ok',
-      redis: redisConfig() ? 'configured' : 'not-configured',
+      redisConfigured: Boolean(redisConfig()),
+      redisReachable,
       memory: 'ok',
     });
   }
@@ -424,4 +434,30 @@ export default async function handler(request: Request): Promise<Response> {
   }
 
   return json(404, { error: 'Studio route not found.' });
+}
+
+export default async function handler(request: Request): Promise<Response> {
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
+
+  let url: URL;
+  let pathname: string;
+  try {
+    url = new URL(request.url);
+    pathname = url.pathname.replace(/^\/api\/studio\/?/, '').replace(/^\/studio\/?/, '').replace(/\/$/, '');
+  } catch {
+    return json(400, { error: 'Invalid request URL.' });
+  }
+
+  try {
+    return await handleStudioRequest(request, url, pathname);
+  } catch (error) {
+    const requestId = request.headers.get('x-request-id') || `studio_${Date.now().toString(36)}`;
+    const stage = pathname === 'connect' ? 'create-request' : undefined;
+    console.error(
+      `[studio-handler] route=${pathname} method=${request.method}${stage ? ` stage=${stage}` : ''} requestId=${requestId}`,
+      error instanceof Error ? error : new Error(String(error)),
+    );
+    const code = pathname === 'connect' ? 'STUDIO_CONNECT_FAILED' : 'STUDIO_HANDLER_FAILED';
+    return json(500, { error: { code, message: 'Studio connection service failed.', requestId } });
+  }
 }

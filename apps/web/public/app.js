@@ -202,6 +202,17 @@ function classifyHttpError(detail) {
   if (!detail || !detail.reached || !detail.status) {
     return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response.' };
   }
+  const serverError = detail.body && typeof detail.body === 'object' && detail.body.error && typeof detail.body.error === 'object'
+    ? detail.body.error
+    : null;
+  if (serverError && typeof serverError.code === 'string') {
+    const titles = { STUDIO_CONNECT_FAILED: 'Studio connection service failed', STUDIO_HANDLER_FAILED: 'Studio connection service failed' };
+    return {
+      title: titles[serverError.code] || 'Studio connection service failed',
+      hint: typeof serverError.message === 'string' ? serverError.message : 'The LUA-X Studio API crashed while creating the connection request.',
+      serverRequestId: typeof serverError.requestId === 'string' ? serverError.requestId : null,
+    };
+  }
   const status = detail.status;
   if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder.' };
   if (status === 405) return { title: 'Wrong route or method', hint: 'The deployed API routes /api/studio differently than expected.' };
@@ -224,7 +235,7 @@ function renderConnectError(detail, requestId) {
     const snippet = detail && detail.text ? detail.text.slice(0, 160) : '—';
     connectErrorResponse.textContent = `Response: ${snippet}`;
   }
-  if (connectErrorRequest) connectErrorRequest.textContent = `Request ID: ${requestId || '—'}`;
+  if (connectErrorRequest) connectErrorRequest.textContent = `Request ID: ${cls.serverRequestId || requestId || '—'}`;
   if (connectErrorTiming) connectErrorTiming.textContent = detail ? `Timing: ${detail.timeMs}ms` : 'Timing: —';
 }
 
@@ -292,13 +303,13 @@ function updateWaitingStage() {
   }
   if (elapsed < CONNECT_STAGE_1_MS) {
     waitingTitle.textContent = '🟡 Connecting to Roblox Studio…';
-    waitingSteps.textContent = 'A connection request was created. The LUA-X plugin polls for it every few seconds and registers automatically.';
+    waitingSteps.textContent = '✓ Connection request created — the plugin polls for it every few seconds and registers automatically.';
   } else if (elapsed < CONNECT_STAGE_2_MS) {
     waitingTitle.textContent = '🟡 Still waiting for Studio…';
-    waitingSteps.textContent = 'Keep LUA-X open in Roblox Studio. If the plugin is running, it should answer the handshake shortly.';
+    waitingSteps.textContent = '✓ Connection request created. Keep LUA-X open in Roblox Studio — it should answer the handshake shortly.';
   } else {
     waitingTitle.textContent = '🟠 Studio has not completed the handshake…';
-    waitingSteps.textContent = 'If LUA-X is running, check its connection card for the exact error, or press Cancel and try again.';
+    waitingSteps.textContent = '✓ Connection request created. If LUA-X is running, check its connection card for the exact error, or press Cancel and try again.';
   }
 }
 
