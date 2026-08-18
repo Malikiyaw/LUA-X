@@ -303,13 +303,13 @@ function updateWaitingStage() {
   }
   if (elapsed < CONNECT_STAGE_1_MS) {
     waitingTitle.textContent = '🟡 Connecting to Roblox Studio…';
-    waitingSteps.textContent = '✓ Connection request created — the plugin polls for it every few seconds and registers automatically.';
+    waitingSteps.textContent = '✓ Connection request created — the plugin polls for it every few seconds.';
   } else if (elapsed < CONNECT_STAGE_2_MS) {
-    waitingTitle.textContent = '🟡 Still waiting for Studio…';
-    waitingSteps.textContent = '✓ Connection request created. Keep LUA-X open in Roblox Studio — it should answer the handshake shortly.';
+    waitingTitle.textContent = '🟡 Waiting for Studio plugin…';
+    waitingSteps.textContent = 'It polls for the request automatically. Keep LUA-X open in Roblox Studio.';
   } else {
-    waitingTitle.textContent = '🟠 Studio has not completed the handshake…';
-    waitingSteps.textContent = '✓ Connection request created. If LUA-X is running, check its connection card for the exact error, or press Cancel and try again.';
+    waitingTitle.textContent = '🟡 Still waiting for the plugin to respond…';
+    waitingSteps.textContent = 'If LUA-X is running in Studio, it should connect shortly. Press Cancel to abort.';
   }
 }
 
