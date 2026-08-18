@@ -43,7 +43,7 @@ const checkBackend = document.querySelector('#check-backend');
 const checkAi = document.querySelector('#check-ai');
 const checkSession = document.querySelector('#check-session');
 const cancelConnect = document.querySelector('#cancel-connect');
-const runDiagnostics = document.querySelector('#run-diagnostics');
+const runDiagnosticsBtn = document.querySelector('#run-diagnostics');
 const diagnosticsBox = document.querySelector('#diagnostics-box');
 const diagSummary = document.querySelector('#diag-summary');
 const diagItems = {
@@ -495,7 +495,7 @@ function cancelConnectFlow() {
   showToast('Connection request cancelled — the plugin will stay idle.');
 }
 
-async function runDiagnostics() {
+async function runConnectionTest() {
   if (!diagnosticsBox) return;
   diagnosticsBox.classList.remove('hidden');
   const results = {};
@@ -635,7 +635,7 @@ pingButton?.addEventListener('click', pingStudio);
 pingButton2?.addEventListener('click', pingStudio);
 connectNow?.addEventListener('click', connectNowFlow);
 cancelConnect?.addEventListener('click', cancelConnectFlow);
-runDiagnostics?.addEventListener('click', runDiagnostics);
+runDiagnosticsBtn?.addEventListener('click', runConnectionTest);
 disconnectStudioButton?.addEventListener('click', disconnectStudio);
 downloadPlugin?.addEventListener('click', startDownload);
 downloadPlugin2?.addEventListener('click', startDownload);
