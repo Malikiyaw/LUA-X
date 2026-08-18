@@ -13,6 +13,7 @@ local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local SESSION_KEY = "LUA_X_STUDIO_SESSION"
 local HEARTBEAT_SECONDS = 5
 local COMMAND_SECONDS = 2
+local CONNECT_POLL_SECONDS = 3
 local MAX_SCRIPTS = 16
 local MAX_SOURCE = 5000
 local MAX_CONTEXT = 16000
@@ -33,6 +34,7 @@ local websiteChip, aiChip, errorLabel
 local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton
 local currentPlan, currentContext = nil, {}
 local busy, applyArmed, disconnected = false, false, false
+local lastClaimedRequest = nil
 local sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
 
@@ -193,9 +195,11 @@ local function heartbeat()
 	end
 end
 
-local function registerSession()
+local function registerSession(requestId)
 	if disconnected then return false end
-	local ok, response = safe("POST", rootUrl() .. "/api/studio/register", heartbeatBody(), 3)
+	local body = heartbeatBody()
+	if type(requestId) == "string" and requestId ~= "" then body.requestId = requestId end
+	local ok, response = safe("POST", rootUrl() .. "/api/studio/register", body, 3)
 	if ok then
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		if dOk and type(data) == "table" and data.connected then
@@ -207,6 +211,24 @@ local function registerSession()
 	end
 	reportError(response and (response.StatusMessage or response.Body) or "network error")
 	return false
+end
+
+local function pollConnectionRequests()
+	if disconnected then return end
+	local ok, response = safe("GET", rootUrl() .. "/api/studio/connect/pending", nil, 1)
+	if not ok or not response then return end
+	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
+	if not dOk or type(data) ~= "table" or type(data.request) ~= "table" then return end
+	local request = data.request
+	if type(request.requestId) ~= "string" or request.requestId == "" then return end
+	if request.requestId == lastClaimedRequest then return end
+	local regOk = registerSession(request.requestId)
+	if regOk then
+		lastClaimedRequest = request.requestId
+		setStatus("Website connection request answered · session registered.", "good")
+	else
+		lastClaimedRequest = nil
+	end
 end
 
 local function refreshRemoteStatus()
@@ -274,7 +296,9 @@ local function reconnectNow()
 	disconnected = false
 	local ok = registerSession()
 	if ok then setStatus("Reconnected · session registered with LUA-X web.", "good")
-	else setStatus("Reconnect failed — see last error above.", "bad") end
+	else
+		setStatus("Could not complete Studio handshake — check the connection card and Run Diagnostics for the exact reason.", "bad")
+	end
 end
 
 local function writeSource(object, source)
@@ -435,6 +459,7 @@ toolbarButton.Click:Connect(function()
 end)
 
 task.spawn(function() local okReg=pcall(registerSession); if not okReg then warn("[LUA-X] register failed") end; task.wait(1); while true do if not disconnected then local ok=pcall(heartbeat); if not ok then warn("[LUA-X] heartbeat failed") end end; task.wait(HEARTBEAT_SECONDS) end end)
+task.spawn(function() while true do if not disconnected then local ok=pcall(pollConnectionRequests); if not ok then warn("[LUA-X] connect request poll failed") end end; task.wait(CONNECT_POLL_SECONDS) end end)
 task.spawn(function() while true do if widget and widget.Enabled and not disconnected then local ok=pcall(pollCommands); if not ok then warn("[LUA-X] command poll failed") end end; task.wait(COMMAND_SECONDS) end end)
 task.spawn(function() while true do task.wait(30); local ok=pcall(refreshRemoteStatus); if not ok then warn("[LUA-X] remote status refresh failed") end end end)
 task.spawn(function() pcall(refreshContext) end)

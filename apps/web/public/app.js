@@ -42,6 +42,24 @@ const checkDownload = document.querySelector('#check-download');
 const checkBackend = document.querySelector('#check-backend');
 const checkAi = document.querySelector('#check-ai');
 const checkSession = document.querySelector('#check-session');
+const cancelConnect = document.querySelector('#cancel-connect');
+const runDiagnostics = document.querySelector('#run-diagnostics');
+const diagnosticsBox = document.querySelector('#diagnostics-box');
+const diagSummary = document.querySelector('#diag-summary');
+const diagItems = {
+  website: document.querySelector('#diag-website'),
+  api: document.querySelector('#diag-api'),
+  bridge: document.querySelector('#diag-bridge'),
+  heartbeat: document.querySelector('#diag-heartbeat'),
+  session: document.querySelector('#diag-session'),
+  command: document.querySelector('#diag-command'),
+  ping: document.querySelector('#diag-ping'),
+};
+const svcBackend = document.querySelector('#svc-backend');
+const svcAi = document.querySelector('#svc-ai');
+const svcStudio = document.querySelector('#svc-studio');
+const waitingTitle = document.querySelector('#waiting-title');
+const waitingSteps = document.querySelector('#waiting-steps');
 const pluginMeta = document.querySelector('#plugin-meta');
 const viewTitle = document.querySelector('#view-title');
 const comingTitle = document.querySelector('#coming-title');
@@ -53,7 +71,9 @@ const PLUGIN_VERSION = '1.2.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1500;
-const CONNECT_TIMEOUT_MS = 45000;
+const CONNECT_TIMEOUT_MS = 30000;
+const CONNECT_STAGE_1_MS = 5000;
+const CONNECT_STAGE_2_MS = 15000;
 
 let requiredPluginVersion = PLUGIN_VERSION;
 let studioConnected = false;
@@ -65,9 +85,11 @@ let studioVersionStatus = null;
 let studioContext = null;
 let studioLastCommand = null;
 let studioLastSeen = null;
-let connectState = 'offline'; // offline | connecting | connected | failed
+let connectState = 'offline'; // offline | connecting | connected | failed | backend_error
 let connectTimer = null;
 let connectStartedAt = 0;
+let connectRequestId = null;
+let handshakeDone = false;
 let backendOk = false;
 let aiOk = false;
 let downloadState = 'idle'; // idle | downloading | downloaded
@@ -157,6 +179,17 @@ async function refreshHealth() {
     aiStatus.classList.remove('ok');
     modelLabel.textContent = 'NVIDIA · not configured';
   }
+  updateServicePills();
+}
+
+function updateServicePills() {
+  if (!svcBackend) return;
+  svcBackend.textContent = `Backend ${backendOk ? '🟢' : '🔴'}`;
+  svcBackend.className = `status-pill ${backendOk ? 'ok' : 'bad'}`;
+  svcAi.textContent = `NVIDIA ${aiOk ? '🟢' : '🟠'}`;
+  svcAi.className = `status-pill ${aiOk ? 'ok' : 'warn'}`;
+  svcStudio.textContent = `Studio ${studioConnected ? '🟢' : '🟡'}`;
+  svcStudio.className = `status-pill ${studioConnected ? 'ok' : 'warn'}`;
 }
 
 function renderChecklist() {
@@ -170,11 +203,33 @@ function renderChecklist() {
   checkSession.textContent = '✗ Studio session not detected';
 }
 
+function updateWaitingStage() {
+  if (connectState !== 'connecting') return;
+  if (!waitingTitle || !waitingSteps) return;
+  const elapsed = Date.now() - connectStartedAt;
+  if (handshakeDone) {
+    waitingTitle.textContent = '🟡 Handshake complete — confirming session…';
+    waitingSteps.textContent = 'The plugin answered the connection request. Waiting for the heartbeat to confirm the session.';
+    return;
+  }
+  if (elapsed < CONNECT_STAGE_1_MS) {
+    waitingTitle.textContent = '🟡 Connecting to Roblox Studio…';
+    waitingSteps.textContent = 'A connection request was created. The LUA-X plugin polls for it every few seconds and registers automatically.';
+  } else if (elapsed < CONNECT_STAGE_2_MS) {
+    waitingTitle.textContent = '🟡 Still waiting for Studio…';
+    waitingSteps.textContent = 'Keep LUA-X open in Roblox Studio. If the plugin is running, it should answer the handshake shortly.';
+  } else {
+    waitingTitle.textContent = '🟠 Studio has not completed the handshake…';
+    waitingSteps.textContent = 'If LUA-X is running, check its connection card for the exact error, or press Cancel and try again.';
+  }
+}
+
 function setConnectState(next) {
   connectState = next;
   const btn = connectNow;
   const pingBtn = pingButton2;
   const discBtn = disconnectStudioButton;
+  const cancelBtn = cancelConnect;
   const waiting = waitingBox;
   const trouble = troubleshootBox;
   if (!btn) return;
@@ -184,6 +239,7 @@ function setConnectState(next) {
       btn.disabled = false;
       pingBtn.classList.add('hidden');
       discBtn.classList.add('hidden');
+      cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
       trouble.classList.add('hidden');
       rowConnection.textContent = 'Not connected';
@@ -193,27 +249,47 @@ function setConnectState(next) {
       btn.disabled = true;
       pingBtn.classList.add('hidden');
       discBtn.classList.add('hidden');
+      cancelBtn.classList.remove('hidden');
       waiting.classList.remove('hidden');
       trouble.classList.add('hidden');
       rowConnection.textContent = 'Waiting for Roblox Studio…';
+      updateWaitingStage();
       break;
     case 'connected':
       btn.textContent = 'Connected ✓';
       btn.disabled = true;
       pingBtn.classList.remove('hidden');
       discBtn.classList.remove('hidden');
+      cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
       trouble.classList.add('hidden');
       rowConnection.textContent = 'Connected';
       break;
     case 'failed':
-      btn.textContent = 'Retry Connection';
+      connectRequestId = null;
+      btn.textContent = 'Try Again';
       btn.disabled = false;
       pingBtn.classList.add('hidden');
       discBtn.classList.add('hidden');
+      cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
       trouble.classList.remove('hidden');
-      rowConnection.textContent = 'Could not connect';
+      rowConnection.textContent = 'Connection timed out';
+      renderChecklist();
+      break;
+    case 'backend_error':
+      btn.textContent = 'Try Again';
+      btn.disabled = false;
+      pingBtn.classList.add('hidden');
+      discBtn.classList.add('hidden');
+      cancelBtn.classList.add('hidden');
+      waiting.classList.add('hidden');
+      trouble.classList.remove('hidden');
+      rowConnection.textContent = 'Backend unreachable';
+      if (checkBackend) {
+        checkBackend.textContent = '✗ Backend unreachable — cannot create a connection request';
+        checkBackend.className = 'bad';
+      }
       renderChecklist();
       break;
   }
@@ -249,9 +325,11 @@ function renderStudioCard() {
     if (connectState === 'connecting') {
       clearInterval(connectTimer);
       connectTimer = null;
+      connectRequestId = null;
       showToast('Studio session detected — you are online. ✓');
     }
     setConnectState('connected');
+    updateServicePills();
     const lastPing = studioLastCommand && studioLastCommand.type === 'ping' ? studioLastCommand.at : null;
     if (lastPing && Date.now() - lastPing < 10000) {
       pingBtnText('✓ Studio responded');
@@ -280,15 +358,18 @@ function renderStudioCard() {
     if (installStatus && pluginDownloaded()) installStatus.textContent = 'Waiting for Studio…';
     versionWarning?.classList.add('hidden');
     if (connectState === 'connecting') {
+      updateWaitingStage();
       if (Date.now() - connectStartedAt > CONNECT_TIMEOUT_MS) {
         clearInterval(connectTimer);
         connectTimer = null;
+        connectRequestId = null;
         setConnectState('failed');
-        showToast('Could not detect a Studio session. See the troubleshooting list.');
+        showToast('Connection request expired — Studio never completed the handshake. Press Try Again.');
       }
     } else if (connectState === 'connected') {
       setConnectState('offline');
     }
+    updateServicePills();
   }
 }
 
@@ -372,16 +453,102 @@ async function disconnectStudio() {
   refreshStudio();
 }
 
-function connectNowFlow() {
+async function connectNowFlow() {
   if (studioConnected) {
     showToast('Studio is already connected.');
     return;
   }
   connectStartedAt = Date.now();
+  handshakeDone = false;
   setConnectState('connecting');
+  try {
+    const c = await postJson('/api/studio/connect', { projectId: 'web' });
+    connectRequestId = c.requestId || null;
+  } catch (e) {
+    connectRequestId = null;
+    setConnectState('backend_error');
+    showToast('Backend unreachable — could not create a connection request.');
+    return;
+  }
   clearInterval(connectTimer);
-  connectTimer = setInterval(refreshStudio, POLL_CONNECTING_MS);
-  showToast('Waiting for Roblox Studio…');
+  connectTimer = setInterval(() => {
+    refreshStudio();
+    refreshConnectStatus();
+  }, POLL_CONNECTING_MS);
+  showToast('Connection request created — waiting for Roblox Studio…');
+}
+
+async function refreshConnectStatus() {
+  if (connectState !== 'connecting' || !connectRequestId) return;
+  try {
+    const c = await getJson(`/api/studio/connect/status?requestId=${encodeURIComponent(connectRequestId)}`);
+    handshakeDone = c.status === 'fulfilled';
+  } catch { /* keep previous stage */ }
+}
+
+function cancelConnectFlow() {
+  clearInterval(connectTimer);
+  connectTimer = null;
+  connectRequestId = null;
+  handshakeDone = false;
+  setConnectState('offline');
+  showToast('Connection request cancelled — the plugin will stay idle.');
+}
+
+async function runDiagnostics() {
+  if (!diagnosticsBox) return;
+  diagnosticsBox.classList.remove('hidden');
+  const results = {};
+  const mark = (key, ok, text) => {
+    results[key] = ok;
+    const el = diagItems[key];
+    if (el) {
+      el.textContent = `${ok ? '✓' : '✗'} ${text}`;
+      el.className = ok ? 'ok' : 'bad';
+    }
+  };
+  const spin = (key, text) => {
+    const el = diagItems[key];
+    if (el) {
+      el.textContent = `… ${text}`;
+      el.className = '';
+    }
+  };
+  if (diagSummary) diagSummary.textContent = 'Running checks…';
+  spin('api', 'Checking API health');
+  let apiOk = false;
+  try {
+    await getJson('/api/health');
+    apiOk = true;
+  } catch { apiOk = false; }
+  mark('website', true, 'Website reachable (you are on it)');
+  mark('api', apiOk, apiOk ? 'API healthy' : 'API unreachable');
+  spin('bridge', 'Contacting the Studio bridge');
+  let bridgeOk = false;
+  try {
+    await getJson('/api/studio/status');
+    bridgeOk = true;
+  } catch { bridgeOk = false; }
+  mark('bridge', bridgeOk, bridgeOk ? 'Studio bridge responds' : 'Studio bridge unreachable');
+  const heartbeatFresh = Boolean(studioLastSeen && Date.now() - studioLastSeen < 15000);
+  mark('heartbeat', heartbeatFresh, heartbeatFresh ? 'Plugin heartbeat received' : 'No heartbeat — plugin not running or HTTP requests blocked');
+  mark('session', studioConnected, studioConnected ? 'Studio session registered' : 'No session — plugin has not registered');
+  mark('command', studioConnected, studioConnected ? 'Command channel ready' : 'Command channel needs a session');
+  if (studioSessionId) {
+    spin('ping', 'Sending ping command');
+    try {
+      await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'ping' });
+      mark('ping', true, 'Ping sent — plugin will answer in the chat');
+    } catch {
+      mark('ping', false, 'Ping command rejected');
+    }
+  } else {
+    mark('ping', false, 'Ping needs a connected session');
+  }
+  const passed = Object.values(results).filter(Boolean).length;
+  if (diagSummary) {
+    diagSummary.textContent = `${passed} of 7 checks passed. ${passed === 7 ? 'Everything is healthy. ✓' : 'See the failing checks above — the most common cause is HTTP requests being disabled in Studio (Game Settings → Security).'}`;
+  }
 }
 
 function openGuideFlow() {
@@ -467,6 +634,8 @@ sendButton?.addEventListener('click', send);
 pingButton?.addEventListener('click', pingStudio);
 pingButton2?.addEventListener('click', pingStudio);
 connectNow?.addEventListener('click', connectNowFlow);
+cancelConnect?.addEventListener('click', cancelConnectFlow);
+runDiagnostics?.addEventListener('click', runDiagnostics);
 disconnectStudioButton?.addEventListener('click', disconnectStudio);
 downloadPlugin?.addEventListener('click', startDownload);
 downloadPlugin2?.addEventListener('click', startDownload);

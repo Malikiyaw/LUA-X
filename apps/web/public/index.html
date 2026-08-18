@@ -96,22 +96,29 @@
               <span>🟠 Plugin update required — installed <b id="version-installed">—</b>, required <b id="version-required">1.2.0</b></span>
               <a class="ghost-button" id="version-download" href="/LUA-X.lua" download="LUA-X.lua">Download Latest Plugin</a>
             </div>
+            <div class="service-pills">
+              <span class="status-pill" id="svc-backend">Backend —</span>
+              <span class="status-pill" id="svc-ai">NVIDIA —</span>
+              <span class="status-pill" id="svc-studio">Studio —</span>
+            </div>
             <div class="studio-actions">
               <button class="primary-button" id="connect-now" type="button">Connect to Studio</button>
+              <button class="ghost-button hidden" id="cancel-connect" type="button">Cancel</button>
               <button class="secondary-button hidden" id="ping-studio-2" type="button">Ping Studio</button>
               <button class="ghost-button hidden" id="disconnect-studio" type="button">Disconnect</button>
+              <button class="ghost-button" id="run-diagnostics" type="button">Run Connection Test</button>
             </div>
             <div class="waiting-box hidden" id="waiting-box">
-              <div class="waiting-title">🟡 Waiting for Roblox Studio…</div>
-              <div class="waiting-steps">Keep LUA-X open in Studio. The website detects your session automatically.</div>
+              <div class="waiting-title" id="waiting-title">🟡 Connecting to Roblox Studio…</div>
+              <div class="waiting-steps" id="waiting-steps">LUA-X is waiting for the Studio plugin to complete the connection handshake.</div>
             </div>
             <div class="troubleshoot-box hidden" id="troubleshoot-box">
-              <div class="waiting-title">🔴 Could not connect</div>
+              <div class="waiting-title">🔴 Connection timed out</div>
               <ul class="checklist" id="checklist">
                 <li id="check-download">… LUA-X download</li>
                 <li id="check-backend">… Backend online</li>
-                <li id="check-ai">… NVIDIA backend online</li>
-                <li id="check-session">✗ Studio session not detected</li>
+                <li id="check-ai">… NVIDIA AI available</li>
+                <li id="check-session">… Studio session</li>
               </ul>
               <div class="waiting-steps">
                 Open Roblox Studio and:<br>
@@ -120,6 +127,19 @@
                 3. Press Connect<br>
                 4. Enable Game Settings → Security → Allow HTTP Requests
               </div>
+            </div>
+            <div class="troubleshoot-box hidden" id="diagnostics-box">
+              <div class="waiting-title">LUA-X Diagnostics</div>
+              <ul class="checklist" id="diagnostics-list">
+                <li id="diag-website">… Website</li>
+                <li id="diag-api">… API</li>
+                <li id="diag-bridge">… Studio bridge</li>
+                <li id="diag-heartbeat">… Plugin heartbeat</li>
+                <li id="diag-session">… Studio session</li>
+                <li id="diag-command">… Command channel</li>
+                <li id="diag-ping">… Ping response</li>
+              </ul>
+              <div class="waiting-steps" id="diag-summary">Running checks…</div>
             </div>
           </div>
 

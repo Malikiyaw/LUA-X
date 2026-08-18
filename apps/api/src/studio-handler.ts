@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 type Presence = {
   projectId: string;
   sessionId: string;
@@ -13,13 +15,25 @@ type Command = { type: string; prompt?: string; createdAt: number };
 
 type CommandLog = { type: string; at: number };
 
+type ConnectRequest = {
+  requestId: string;
+  projectId: string;
+  requestedAt: number;
+  expiresAt: number;
+  status: 'waiting' | 'fulfilled';
+  sessionId?: string;
+};
+
 const PRESENCE_TTL = 20;
 const COMMAND_TTL = 60;
+const CONNECT_REQUEST_TTL = 30;
 const REQUIRED_PLUGIN_VERSION = '1.2.0';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
 const memoryCommandLog = new Map<string, CommandLog>();
+const memoryConnectRequests = new Map<string, ConnectRequest>();
+let memoryLatestRequestId: string | null = null;
 
 function redisConfig() {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
@@ -174,17 +188,128 @@ async function lastCommand(sessionId: string): Promise<CommandLog | null> {
   return memory ?? null;
 }
 
+function connectRequestAlive(request: ConnectRequest): boolean {
+  return request.status === 'waiting' && request.expiresAt > Date.now();
+}
+
+async function storeConnectRequest(request: ConnectRequest): Promise<void> {
+  memoryConnectRequests.set(request.requestId, request);
+  memoryLatestRequestId = request.requestId;
+  const payload = JSON.stringify(request);
+  await redisCommand(['SET', `studio:connect:${request.requestId}`, payload, 'EX', String(CONNECT_REQUEST_TTL)]);
+  await redisCommand(['SET', 'studio:connect:latest', request.requestId, 'EX', String(CONNECT_REQUEST_TTL)]);
+}
+
+async function loadPendingConnectRequest(): Promise<ConnectRequest | null> {
+  const latestId = await redisCommand(['GET', 'studio:connect:latest']);
+  if (typeof latestId === 'string' && latestId) {
+    const remote = await redisCommand(['GET', `studio:connect:${latestId}`]);
+    if (typeof remote === 'string') {
+      try {
+        const parsed = JSON.parse(remote) as ConnectRequest;
+        if (connectRequestAlive(parsed)) return parsed;
+      } catch { /* fall through */ }
+    }
+  }
+  if (!memoryLatestRequestId) return null;
+  const memory = memoryConnectRequests.get(memoryLatestRequestId);
+  if (!memory || !connectRequestAlive(memory)) return null;
+  return memory;
+}
+
+async function fulfillConnectRequest(requestId: string, sessionId: string): Promise<boolean> {
+  let claimed = false;
+  const remote = await redisCommand(['GET', `studio:connect:${requestId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as ConnectRequest;
+      if (connectRequestAlive(parsed)) {
+        parsed.status = 'fulfilled';
+        parsed.sessionId = sessionId;
+        await redisCommand(['SET', `studio:connect:${requestId}`, JSON.stringify(parsed), 'EX', String(CONNECT_REQUEST_TTL)]);
+        await redisCommand(['DEL', 'studio:connect:latest']);
+        claimed = true;
+      }
+    } catch { /* fall through */ }
+  }
+  const memory = memoryConnectRequests.get(requestId);
+  if (memory && connectRequestAlive(memory)) {
+    memory.status = 'fulfilled';
+    memory.sessionId = sessionId;
+    if (memoryLatestRequestId === requestId) memoryLatestRequestId = null;
+    claimed = true;
+  }
+  return claimed;
+}
+
+async function connectRequestStatus(requestId: string): Promise<{ status: 'waiting' | 'fulfilled' | 'expired'; sessionId?: string }> {
+  const remote = await redisCommand(['GET', `studio:connect:${requestId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as ConnectRequest;
+      if (parsed.expiresAt <= Date.now()) return { status: 'expired' };
+      if (parsed.status === 'fulfilled') return { status: 'fulfilled', ...(parsed.sessionId ? { sessionId: parsed.sessionId } : {}) };
+      return { status: 'waiting' };
+    } catch { /* fall through */ }
+  }
+  const memory = memoryConnectRequests.get(requestId);
+  if (!memory) return { status: 'expired' };
+  if (memory.expiresAt <= Date.now()) return { status: 'expired' };
+  if (memory.status === 'fulfilled') return { status: 'fulfilled', ...(memory.sessionId ? { sessionId: memory.sessionId } : {}) };
+  return { status: 'waiting' };
+}
+
 export default async function handler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
 
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/^\/api\/studio\/?/, '').replace(/^\/studio\/?/, '').replace(/\/$/, '');
 
+  if (request.method === 'POST' && pathname === 'connect') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const projectId = cleanString(body.projectId, 100) || 'web';
+      const now = Date.now();
+      const connectRequest: ConnectRequest = {
+        requestId: `connect_${randomUUID()}`,
+        projectId,
+        requestedAt: now,
+        expiresAt: now + CONNECT_REQUEST_TTL * 1000,
+        status: 'waiting',
+      };
+      await storeConnectRequest(connectRequest);
+      return json(200, { requestId: connectRequest.requestId, status: 'waiting', expiresIn: CONNECT_REQUEST_TTL });
+    } catch {
+      return json(400, { error: 'Invalid connect payload.' });
+    }
+  }
+
+  if (request.method === 'GET' && pathname === 'connect/pending') {
+    const pending = await loadPendingConnectRequest();
+    return json(200, {
+      request: pending
+        ? {
+            requestId: pending.requestId,
+            projectId: pending.projectId,
+            expiresIn: Math.max(0, Math.round((pending.expiresAt - Date.now()) / 1000)),
+          }
+        : null,
+    });
+  }
+
+  if (request.method === 'GET' && pathname === 'connect/status') {
+    const requestId = cleanString(url.searchParams.get('requestId'), 100);
+    if (!requestId) return json(400, { error: 'requestId is required.' });
+    return json(200, await connectRequestStatus(requestId));
+  }
+
   if (request.method === 'POST' && pathname === 'register') {
     try {
       const body = await request.json() as Record<string, unknown>;
       const presence = parsePresence(body);
       if (!presence) return json(400, { error: 'projectId and sessionId are required.' });
+      const requestId = cleanString(body.requestId, 100) || null;
+      const fulfilled = requestId ? await fulfillConnectRequest(requestId, presence.sessionId) : null;
       await storePresence(presence);
       return json(200, {
         connected: true,
@@ -193,6 +318,7 @@ export default async function handler(request: Request): Promise<Response> {
         expiresIn: PRESENCE_TTL,
         requiredVersion: REQUIRED_PLUGIN_VERSION,
         versionStatus: versionStatusFor(presence.pluginVersion),
+        ...(requestId ? { requestStatus: fulfilled ? 'fulfilled' : 'not_found' } : {}),
       });
     } catch {
       return json(400, { error: 'Invalid register payload.' });

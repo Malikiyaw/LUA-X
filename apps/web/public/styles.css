@@ -125,6 +125,9 @@ nav { display: flex; flex-direction: column; gap: 3px; }
   background: #0d1016;
 }
 .status-pill.ok { color: #7ee0ad; border-color: #21402f; }
+.status-pill.warn { color: #f5c26b; border-color: #4a3a1e; }
+.status-pill.bad { color: #ff9b9b; border-color: #4a2222; }
+.service-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .model-label { font-size: 11px; color: #6d7587; }
 .chat-panel {
   flex: 1;

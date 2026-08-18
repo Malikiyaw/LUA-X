@@ -58,4 +58,56 @@ describe('API server', () => {
     const response = await fetch(`${url}/api/ai/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: '' }) });
     expect(response.status).toBe(400);
   }));
+
+  it('runs the full Studio connect handshake (connect → pending → register → status)', async () => withServer(async url => {
+    const connect = await fetch(`${url}/api/studio/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'web' }) });
+    expect(connect.status).toBe(200);
+    const connectBody = await connect.json();
+    expect(connectBody.status).toBe('waiting');
+    expect(connectBody.expiresIn).toBe(30);
+    expect(connectBody.requestId).toMatch(/^connect_/);
+
+    const pending = await fetch(`${url}/api/studio/connect/pending`);
+    expect(pending.status).toBe(200);
+    const pendingBody = await pending.json();
+    expect(pendingBody.request).not.toBeNull();
+    expect(pendingBody.request.requestId).toBe(connectBody.requestId);
+    expect(pendingBody.request.projectId).toBe('web');
+
+    const register = await fetch(`${url}/api/studio/register`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: 'demo',
+        sessionId: 'session-handshake',
+        pluginVersion: '1.2.0',
+        requestId: connectBody.requestId,
+      }),
+    });
+    expect(register.status).toBe(200);
+    const registerBody = await register.json();
+    expect(registerBody.connected).toBe(true);
+    expect(registerBody.requestStatus).toBe('fulfilled');
+    expect(registerBody.sessionId).toBe('session-handshake');
+
+    const status = await fetch(`${url}/api/studio/connect/status?requestId=${connectBody.requestId}`);
+    expect(status.status).toBe(200);
+    const statusBody = await status.json();
+    expect(statusBody.status).toBe('fulfilled');
+    expect(statusBody.sessionId).toBe('session-handshake');
+
+    const presence = await fetch(`${url}/api/studio/status`);
+    const presenceBody = await presence.json();
+    expect(presenceBody.connected).toBe(true);
+    expect(presenceBody.sessionId).toBe('session-handshake');
+
+    const again = await fetch(`${url}/api/studio/connect/pending`);
+    expect((await again.json()).request).toBeNull();
+  }));
+
+  it('returns an expired status for an unknown connect request', async () => withServer(async url => {
+    const status = await fetch(`${url}/api/studio/connect/status?requestId=connect_does-not-exist`);
+    expect(status.status).toBe(200);
+    expect((await status.json()).status).toBe('expired');
+  }));
 });
