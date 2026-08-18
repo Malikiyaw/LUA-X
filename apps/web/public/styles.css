@@ -341,6 +341,34 @@ nav { display: flex; flex-direction: column; gap: 3px; }
   flex-direction: column;
   gap: 9px;
 }
+.install-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px dashed #1c212b;
+  padding-bottom: 8px;
+}
+.install-head b { font-size: 12.5px; color: #e9edf6; }
+.install-head span { font-size: 11px; color: #7ee0ad; font-weight: 600; }
+.install-note {
+  font-size: 10.5px;
+  color: #6d7587;
+  line-height: 1.5;
+  border-top: 1px dashed #1c212b;
+  padding-top: 8px;
+}
+.download-button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+.download-button:disabled { opacity: .55; cursor: default; }
+.version-warning a.ghost-button {
+  text-decoration: none;
+  white-space: nowrap;
+}
 .install-step { display: flex; gap: 10px; align-items: flex-start; }
 .install-step > span {
   width: 20px;

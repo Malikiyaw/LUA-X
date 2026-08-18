@@ -8,7 +8,7 @@ export default function handler(request: { method?: string }): Response {
   return new Response(JSON.stringify({
     service: 'lua-x-api',
     status: 'ok',
-    version: '1.1.0',
+    version: '1.2.0',
     bridge: 'studio-v1',
   }), {
     status: 200,

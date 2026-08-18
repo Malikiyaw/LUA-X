@@ -83,7 +83,7 @@ async function adaptStudioRequest(request: IncomingMessage, response: ServerResp
   const fetchRequest = new Request(target, {
     method: request.method ?? 'GET',
     headers,
-    ...(request.method === 'POST' || request.method === 'PUT' ? { body: body.length > 0 ? body : undefined } : {}),
+    ...(request.method === 'POST' || request.method === 'PUT' ? { body: body.length > 0 ? body : null } : {}),
   });
   const fetchResponse = await studioHandler(fetchRequest);
   response.writeHead(fetchResponse.status, Object.fromEntries(fetchResponse.headers.entries()));

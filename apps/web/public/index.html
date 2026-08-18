@@ -57,24 +57,29 @@
               <div class="plugin-logo">X</div>
               <div class="plugin-title">
                 <strong>LUA-X Studio Plugin</strong>
-                <span>Official Roblox Studio integration</span>
+                <span>Official LUA-X Studio bridge</span>
               </div>
               <span class="plugin-status" id="plugin-status">Not detected</span>
             </div>
             <div class="meta-rows">
-              <div class="meta-row"><span>Version</span><b>1.1.0</b></div>
+              <div class="meta-row"><span>Version</span><b id="plugin-version">1.2.0</b></div>
               <div class="meta-row"><span>Installation</span><b id="install-state">Download available</b></div>
             </div>
             <div class="plugin-actions">
-              <button class="primary-button" id="download-plugin-2" type="button">Download LUA-X</button>
+              <a class="primary-button download-button" id="download-plugin-2" href="/LUA-X.lua" download="LUA-X.lua">Download LUA-X</a>
               <span class="plugin-meta" id="plugin-meta">SHA-256 …</span>
             </div>
             <div class="install-panel hidden" id="install-panel">
+              <div class="install-head">
+                <b>Plugin installation</b>
+                <span id="install-status">Waiting for Studio…</span>
+              </div>
               <div class="install-step done" id="step-1"><span>1</span><div><b>Download LUA-X</b><em id="step-1-state">✓ Downloaded</em></div></div>
               <div class="install-step"><span>2</span><div><b>Open Roblox Studio</b><em>Plugins → Manage Plugins → Open Plugins Folder</em></div></div>
               <div class="install-step"><span>3</span><div><b>Put LUA-X.lua into that exact folder</b><em>A plugin script file, not a folder</em></div></div>
               <div class="install-step"><span>4</span><div><b>Restart Roblox Studio</b><em>Fully close and reopen Studio</em></div></div>
               <div class="install-step"><span>5</span><div><b>Open Plugins → LUA-X</b><em>The dock appears and connects automatically</em></div></div>
+              <div class="install-note" id="install-note">Downloaded = confirmed by your browser. Installed = confirmed only when the plugin connects to Studio.</div>
             </div>
           </div>
 
@@ -88,16 +93,8 @@
               <span class="plugin-status" id="studio-big-status">● Offline</span>
             </div>
             <div class="version-warning hidden" id="version-warning">
-              <span>🟠 Plugin update required — installed <b id="version-installed">—</b>, required <b>1.1.0</b></span>
-              <button class="ghost-button" id="version-download" type="button">Download Latest Plugin</button>
-            </div>
-            <div class="meta-rows" id="connection-rows">
-              <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting for Studio…</b></div>
-              <div class="meta-row"><span>Project</span><b id="row-project">—</b></div>
-              <div class="meta-row"><span>Place</span><b id="row-place">—</b></div>
-              <div class="meta-row"><span>Plugin</span><b id="row-plugin">—</b></div>
-              <div class="meta-row"><span>Heartbeat</span><b id="row-heartbeat">—</b></div>
-              <div class="meta-row"><span>Session</span><b id="row-session">—</b></div>
+              <span>🟠 Plugin update required — installed <b id="version-installed">—</b>, required <b id="version-required">1.2.0</b></span>
+              <a class="ghost-button" id="version-download" href="/LUA-X.lua" download="LUA-X.lua">Download Latest Plugin</a>
             </div>
             <div class="studio-actions">
               <button class="primary-button" id="connect-now" type="button">Connect to Studio</button>
@@ -111,7 +108,7 @@
             <div class="troubleshoot-box hidden" id="troubleshoot-box">
               <div class="waiting-title">🔴 Could not connect</div>
               <ul class="checklist" id="checklist">
-                <li id="check-download">✓ LUA-X download available</li>
+                <li id="check-download">… LUA-X download</li>
                 <li id="check-backend">… Backend online</li>
                 <li id="check-ai">… NVIDIA backend online</li>
                 <li id="check-session">✗ Studio session not detected</li>
@@ -123,6 +120,24 @@
                 3. Press Connect<br>
                 4. Enable Game Settings → Security → Allow HTTP Requests
               </div>
+            </div>
+          </div>
+
+          <div class="plugin-card" id="connection-panel">
+            <div class="plugin-card-head">
+              <div class="plugin-logo small">⇄</div>
+              <div class="plugin-title">
+                <strong>Connection</strong>
+                <span>Live Studio bridge status</span>
+              </div>
+            </div>
+            <div class="meta-rows">
+              <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting for Studio…</b></div>
+              <div class="meta-row"><span>Project</span><b id="row-project">—</b></div>
+              <div class="meta-row"><span>Place</span><b id="row-place">—</b></div>
+              <div class="meta-row"><span>Plugin</span><b id="row-plugin">—</b></div>
+              <div class="meta-row"><span>Heartbeat</span><b id="row-heartbeat">—</b></div>
+              <div class="meta-row"><span>Session</span><b id="row-session">—</b></div>
             </div>
           </div>
 

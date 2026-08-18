@@ -15,6 +15,7 @@ type CommandLog = { type: string; at: number };
 
 const PRESENCE_TTL = 20;
 const COMMAND_TTL = 60;
+const REQUIRED_PLUGIN_VERSION = '1.2.0';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
@@ -65,6 +66,25 @@ function cleanCount(value: unknown): number | undefined {
   return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.floor(n) : undefined;
 }
 
+function versionParts(version: string): number[] {
+  return String(version || '').split('.').map((part) => parseInt(part, 10) || 0);
+}
+
+function versionAtLeast(installed: string, required: string): boolean {
+  const a = versionParts(installed);
+  const b = versionParts(required);
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+  }
+  return true;
+}
+
+function versionStatusFor(installed: string): 'current' | 'update_required' {
+  return installed === 'unknown' || !versionAtLeast(installed, REQUIRED_PLUGIN_VERSION)
+    ? 'update_required'
+    : 'current';
+}
+
 function parsePresence(body: Record<string, unknown>): Presence | null {
   const projectId = cleanString(body.projectId, 100);
   const sessionId = cleanString(body.sessionId, 100);
@@ -72,20 +92,22 @@ function parsePresence(body: Record<string, unknown>): Presence | null {
   const capabilities = Array.isArray(body.capabilities)
     ? body.capabilities.map((item) => cleanString(item, 40)).filter(Boolean).slice(0, 20)
     : [];
+  const context = body.context && typeof body.context === 'object'
+    ? {
+        selection: cleanCount((body.context as Record<string, unknown>).selection) ?? 0,
+        scripts: cleanCount((body.context as Record<string, unknown>).scripts) ?? 0,
+        at: Date.now(),
+      }
+    : null;
+  const placeId = cleanString(body.placeId, 100) || null;
   return {
     projectId,
     sessionId,
     placeName: cleanString(body.placeName, 160) || 'Roblox Studio',
-    placeId: cleanString(body.placeId, 100) || undefined,
     pluginVersion: cleanString(body.pluginVersion, 40) || 'unknown',
+    ...(placeId ? { placeId } : {}),
     ...(capabilities.length > 0 ? { capabilities } : {}),
-    context: body.context && typeof body.context === 'object'
-      ? {
-          selection: cleanCount((body.context as Record<string, unknown>).selection) ?? 0,
-          scripts: cleanCount((body.context as Record<string, unknown>).scripts) ?? 0,
-          at: Date.now(),
-        }
-      : undefined,
+    ...(context ? { context } : {}),
     at: Date.now(),
   };
 }
@@ -164,7 +186,14 @@ export default async function handler(request: Request): Promise<Response> {
       const presence = parsePresence(body);
       if (!presence) return json(400, { error: 'projectId and sessionId are required.' });
       await storePresence(presence);
-      return json(200, { connected: true, sessionId: presence.sessionId, projectId: presence.projectId, expiresIn: PRESENCE_TTL });
+      return json(200, {
+        connected: true,
+        sessionId: presence.sessionId,
+        projectId: presence.projectId,
+        expiresIn: PRESENCE_TTL,
+        requiredVersion: REQUIRED_PLUGIN_VERSION,
+        versionStatus: versionStatusFor(presence.pluginVersion),
+      });
     } catch {
       return json(400, { error: 'Invalid register payload.' });
     }
@@ -176,7 +205,15 @@ export default async function handler(request: Request): Promise<Response> {
       const presence = parsePresence(body);
       if (!presence) return json(400, { error: 'projectId and sessionId are required.' });
       await storePresence(presence);
-      return json(200, { ok: true, connected: true, projectId: presence.projectId, sessionId: presence.sessionId, expiresIn: PRESENCE_TTL });
+      return json(200, {
+        ok: true,
+        connected: true,
+        projectId: presence.projectId,
+        sessionId: presence.sessionId,
+        expiresIn: PRESENCE_TTL,
+        requiredVersion: REQUIRED_PLUGIN_VERSION,
+        versionStatus: versionStatusFor(presence.pluginVersion),
+      });
     } catch {
       return json(400, { error: 'Invalid heartbeat payload.' });
     }
@@ -207,6 +244,8 @@ export default async function handler(request: Request): Promise<Response> {
       placeName: presence.placeName,
       placeId: presence.placeId || presence.projectId,
       pluginVersion: presence.pluginVersion,
+      requiredVersion: REQUIRED_PLUGIN_VERSION,
+      versionStatus: versionStatusFor(presence.pluginVersion),
       capabilities: presence.capabilities ?? [],
       context: presence.context ?? null,
       lastSeenAt: presence.at,

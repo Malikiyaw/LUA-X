@@ -28,6 +28,11 @@ LUA-X-connected.lua  →  sync-plugin.mjs  →  LUA-X.lua  →  website download
 - **No silent failures:** widget creation falls back from the async API to the
   legacy API, and any startup error is shown in a visible error widget and
   printed to the Studio Output window.
+- **Connection card:** the dock shows live Status / Project / Place ID /
+  Session / Website rows plus a **Disconnect** / **Reconnect** button.
+- **Startup diagnostics:** **Run Diagnostics** tests API health, AI readiness,
+  HTTP Requests permission, and session registration, and prints the last error
+  visibly in the dock.
 
 ## Install
 
@@ -73,7 +78,8 @@ Vercel/server environment (`NVIDIA_API_KEY`, `NVIDIA_API_KEY_1..4`).
 - **Click does nothing:** check Studio's Output window — the plugin now reports
   startup errors both in Output and in a visible error widget.
 - **Connection fails:** enable **Game Settings → Security → Allow HTTP Requests**,
-  then use **Test Backend** in the plugin and check the Website/AI chips.
+  then use **Run Diagnostics** in the plugin and check the Website/AI chips and
+  the connection card.
 - **Website flips offline:** heartbeats stop when Studio closes; the 20s
   presence TTL then expires. For cross-instance reliability set
   `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` on Vercel — the backend
