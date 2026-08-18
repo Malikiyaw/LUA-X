@@ -50,16 +50,38 @@ const diagItems = {
   website: document.querySelector('#diag-website'),
   api: document.querySelector('#diag-api'),
   bridge: document.querySelector('#diag-bridge'),
-  heartbeat: document.querySelector('#diag-heartbeat'),
+  connect: document.querySelector('#diag-connect'),
+  pending: document.querySelector('#diag-pending'),
   session: document.querySelector('#diag-session'),
+  heartbeat: document.querySelector('#diag-heartbeat'),
   command: document.querySelector('#diag-command'),
   ping: document.querySelector('#diag-ping'),
 };
 const svcBackend = document.querySelector('#svc-backend');
 const svcAi = document.querySelector('#svc-ai');
+const svcBridge = document.querySelector('#svc-bridge');
 const svcStudio = document.querySelector('#svc-studio');
 const waitingTitle = document.querySelector('#waiting-title');
 const waitingSteps = document.querySelector('#waiting-steps');
+const connectErrorBox = document.querySelector('#connect-error-box');
+const connectErrorTitle = document.querySelector('#connect-error-title');
+const connectErrorEndpoint = document.querySelector('#connect-error-endpoint');
+const connectErrorHttp = document.querySelector('#connect-error-http');
+const connectErrorResponse = document.querySelector('#connect-error-response');
+const connectErrorRequest = document.querySelector('#connect-error-request');
+const connectErrorTiming = document.querySelector('#connect-error-timing');
+const connectErrorHint = document.querySelector('#connect-error-hint');
+const troubleshootTitle = document.querySelector('#troubleshoot-title');
+const troubleshootSteps = document.querySelector('#troubleshoot-steps');
+const testBridgeBtn = document.querySelector('#test-bridge');
+const bridgeTestBox = document.querySelector('#bridge-test-box');
+const bridgeTestItems = {
+  api: document.querySelector('#bridge-test-api'),
+  status: document.querySelector('#bridge-test-status'),
+  connect: document.querySelector('#bridge-test-connect'),
+  request: document.querySelector('#bridge-test-request'),
+};
+const bridgeTestWait = document.querySelector('#bridge-test-wait');
 const pluginMeta = document.querySelector('#plugin-meta');
 const viewTitle = document.querySelector('#view-title');
 const comingTitle = document.querySelector('#coming-title');
@@ -91,7 +113,11 @@ let connectStartedAt = 0;
 let connectRequestId = null;
 let handshakeDone = false;
 let backendOk = false;
+let backendHttp = null;
 let aiOk = false;
+let aiHttp = null;
+let bridgeUp = false;
+let bridgeHttp = null;
 let downloadState = 'idle'; // idle | downloading | downloaded
 
 function showToast(message) {
@@ -159,23 +185,73 @@ async function postJson(path, body) {
   return b;
 }
 
-async function refreshHealth() {
+async function fetchDetailed(path, init = {}) {
+  const t0 = Date.now();
   try {
-    const h = await getJson('/api/health');
-    backendOk = h.status === 'ok';
-    backendStatus.textContent = backendOk ? 'Online' : 'Degraded';
+    const r = await fetch(`${API_BASE}${path}`, { ...init, cache: 'no-store' });
+    const text = await r.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch { body = text; }
+    return { reached: true, status: r.status, statusText: r.statusText, body, text, timeMs: Date.now() - t0 };
+  } catch (e) {
+    return { reached: false, status: null, statusText: null, body: null, text: null, timeMs: Date.now() - t0, error: e };
+  }
+}
+
+function classifyHttpError(detail) {
+  if (!detail || !detail.reached || !detail.status) {
+    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response.' };
+  }
+  const status = detail.status;
+  if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder.' };
+  if (status === 405) return { title: 'Wrong route or method', hint: 'The deployed API routes /api/studio differently than expected.' };
+  if (status === 401 || status === 403) return { title: 'Authorization rejected', hint: 'The API rejected the request — check authentication configuration.' };
+  if (status === 429) return { title: 'Too many requests', hint: 'Rate limit exceeded — wait a moment and press Retry.' };
+  if (status === 502 || status === 503) return { title: 'LUA-X Studio bridge unavailable', hint: 'The backend function or a dependency failed.' };
+  if (status >= 500) return { title: 'LUA-X backend error', hint: 'The API function crashed (FUNCTION_INVOCATION_FAILED). Check the Vercel function logs.' };
+  return { title: `Request failed (HTTP ${status})`, hint: 'The API rejected the connection request.' };
+}
+
+function renderConnectError(detail, requestId) {
+  if (!connectErrorBox) return;
+  const cls = classifyHttpError(detail);
+  connectErrorBox.classList.remove('hidden');
+  if (connectErrorTitle) connectErrorTitle.textContent = `🔴 ${cls.title}`;
+  if (connectErrorHint) connectErrorHint.textContent = cls.hint;
+  if (connectErrorEndpoint) connectErrorEndpoint.textContent = `Endpoint: POST /api/studio/connect`;
+  if (connectErrorHttp) connectErrorHttp.textContent = detail && detail.reached ? `HTTP: ${detail.status} ${detail.statusText || ''}` : 'HTTP: no response (network/CORS)';
+  if (connectErrorResponse) {
+    const snippet = detail && detail.text ? detail.text.slice(0, 160) : '—';
+    connectErrorResponse.textContent = `Response: ${snippet}`;
+  }
+  if (connectErrorRequest) connectErrorRequest.textContent = `Request ID: ${requestId || '—'}`;
+  if (connectErrorTiming) connectErrorTiming.textContent = detail ? `Timing: ${detail.timeMs}ms` : 'Timing: —';
+}
+
+async function refreshHealth() {
+  const h = await fetchDetailed('/api/health');
+  if (h.reached && h.status === 200 && h.body && h.body.status === 'ok') {
+    backendOk = true;
+    backendHttp = 200;
+    backendStatus.textContent = 'Online';
     backendStatus.classList.add('ok');
-    const a = await getJson('/api/ai/status');
-    aiOk = Boolean(a.configured);
+  } else {
+    backendOk = false;
+    backendHttp = h.reached ? h.status : null;
+    backendStatus.textContent = h.reached ? `HTTP ${h.status}` : 'Unreachable';
+    backendStatus.classList.remove('ok');
+  }
+  const a = await fetchDetailed('/api/ai/status');
+  if (a.reached && a.status === 200 && a.body) {
+    aiOk = Boolean(a.body.configured);
+    aiHttp = 200;
     aiStatus.textContent = aiOk ? 'AI Ready' : 'AI not configured';
     aiStatus.classList.toggle('ok', aiOk);
-    modelLabel.textContent = aiOk ? `NVIDIA · ${a.model}` : 'NVIDIA · not configured';
-  } catch {
-    backendOk = false;
+    modelLabel.textContent = aiOk ? `NVIDIA · ${a.body.model}` : 'NVIDIA · not configured';
+  } else {
     aiOk = false;
-    backendStatus.textContent = 'Offline';
-    backendStatus.classList.remove('ok');
-    aiStatus.textContent = 'AI —';
+    aiHttp = a.reached ? a.status : null;
+    aiStatus.textContent = a.reached ? `HTTP ${a.status}` : 'Unreachable';
     aiStatus.classList.remove('ok');
     modelLabel.textContent = 'NVIDIA · not configured';
   }
@@ -184,11 +260,13 @@ async function refreshHealth() {
 
 function updateServicePills() {
   if (!svcBackend) return;
-  svcBackend.textContent = `Backend ${backendOk ? '🟢' : '🔴'}`;
+  svcBackend.textContent = backendOk ? 'Backend 🟢 Online' : (backendHttp ? `Backend 🔴 HTTP ${backendHttp}` : 'Backend 🔴 Unreachable');
   svcBackend.className = `status-pill ${backendOk ? 'ok' : 'bad'}`;
-  svcAi.textContent = `NVIDIA ${aiOk ? '🟢' : '🟠'}`;
-  svcAi.className = `status-pill ${aiOk ? 'ok' : 'warn'}`;
-  svcStudio.textContent = `Studio ${studioConnected ? '🟢' : '🟡'}`;
+  svcAi.textContent = aiOk ? 'NVIDIA 🟢 Ready' : (aiHttp === 200 ? 'NVIDIA 🟠 Not configured' : (aiHttp ? `NVIDIA 🔴 HTTP ${aiHttp}` : 'NVIDIA 🔴 Unreachable'));
+  svcAi.className = `status-pill ${aiOk ? 'ok' : aiHttp === 200 ? 'warn' : 'bad'}`;
+  svcBridge.textContent = bridgeUp ? 'Studio Bridge 🟢 Available' : (bridgeHttp ? `Studio Bridge 🔴 HTTP ${bridgeHttp}` : 'Studio Bridge 🔴 Unreachable');
+  svcBridge.className = `status-pill ${bridgeUp ? 'ok' : 'bad'}`;
+  svcStudio.textContent = studioConnected ? 'Studio 🟢 Connected' : 'Studio 🟡 Waiting';
   svcStudio.className = `status-pill ${studioConnected ? 'ok' : 'warn'}`;
 }
 
@@ -232,6 +310,7 @@ function setConnectState(next) {
   const cancelBtn = cancelConnect;
   const waiting = waitingBox;
   const trouble = troubleshootBox;
+  const errBox = connectErrorBox;
   if (!btn) return;
   switch (next) {
     case 'offline':
@@ -242,6 +321,8 @@ function setConnectState(next) {
       cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
       trouble.classList.add('hidden');
+      errBox?.classList.add('hidden');
+      bridgeTestBox?.classList.add('hidden');
       rowConnection.textContent = 'Not connected';
       break;
     case 'connecting':
@@ -252,6 +333,7 @@ function setConnectState(next) {
       cancelBtn.classList.remove('hidden');
       waiting.classList.remove('hidden');
       trouble.classList.add('hidden');
+      errBox?.classList.add('hidden');
       rowConnection.textContent = 'Waiting for Roblox Studio…';
       updateWaitingStage();
       break;
@@ -263,6 +345,7 @@ function setConnectState(next) {
       cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
       trouble.classList.add('hidden');
+      errBox?.classList.add('hidden');
       rowConnection.textContent = 'Connected';
       break;
     case 'failed':
@@ -273,8 +356,16 @@ function setConnectState(next) {
       discBtn.classList.add('hidden');
       cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
+      errBox?.classList.add('hidden');
       trouble.classList.remove('hidden');
       rowConnection.textContent = 'Connection timed out';
+      if (backendOk && bridgeUp) {
+        if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Connection timed out';
+        if (troubleshootSteps) troubleshootSteps.innerHTML = 'The backend is reachable but no Studio session registered. Your plugin may already be installed — the pending-poll runs every few seconds.<br>If nothing happens:<br>1. Open Roblox Studio<br>2. Launch LUA-X (Plugins menu)<br>3. Enable Game Settings → Security → Allow HTTP Requests';
+      } else {
+        if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Could not reach LUA-X';
+        if (troubleshootSteps) troubleshootSteps.innerHTML = 'The website could not reach the LUA-X API. Fix the backend first — Studio installation steps only matter once the API is reachable.<br>Press <b>Test Studio Bridge</b> or <b>Run Connection Test</b> to see exactly where it fails.';
+      }
       renderChecklist();
       break;
     case 'backend_error':
@@ -284,13 +375,8 @@ function setConnectState(next) {
       discBtn.classList.add('hidden');
       cancelBtn.classList.add('hidden');
       waiting.classList.add('hidden');
-      trouble.classList.remove('hidden');
-      rowConnection.textContent = 'Backend unreachable';
-      if (checkBackend) {
-        checkBackend.textContent = '✗ Backend unreachable — cannot create a connection request';
-        checkBackend.className = 'bad';
-      }
-      renderChecklist();
+      trouble.classList.add('hidden');
+      rowConnection.textContent = 'Connection request failed';
       break;
   }
 }
@@ -378,22 +464,26 @@ function pingBtnText(text) {
 }
 
 async function refreshStudio() {
-  try {
-    const s = await getJson('/api/studio/status');
-    if (s.connected) {
-      studioSessionId = s.sessionId || null;
-      studioPlaceName = s.placeName || null;
-      studioPlaceId = s.placeId || null;
-      studioPluginVersion = s.pluginVersion || null;
-      studioVersionStatus = s.versionStatus || null;
-      studioContext = s.context || null;
-      studioLastCommand = s.lastCommand || null;
-      studioLastSeen = s.lastSeenAt || Date.now();
+  const s = await fetchDetailed('/api/studio/status');
+  if (s.reached && s.status === 200) {
+    bridgeUp = true;
+    bridgeHttp = 200;
+    if (s.body && s.body.connected) {
+      studioSessionId = s.body.sessionId || null;
+      studioPlaceName = s.body.placeName || null;
+      studioPlaceId = s.body.placeId || null;
+      studioPluginVersion = s.body.pluginVersion || null;
+      studioVersionStatus = s.body.versionStatus || null;
+      studioContext = s.body.context || null;
+      studioLastCommand = s.body.lastCommand || null;
+      studioLastSeen = s.body.lastSeenAt || Date.now();
       studioConnected = true;
     } else {
       studioConnected = false;
     }
-  } catch {
+  } else {
+    bridgeUp = false;
+    bridgeHttp = s.reached ? s.status : null;
     studioConnected = false;
   }
   renderStudioCard();
@@ -461,21 +551,66 @@ async function connectNowFlow() {
   connectStartedAt = Date.now();
   handshakeDone = false;
   setConnectState('connecting');
-  try {
-    const c = await postJson('/api/studio/connect', { projectId: 'web' });
-    connectRequestId = c.requestId || null;
-  } catch (e) {
+  const attemptId = `web_${Date.now().toString(36)}`;
+  const detail = await fetchDetailed('/api/studio/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ projectId: 'web' }),
+  });
+  if (!detail.reached || detail.status !== 200 || !detail.body || !detail.body.requestId) {
     connectRequestId = null;
     setConnectState('backend_error');
-    showToast('Backend unreachable — could not create a connection request.');
+    renderConnectError(detail, attemptId);
+    showToast('Connection request failed — see the details below.');
     return;
   }
+  connectRequestId = detail.body.requestId;
   clearInterval(connectTimer);
   connectTimer = setInterval(() => {
     refreshStudio();
     refreshConnectStatus();
   }, POLL_CONNECTING_MS);
   showToast('Connection request created — waiting for Roblox Studio…');
+}
+
+async function testBridgeFlow() {
+  if (!bridgeTestBox) return;
+  bridgeTestBox.classList.remove('hidden');
+  const mark = (key, ok, text) => {
+    const el = bridgeTestItems[key];
+    if (el) {
+      el.textContent = `${ok ? '✓' : '✗'} ${text}`;
+      el.className = ok ? 'ok' : 'bad';
+    }
+  };
+  const spin = (key, text) => {
+    const el = bridgeTestItems[key];
+    if (el) {
+      el.textContent = `… ${text}`;
+      el.className = '';
+    }
+  };
+  if (bridgeTestWait) bridgeTestWait.textContent = 'Testing…';
+  const api = await fetchDetailed('/api/health');
+  const apiOk = api.reached && api.status === 200;
+  mark('api', apiOk, apiOk ? 'API reachable' : (api.reached ? `API HTTP ${api.status}` : 'API unreachable'));
+  const status = await fetchDetailed('/api/studio/status');
+  const statusOk = status.reached && status.status === 200;
+  mark('status', statusOk, statusOk ? 'Studio bridge reachable' : (status.reached ? `Bridge HTTP ${status.status}` : 'Bridge unreachable'));
+  const connect = await fetchDetailed('/api/studio/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ projectId: 'web' }),
+  });
+  const connectOk = connect.reached && connect.status === 200 && connect.body && connect.body.requestId;
+  mark('connect', connectOk, connectOk ? 'Connect endpoint reachable' : (connect.reached ? `Connect HTTP ${connect.status}` : 'Connect unreachable'));
+  mark('request', connectOk, connectOk ? `Connection request created (${String(connect.body.requestId).slice(0, 12)}…)` : 'No connection request');
+  if (connectOk) {
+    connectRequestId = connect.body.requestId;
+    if (bridgeTestWait) bridgeTestWait.textContent = '⏳ Waiting for the plugin to claim the request — press Connect to finish the handshake.';
+  } else {
+    if (bridgeTestWait) bridgeTestWait.textContent = 'The website → API path is broken. Check the Vercel deployment before debugging Roblox Studio.';
+  }
 }
 
 async function refreshConnectStatus() {
@@ -507,6 +642,13 @@ async function runConnectionTest() {
       el.className = ok ? 'ok' : 'bad';
     }
   };
+  const skip = (key) => {
+    const el = diagItems[key];
+    if (el) {
+      el.textContent = `— ${el.textContent.split(' ').slice(1).join(' ')} (skipped: dependency failed)`;
+      el.className = '';
+    }
+  };
   const spin = (key, text) => {
     const el = diagItems[key];
     if (el) {
@@ -514,40 +656,78 @@ async function runConnectionTest() {
       el.className = '';
     }
   };
-  if (diagSummary) diagSummary.textContent = 'Running checks…';
-  spin('api', 'Checking API health');
-  let apiOk = false;
-  try {
-    await getJson('/api/health');
-    apiOk = true;
-  } catch { apiOk = false; }
+  if (diagSummary) diagSummary.textContent = 'Running checks in dependency order…';
   mark('website', true, 'Website reachable (you are on it)');
-  mark('api', apiOk, apiOk ? 'API healthy' : 'API unreachable');
+
+  spin('api', 'Checking API health');
+  const api = await fetchDetailed('/api/health');
+  const apiOk = api.reached && api.status === 200;
+  mark('api', apiOk, apiOk ? 'API healthy' : (api.reached ? `API HTTP ${api.status}` : 'API unreachable (network/CORS)'));
+  if (!apiOk) {
+    skip('bridge'); skip('connect'); skip('pending'); skip('session'); skip('heartbeat'); skip('command'); skip('ping');
+    if (diagSummary) diagSummary.textContent = '1 of 9 checks passed. The API is down — Studio and plugin checks are skipped until the API works.';
+    return;
+  }
+
   spin('bridge', 'Contacting the Studio bridge');
-  let bridgeOk = false;
-  try {
-    await getJson('/api/studio/status');
-    bridgeOk = true;
-  } catch { bridgeOk = false; }
-  mark('bridge', bridgeOk, bridgeOk ? 'Studio bridge responds' : 'Studio bridge unreachable');
+  const bridge = await fetchDetailed('/api/studio/status');
+  const bridgeOk = bridge.reached && bridge.status === 200;
+  mark('bridge', bridgeOk, bridgeOk ? 'Studio bridge responds' : (bridge.reached ? `Bridge HTTP ${bridge.status}` : 'Bridge unreachable'));
+  if (!bridgeOk) {
+    skip('connect'); skip('pending'); skip('session'); skip('heartbeat'); skip('command'); skip('ping');
+    if (diagSummary) diagSummary.textContent = '2 of 9 checks passed. The Studio bridge route is broken — the /api/studio rewrite may be missing on Vercel.';
+    return;
+  }
+
+  spin('connect', 'Creating a connection request');
+  const connect = await fetchDetailed('/api/studio/connect', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ projectId: 'web' }),
+  });
+  const connectOk = connect.reached && connect.status === 200 && connect.body && connect.body.requestId;
+  const connectRequestIdHere = connectOk ? connect.body.requestId : null;
+  mark('connect', connectOk, connectOk ? 'Connect endpoint creates requests' : (connect.reached ? `Connect HTTP ${connect.status}` : 'Connect unreachable'));
+  if (!connectOk) {
+    skip('pending'); skip('session'); skip('heartbeat'); skip('command'); skip('ping');
+    if (diagSummary) diagSummary.textContent = '3 of 9 checks passed. The connect endpoint is broken — the deployed function may be an old build.';
+    return;
+  }
+
+  spin('pending', 'Verifying the pending-poll endpoint');
+  const pending = await fetchDetailed(`/api/studio/connect/pending`);
+  const pendingOk = pending.reached && pending.status === 200 && pending.body && pending.body.request && pending.body.request.requestId === connectRequestIdHere;
+  mark('pending', pendingOk, pendingOk ? 'Plugin can poll for pending requests' : (pending.reached ? 'Pending-poll did not return the request' : 'Pending-poll unreachable'));
+  if (!pendingOk) {
+    skip('session'); skip('heartbeat'); skip('command'); skip('ping');
+    if (diagSummary) diagSummary.textContent = '4 of 9 checks passed. The pending-poll endpoint does not expose the request — check the deployed studio handler.';
+    return;
+  }
+
+  const sessionOk = studioConnected;
+  mark('session', sessionOk, sessionOk ? 'Session registered' : 'No session — the plugin has not claimed the request');
   const heartbeatFresh = Boolean(studioLastSeen && Date.now() - studioLastSeen < 15000);
-  mark('heartbeat', heartbeatFresh, heartbeatFresh ? 'Plugin heartbeat received' : 'No heartbeat — plugin not running or HTTP requests blocked');
-  mark('session', studioConnected, studioConnected ? 'Studio session registered' : 'No session — plugin has not registered');
-  mark('command', studioConnected, studioConnected ? 'Command channel ready' : 'Command channel needs a session');
+  if (!sessionOk) {
+    skip('heartbeat'); skip('command'); skip('ping');
+    if (diagSummary) diagSummary.textContent = '5 of 9 checks passed. The bridge works — the plugin needs to claim the pending request. Open Roblox Studio and check the LUA-X plugin card.';
+    return;
+  }
+  mark('heartbeat', heartbeatFresh, heartbeatFresh ? 'Heartbeat received' : 'No heartbeat — plugin not running or HTTP requests blocked');
+  mark('command', sessionOk, sessionOk ? 'Command channel ready' : 'Command channel needs a session');
   if (studioSessionId) {
     spin('ping', 'Sending ping command');
-    try {
-      await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'ping' });
-      mark('ping', true, 'Ping sent — plugin will answer in the chat');
-    } catch {
-      mark('ping', false, 'Ping command rejected');
-    }
+    const ping = await fetchDetailed('/api/studio/command', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ sessionId: studioSessionId, type: 'ping' }),
+    });
+    mark('ping', ping.reached && ping.status === 200, ping.reached && ping.status === 200 ? 'Ping sent — plugin will answer in the chat' : (ping.reached ? `Ping HTTP ${ping.status}` : 'Ping unreachable'));
   } else {
     mark('ping', false, 'Ping needs a connected session');
   }
   const passed = Object.values(results).filter(Boolean).length;
   if (diagSummary) {
-    diagSummary.textContent = `${passed} of 7 checks passed. ${passed === 7 ? 'Everything is healthy. ✓' : 'See the failing checks above — the most common cause is HTTP requests being disabled in Studio (Game Settings → Security).'}`;
+    diagSummary.textContent = `${passed} of 9 checks passed. ${passed === 9 ? 'Everything is healthy. ✓' : 'See the failing check above — the most common cause is HTTP requests being disabled in Studio (Game Settings → Security).'}`;
   }
 }
 
@@ -636,6 +816,7 @@ pingButton2?.addEventListener('click', pingStudio);
 connectNow?.addEventListener('click', connectNowFlow);
 cancelConnect?.addEventListener('click', cancelConnectFlow);
 runDiagnosticsBtn?.addEventListener('click', runConnectionTest);
+testBridgeBtn?.addEventListener('click', testBridgeFlow);
 disconnectStudioButton?.addEventListener('click', disconnectStudio);
 downloadPlugin?.addEventListener('click', startDownload);
 downloadPlugin2?.addEventListener('click', startDownload);

@@ -357,6 +357,24 @@ export default async function handler(request: Request): Promise<Response> {
     }
   }
 
+  if (request.method === 'GET' && pathname === 'diagnostics') {
+    return json(200, {
+      service: 'lua-x-studio',
+      version: REQUIRED_PLUGIN_VERSION,
+      api: 'ok',
+      connectRoute: 'ok',
+      pendingRoute: 'ok',
+      statusRoute: 'ok',
+      registerRoute: 'ok',
+      heartbeatRoute: 'ok',
+      disconnectRoute: 'ok',
+      commandRoute: 'ok',
+      diagnosticsRoute: 'ok',
+      redis: redisConfig() ? 'configured' : 'not-configured',
+      memory: 'ok',
+    });
+  }
+
   if (request.method === 'GET' && pathname === 'status') {
     const projectId = cleanString(url.searchParams.get('projectId'), 100) || undefined;
     const presence = await loadPresence(projectId);

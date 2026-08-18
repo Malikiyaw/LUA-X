@@ -99,6 +99,7 @@
             <div class="service-pills">
               <span class="status-pill" id="svc-backend">Backend —</span>
               <span class="status-pill" id="svc-ai">NVIDIA —</span>
+              <span class="status-pill" id="svc-bridge">Studio Bridge —</span>
               <span class="status-pill" id="svc-studio">Studio —</span>
             </div>
             <div class="studio-actions">
@@ -107,20 +108,32 @@
               <button class="secondary-button hidden" id="ping-studio-2" type="button">Ping Studio</button>
               <button class="ghost-button hidden" id="disconnect-studio" type="button">Disconnect</button>
               <button class="ghost-button" id="run-diagnostics" type="button">Run Connection Test</button>
+              <button class="ghost-button" id="test-bridge" type="button">Test Studio Bridge</button>
             </div>
             <div class="waiting-box hidden" id="waiting-box">
               <div class="waiting-title" id="waiting-title">🟡 Connecting to Roblox Studio…</div>
               <div class="waiting-steps" id="waiting-steps">LUA-X is waiting for the Studio plugin to complete the connection handshake.</div>
             </div>
+            <div class="troubleshoot-box hidden" id="connect-error-box">
+              <div class="waiting-title" id="connect-error-title">🔴 Studio connection request failed</div>
+              <ul class="checklist">
+                <li id="connect-error-endpoint">Endpoint —</li>
+                <li id="connect-error-http">HTTP —</li>
+                <li id="connect-error-response">Response —</li>
+                <li id="connect-error-request">Request ID —</li>
+                <li id="connect-error-timing">Timing —</li>
+              </ul>
+              <div class="waiting-steps" id="connect-error-hint">The website could not reach the LUA-X API.</div>
+            </div>
             <div class="troubleshoot-box hidden" id="troubleshoot-box">
-              <div class="waiting-title">🔴 Connection timed out</div>
+              <div class="waiting-title" id="troubleshoot-title">🔴 Connection timed out</div>
               <ul class="checklist" id="checklist">
                 <li id="check-download">… LUA-X download</li>
                 <li id="check-backend">… Backend online</li>
                 <li id="check-ai">… NVIDIA AI available</li>
                 <li id="check-session">… Studio session</li>
               </ul>
-              <div class="waiting-steps">
+              <div class="waiting-steps" id="troubleshoot-steps">
                 Open Roblox Studio and:<br>
                 1. Open Plugins<br>
                 2. Launch LUA-X<br>
@@ -128,14 +141,26 @@
                 4. Enable Game Settings → Security → Allow HTTP Requests
               </div>
             </div>
+            <div class="troubleshoot-box hidden" id="bridge-test-box">
+              <div class="waiting-title">Studio Bridge Test</div>
+              <ul class="checklist" id="bridge-test-list">
+                <li id="bridge-test-api">… API reachable</li>
+                <li id="bridge-test-status">… Studio bridge reachable</li>
+                <li id="bridge-test-connect">… Connect endpoint reachable</li>
+                <li id="bridge-test-request">… Connection request created</li>
+              </ul>
+              <div class="waiting-steps" id="bridge-test-wait">⏳ Waiting for the plugin to claim the request…</div>
+            </div>
             <div class="troubleshoot-box hidden" id="diagnostics-box">
               <div class="waiting-title">LUA-X Diagnostics</div>
               <ul class="checklist" id="diagnostics-list">
                 <li id="diag-website">… Website</li>
                 <li id="diag-api">… API</li>
                 <li id="diag-bridge">… Studio bridge</li>
-                <li id="diag-heartbeat">… Plugin heartbeat</li>
-                <li id="diag-session">… Studio session</li>
+                <li id="diag-connect">… Connect endpoint</li>
+                <li id="diag-pending">… Plugin pending-poll</li>
+                <li id="diag-session">… Session registration</li>
+                <li id="diag-heartbeat">… Heartbeat</li>
                 <li id="diag-command">… Command channel</li>
                 <li id="diag-ping">… Ping response</li>
               </ul>

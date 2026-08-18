@@ -110,4 +110,17 @@ describe('API server', () => {
     expect(status.status).toBe(200);
     expect((await status.json()).status).toBe('expired');
   }));
+
+  it('reports studio diagnostics with all routes available', async () => withServer(async url => {
+    const response = await fetch(`${url}/api/studio/diagnostics`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.service).toBe('lua-x-studio');
+    expect(body.api).toBe('ok');
+    expect(body.connectRoute).toBe('ok');
+    expect(body.statusRoute).toBe('ok');
+    expect(body.registerRoute).toBe('ok');
+    expect(body.heartbeatRoute).toBe('ok');
+    expect(body.commandRoute).toBe('ok');
+  }));
 });
