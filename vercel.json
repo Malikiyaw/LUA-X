@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "buildCommand": "npm run sync:plugin && npm run build --workspace=@lua-x/web",
+  "buildCommand": "npm run sync:studio-handler && npm run sync:plugin && npm run build --workspace=@lua-x/web",
   "outputDirectory": "apps/web/public",
   "rewrites": [
     { "source": "/api/studio/:path*", "destination": "/api/studio" }
