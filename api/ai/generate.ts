@@ -7,6 +7,11 @@ const DEFAULT_MODELS = [
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
+const BUILD_MODELS = [
+  'nvidia/llama-3.3-70b-instruct',
+  'nvidia/llama-3.1-8b-instruct',
+  ...DEFAULT_MODELS,
+];
 const MAX_BODY = 128 * 1024;
 const MAX_ATTEMPTS_PER_PAIR = 1;
 const MODES = new Set(['chat', 'build', 'plan']);
@@ -98,9 +103,10 @@ function keys(): string[] {
   return [...new Set(values)];
 }
 
-function models(): string[] {
+function models(mode: string): string[] {
   const configured = process.env.NVIDIA_MODEL?.trim();
-  return configured ? [configured, ...DEFAULT_MODELS.filter((model) => model !== configured)] : DEFAULT_MODELS;
+  const fallback = mode === 'chat' ? DEFAULT_MODELS : BUILD_MODELS;
+  return configured ? [configured, ...fallback.filter((model) => model !== configured)] : fallback;
 }
 
 async function readBody(request: Request): Promise<Record<string, unknown>> {
@@ -356,7 +362,7 @@ export async function POST(request: Request): Promise<Response> {
 
     const mode = modeOf(body);
     const baseUrl = (process.env.NVIDIA_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/$/, '');
-    const modelList = models();
+    const modelList = models(mode);
     const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 270000), 1000), 285000);
     const startedAt = Date.now();
     const remaining = () => deadlineMs - (Date.now() - startedAt);
