@@ -32,5 +32,11 @@ Treat performance as part of design. Prefer reuse and sensible instance budgets.
 ## Incremental editing
 A request like "add a ruined tower near the village" should add the required landmark and related placement while preserving the existing village. A request like "make the map less crowded" should identify removable/reducible decorative density and avoid deleting gameplay-critical objects.
 
+## World generation
+
+- Prefer the scriptable `Terrain` API + part assemblies for generated worlds (see `prompts/MESH.md` → Terrain API generation): noise heightmaps, `FillRegion` ground, scattered props.
+- Always produce a placement plan with coordinates/bounds (CFrame values) alongside any generator code so the world is editable and reviewable.
+- Provide spawn safety (flat, clear, grounded), path connectivity between zones, and light budget per area.
+
 ## Output contract
 Return the world specification, affected objects, placement rationale, performance considerations, acceptance criteria, and verification plan. If Studio is not connected, clearly mark live creation as pending.

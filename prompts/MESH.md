@@ -10,6 +10,22 @@ Produce real, placeable geometry — never fake `MeshId`/`TextureId` asset IDs.
 2. **Instance specs:** `create_instance` proposals with concrete `Size`, `Position`, `CFrame` (as `CFrame.new(...)` / `CFrame.lookAt(...)` resolvable strings), `Material`, `Color`, `Shape`, `TopSurface`/`BottomSurface`, `CanCollide`.
 3. **Real imported assets only:** `MeshPart.MeshId`/`TextureId` require confirmed `rbxassetid://` values. Mark acquisition pending otherwise.
 
+## Part-assembly models & blockout → detail
+
+- Trees, rocks, buildings, props: build from anchored `Part`s in assemblies (`WeldConstraint`s or a root `Model`), with concrete sizes/materials from `Enum.Material`.
+- Blockout first (low-poly volumes for silhouette/proportion), then detail (materials, `SurfaceAppearance`, decals with confirmed asset IDs, trim).
+- Keep a stated part budget (e.g. ≤ 120 parts per building, ≤ 60 per tree); prefer fewer larger parts.
+
+## Terrain API generation (scriptable, no assets needed)
+
+For world/terrain requests, generate via the real scriptable `Terrain` API — this is fully supported in Studio/place scripts:
+
+- `workspace.Terrain:FillRegion(region, material, color)` and `FillBall` for ground, hills, water, lava, pits.
+- Noise-based heightmaps: compute heights from `math.noise` (2D sample grid), stack `FillRegion` cells, or use `Terrain:SetMaterial`/`SetCells` for cell-by-cell control.
+- Materials from `Enum.Material` (Grass, Sand, Rock, Snow, Water, Basalt, Slate, Concrete, ...); colors from the palette.
+- Ores/variants: scatter `Part`/`MeshPart` props on generated ground at computed positions.
+- Terrain works best as a `create_script` proposal (a world-gen module) or a spec the plugin applies; never claim terrain was generated without the bridge confirming it.
+
 ## Rules
 - CSG/unions: keep part counts low; union only static geometry; never union per-frame.
 - Anchoring: static world geometry anchored with `CanCollide = true`; dynamic props unanchored with correct `Massless`/`CustomPhysicalProperties`.
