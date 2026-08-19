@@ -112,8 +112,52 @@ function normalizePlan(text: string): string {
   return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
+function extractJson(text: string): unknown {
+  const cleaned = normalizePlan(text);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // fall through to the balanced-brace scan
+  }
+  for (let i = 0; i < cleaned.length; i += 1) {
+    if (cleaned[i] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let j = i; j < cleaned.length; j += 1) {
+      const ch = cleaned[j];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(cleaned.slice(i, j + 1));
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 export function parseAIPlan(text: string): AIPlan {
-  const parsed: unknown = JSON.parse(normalizePlan(text));
+  const parsed = extractJson(text);
+  if (parsed === undefined) throw new Error('No valid JSON object found in the AI response.');
   if (!isRecord(parsed)) throw new Error('AI plan must be an object.');
 
   const { summary, assumptions, changes, acceptanceCriteria, verification, risks } = parsed;

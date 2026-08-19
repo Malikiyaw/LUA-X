@@ -9,4 +9,12 @@ describe('AI plan schema', () => {
   it('accepts JSON fenced output', () => expect(parseAIPlan('```json\n{"summary":"x","assumptions":[],"changes":[],"acceptanceCriteria":["x"],"verification":["x"],"risks":[]}\n```').summary).toBe('x'));
   it('rejects malformed plans', () => expect(() => parseAIPlan('{"summary":"x"}')).toThrow());
   it('rejects unknown operations', () => expect(() => parseAIPlan(JSON.stringify({ summary: 'x', assumptions: [], changes: [{ operation: 'run_shell', target: 'x', reason: 'x', risk: 'high' }], acceptanceCriteria: ['x'], verification: ['x'], risks: [] }))).toThrow());
+  it('extracts JSON wrapped in prose', () => {
+    const plan = parseAIPlan('Here is the plan I made for you:\n```json\n{"summary":"prose wrapped","assumptions":[],"changes":[],"acceptanceCriteria":["a"],"verification":["v"],"risks":[]}\n```\nHope that helps!');
+    expect(plan.summary).toBe('prose wrapped');
+  });
+  it('extracts the JSON object from text with a leading explanation', () => {
+    const plan = parseAIPlan('Sure! I will break this into steps.\n{\"summary\":\"leading text\",\"assumptions\":[],\"changes\":[],\"acceptanceCriteria\":[\"a\"],\"verification\":[\"v\"],\"risks\":[]}\n\nLet me know if you want changes.');
+    expect(plan.summary).toBe('leading text');
+  });
 });

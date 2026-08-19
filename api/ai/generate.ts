@@ -156,12 +156,56 @@ function normalizePlan(text: string): string {
   return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
+function extractJson(text: string): unknown {
+  const cleaned = normalizePlan(text);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // fall through to the balanced-brace scan
+  }
+  for (let i = 0; i < cleaned.length; i += 1) {
+    if (cleaned[i] !== '{') continue;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let j = i; j < cleaned.length; j += 1) {
+      const ch = cleaned[j];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === '{') depth += 1;
+      else if (ch === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            return JSON.parse(cleaned.slice(i, j + 1));
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
 function parseAIPlan(text: string): AIPlan {
-  const parsed: unknown = JSON.parse(normalizePlan(text));
+  const parsed = extractJson(text);
+  if (parsed === undefined) throw new Error('No valid JSON object found in the AI response.');
   if (!isRecord(parsed)) throw new Error('AI plan must be an object.');
 
   const { summary, assumptions, changes, acceptanceCriteria, verification, risks } = parsed;
@@ -210,8 +254,12 @@ function parseAIPlan(text: string): AIPlan {
   };
 }
 
-async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string) {
-  const maxTokens = Math.min(Math.max(Number(process.env.AI_MAX_TOKENS || 4096), 256), 16384);
+async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = []) {
+  const configuredMax = Number(process.env.AI_MAX_TOKENS || 0);
+  const defaultMax = mode === 'chat' ? 4096 : 8192;
+  const maxTokens = configuredMax > 0
+    ? Math.min(Math.max(configuredMax, 256), 16384)
+    : Math.min(Math.max(defaultMax, 256), 16384);
   const temperature = Math.min(Math.max(Number(process.env.AI_TEMPERATURE || 0.2), 0), 1);
   const timeoutMs = Math.min(Math.max(Number(process.env.AI_TIMEOUT_MS || 60000), 1000), 120000);
   const system = mode === 'chat' ? CHAT_SYSTEM_PROMPT : BUILD_SYSTEM_PROMPT;
@@ -232,6 +280,7 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
+          ...extraMessages,
         ],
         max_tokens: maxTokens,
         temperature,
@@ -270,6 +319,27 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
   }
 }
 
+function repairPrompt(text: string, error: Error): string {
+  const previous = text.slice(0, 2500);
+  return [
+    'Your previous response was not accepted as a valid change plan.',
+    `Validation error: ${error.message}`,
+    '',
+    'Return ONLY the corrected JSON object matching the requested schema. No markdown fences, no prose, no explanations, no extra keys.',
+    'Previous response (may be truncated):',
+    '---',
+    previous,
+  ].join('\n');
+}
+
+function tryPlan(text: string): { plan?: AIPlan; error?: Error } {
+  try {
+    return { plan: parseAIPlan(text) };
+  } catch (error) {
+    return { error: error instanceof Error ? error : new Error('Plan parse failed.') };
+  }
+}
+
 export async function POST(request: Request): Promise<Response> {
   const id = requestId(request);
 
@@ -293,24 +363,33 @@ export async function POST(request: Request): Promise<Response> {
           try {
             const result = await callNvidia(baseUrl, model, key, body, id, mode);
             if (mode !== 'chat') {
-              try {
-                const plan = parseAIPlan(result.response);
+              let outcome = tryPlan(result.response);
+              if (outcome.error) {
+                try {
+                  const repaired = await callNvidia(baseUrl, model, key, body, id, mode, [
+                    { role: 'user', content: repairPrompt(result.response, outcome.error) },
+                  ]);
+                  outcome = tryPlan(repaired.response);
+                } catch (repairError) {
+                  outcome = { error: repairError instanceof Error ? repairError : new Error('Repair attempt failed.') };
+                }
+              }
+              if (outcome.plan) {
                 return json(200, {
                   requestId: id,
                   provider: 'nvidia',
                   model: result.model,
-                  plan,
+                  plan: outcome.plan,
                   rawTextAvailable: false,
                 }, { 'x-request-id': id });
-              } catch (parseError) {
-                return json(502, {
-                  error: 'LUA-X could not parse a valid change plan from the AI response.',
-                  detail: parseError instanceof Error ? parseError.message : 'Plan parse failed.',
-                  requestId: id,
-                  retryable: true,
-                  rawText: result.response.slice(0, 4000),
-                }, { 'x-request-id': id });
               }
+              return json(502, {
+                error: 'LUA-X could not parse a valid change plan from the AI response.',
+                detail: outcome.error instanceof Error ? outcome.error.message : 'Plan parse failed.',
+                requestId: id,
+                retryable: true,
+                rawText: result.response.slice(0, 4000),
+              }, { 'x-request-id': id });
             }
             return json(200, {
               requestId: id,
