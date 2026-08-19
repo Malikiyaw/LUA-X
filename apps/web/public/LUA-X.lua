@@ -1,4 +1,4 @@
--- LUA-X Studio Plugin 1.2
+-- LUA-X Studio Plugin 1.2.1
 -- Stable connected bridge: heartbeat, website commands, AI planning, safe script apply,
 -- connection card, disconnect/reconnect, and startup diagnostics.
 
@@ -7,7 +7,7 @@ local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 
-local PLUGIN_VERSION = "1.2.0"
+local PLUGIN_VERSION = "1.2.1"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local SESSION_KEY = "LUA_X_STUDIO_SESSION"
@@ -257,17 +257,19 @@ end
 local function startupDiagnostics()
 	local lines = {}
 	local hOk, hResponse = safe("GET", rootUrl() .. "/api/health", nil, 1)
-	table.insert(lines, hOk and "API health: online" or "API health: unreachable")
+	table.insert(lines, hOk and "API health: online" or "API health: unreachable (check endpoint URL + Vercel deployment)")
 	local aOk, aResponse = safe("GET", rootUrl() .. "/api/ai/status", nil, 1)
 	local aiReady = false
 	if aOk and aResponse then
 		local dOk, data = pcall(function() return HttpService:JSONDecode(aResponse.Body) end)
 		aiReady = dOk and type(data) == "table" and data.configured == true
 	end
-	table.insert(lines, aiReady and "AI backend: ready" or "AI backend: not configured")
+	table.insert(lines, aiReady and "AI backend: ready (" .. (aOk and "keys ok" or "no keys") .. ")" or "AI backend: not configured (set NVIDIA_API_KEY in Vercel → All Environments + Redeploy)")
 	local regOk = registerSession()
-	table.insert(lines, regOk and "Session registration: ok" or "Session registration: failed")
-	table.insert(lines, "HTTP Requests: " .. (hOk and "enabled" or "check Game Settings → Security"))
+	table.insert(lines, regOk and "Session registration: ok" or "Session registration: failed (endpoint unreachable or Vercel cold start — retry)")
+	table.insert(lines, "HTTP Requests: " .. (hOk and "enabled" or "DISABLED → Game Settings → Security → Allow HTTP Requests ON"))
+	if hOk then table.insert(lines, "Endpoint: " .. endpoint())
+	else table.insert(lines, "Endpoint tried: " .. rootUrl() .. "/api/health — check Vercel domain matches website URL") end
 	if connDiagLabel then connDiagLabel.Text = table.concat(lines, "\n") end
 	return regOk
 end

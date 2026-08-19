@@ -24,10 +24,10 @@ type ConnectRequest = {
   sessionId?: string;
 };
 
-const PRESENCE_TTL = 20;
+const PRESENCE_TTL = 30;
 const COMMAND_TTL = 60;
-const CONNECT_REQUEST_TTL = 30;
-const REQUIRED_PLUGIN_VERSION = '1.2.0';
+const CONNECT_REQUEST_TTL = 60;
+const REQUIRED_PLUGIN_VERSION = '1.2.1';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
@@ -149,10 +149,19 @@ async function loadPresence(projectId?: string): Promise<Presence | null> {
   if (typeof remote === 'string') {
     try { return JSON.parse(remote) as Presence; } catch { /* fall through */ }
   }
-  const memory = projectId ? memoryPresence.get(`project:${projectId}`) : memoryPresence.get('latest');
-  if (!memory) return null;
-  if (Date.now() - memory.at > PRESENCE_TTL * 1000) return null;
-  return memory;
+  if (projectId) {
+    const memory = memoryPresence.get(`project:${projectId}`);
+    if (memory && Date.now() - memory.at <= PRESENCE_TTL * 1000) return memory;
+  } else {
+    const memory = memoryPresence.get('latest');
+    if (memory && Date.now() - memory.at <= PRESENCE_TTL * 1000) return memory;
+    let freshest: Presence | null = null;
+    for (const candidate of memoryPresence.values()) {
+      if (Date.now() - candidate.at <= PRESENCE_TTL * 1000 && (!freshest || candidate.at > freshest.at)) freshest = candidate;
+    }
+    if (freshest) return freshest;
+  }
+  return null;
 }
 
 async function clearPresence(sessionId: string): Promise<void> {
@@ -220,10 +229,15 @@ async function loadPendingConnectRequest(): Promise<ConnectRequest | null> {
       } catch { /* fall through */ }
     }
   }
-  if (!memoryLatestRequestId) return null;
-  const memory = memoryConnectRequests.get(memoryLatestRequestId);
-  if (!memory || !connectRequestAlive(memory)) return null;
-  return memory;
+  if (memoryLatestRequestId) {
+    const memory = memoryConnectRequests.get(memoryLatestRequestId);
+    if (memory && connectRequestAlive(memory)) return memory;
+  }
+  let freshest: ConnectRequest | null = null;
+  for (const request of memoryConnectRequests.values()) {
+    if (connectRequestAlive(request) && (!freshest || request.requestedAt > freshest.requestedAt)) freshest = request;
+  }
+  return freshest;
 }
 
 async function fulfillConnectRequest(requestId: string, sessionId: string): Promise<boolean> {
@@ -446,7 +460,7 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
 }
 
 export default async function handler(request: Request): Promise<Response> {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' } });
 
   let url: URL;
   let pathname: string;

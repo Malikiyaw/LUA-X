@@ -1,4 +1,24 @@
-const API_BASE = '';
+let API_BASE = '';
+let apiBaseResolved = false;
+try {
+  const override = localStorage.getItem('lua_x_api_base');
+  if (override) API_BASE = override.replace(/\/+$/, '');
+} catch { /* ignore */ }
+
+async function resolveApiBase() {
+  if (apiBaseResolved) return API_BASE;
+  apiBaseResolved = true;
+  if (API_BASE) return API_BASE;
+  try {
+    const r = await fetch('/api/config', { cache: 'no-store' });
+    if (!r.ok) return API_BASE;
+    const cfg = await r.json();
+    if (cfg && typeof cfg.apiBase === 'string' && cfg.apiBase.startsWith('http')) {
+      API_BASE = cfg.apiBase.replace(/\/+$/, '');
+    }
+  } catch { /* keep same-origin default */ }
+  return API_BASE;
+}
 const messagesEl = document.querySelector('#messages');
 const promptEl = document.querySelector('#prompt');
 const sendButton = document.querySelector('#send-button');
@@ -89,7 +109,7 @@ const comingText = document.querySelector('#coming-text');
 let toastTimer;
 let sending = false;
 
-const PLUGIN_VERSION = '1.2.0';
+const PLUGIN_VERSION = '1.2.1';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;
@@ -168,6 +188,7 @@ function versionAtLeast(installed, required) {
 }
 
 async function getJson(path) {
+  await resolveApiBase();
   const r = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
   const b = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(b.error || `Request failed (${r.status})`);
@@ -175,6 +196,7 @@ async function getJson(path) {
 }
 
 async function postJson(path, body) {
+  await resolveApiBase();
   const r = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -186,6 +208,7 @@ async function postJson(path, body) {
 }
 
 async function fetchDetailed(path, init = {}) {
+  await resolveApiBase();
   const t0 = Date.now();
   try {
     const r = await fetch(`${API_BASE}${path}`, { ...init, cache: 'no-store' });
@@ -198,9 +221,22 @@ async function fetchDetailed(path, init = {}) {
   }
 }
 
+async function checkWebProxy() {
+  for (const path of ['/api/health?web', '/web/health']) {
+    try {
+      const r = await fetch(path, { cache: 'no-store' });
+      if (r.ok) {
+        const b = await r.json().catch(() => null);
+        if (b && b.service === 'lua-x-web') return true;
+      }
+    } catch { /* try next */ }
+  }
+  return false;
+}
+
 function classifyHttpError(detail) {
   if (!detail || !detail.reached || !detail.status) {
-    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response. If running locally, make sure both the web server (port 3000) and API server (port 4000) are running.' };
+    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response. If running locally, make sure the API server (port 4000) is running and check the API base URL (a "lua_x_api_base" localStorage override wins over the web proxy). On Vercel, check that the api/ functions deployed successfully and the project has a NVIDIA_API_KEY in All Environments.' };
   }
   const serverError = detail.body && typeof detail.body === 'object' && detail.body.error && typeof detail.body.error === 'object'
     ? detail.body.error
@@ -240,6 +276,7 @@ function renderConnectError(detail, requestId) {
 }
 
 async function refreshHealth() {
+  await resolveApiBase();
   const h = await fetchDetailed('/api/health');
   if (h.reached && h.status === 200 && h.body && h.body.status === 'ok') {
     backendOk = true;
@@ -249,8 +286,14 @@ async function refreshHealth() {
   } else {
     backendOk = false;
     backendHttp = h.reached ? h.status : null;
-    backendStatus.textContent = h.reached ? `HTTP ${h.status}` : 'Unreachable';
-    backendStatus.classList.remove('ok');
+    const proxyUp = await checkWebProxy();
+    if (proxyUp) {
+      backendStatus.textContent = 'API down';
+      backendStatus.classList.remove('ok');
+    } else {
+      backendStatus.textContent = h.reached ? `HTTP ${h.status}` : 'Unreachable';
+      backendStatus.classList.remove('ok');
+    }
   }
   const a = await fetchDetailed('/api/ai/status');
   if (a.reached && a.status === 200 && a.body) {
@@ -262,9 +305,15 @@ async function refreshHealth() {
   } else {
     aiOk = false;
     aiHttp = a.reached ? a.status : null;
-    aiStatus.textContent = a.reached ? `HTTP ${a.status}` : 'Unreachable';
-    aiStatus.classList.remove('ok');
-    modelLabel.textContent = 'NVIDIA · not configured';
+    if (a.reached && a.status === 503) {
+      aiStatus.textContent = 'AI not configured';
+      aiStatus.classList.remove('ok');
+      modelLabel.textContent = 'NVIDIA · not configured';
+    } else {
+      aiStatus.textContent = a.reached ? `HTTP ${a.status}` : 'Unreachable';
+      aiStatus.classList.remove('ok');
+      modelLabel.textContent = 'NVIDIA · not configured';
+    }
   }
   updateServicePills();
 }
@@ -569,11 +618,16 @@ async function connectNowFlow() {
   setConnectState('connecting');
   const attemptId = `web_${Date.now().toString(36)}`;
 
+  await resolveApiBase();
   const health = await fetchDetailed('/api/health');
   if (!health.reached || health.status !== 200) {
+    connectRequestId = null;
     setConnectState('backend_error');
     renderConnectError(health, attemptId);
-    showToast('Cannot reach the LUA-X backend — check that the API server is running.');
+    const proxyUp = await checkWebProxy();
+    showToast(proxyUp
+      ? 'Web server is up but the API backend is unreachable — start the API server or check the deployment.'
+      : 'Cannot reach the LUA-X backend — check that the API server is running.');
     return;
   }
 
@@ -797,7 +851,29 @@ async function send() {
     } : { projectId: studioPlaceId, placeName: studioPlaceName };
   }
   try {
-    const b = await postJson('/api/ai/generate', body);
+    await resolveApiBase();
+    const r = await fetchDetailed('/api/ai/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const b = r.body && typeof r.body === 'object' ? r.body : {};
+    if (!r.reached || r.status !== 200 || !b) {
+      typing.remove();
+      const notConfigured = r.reached && (r.status === 503 || (typeof b.error === 'string' && /not configured/i.test(b.error)));
+      if (notConfigured) {
+        addMessage('The AI provider is not configured on the backend. Add an NVIDIA_API_KEY in Vercel (Settings → Environment Variables → All Environments) and redeploy.', 'error');
+        composerNote.textContent = 'AI not configured — set NVIDIA_API_KEY in Vercel and redeploy.';
+      } else if (!r.reached) {
+        addMessage('Could not reach the LUA-X backend. Check that the API is deployed and reachable.', 'error');
+        composerNote.textContent = 'Backend unreachable — check the API deployment.';
+      } else {
+        addMessage(typeof b.error === 'string' ? b.error : `Request failed (HTTP ${r.status}).`, 'error');
+        composerNote.textContent = `Request failed (HTTP ${r.status}).`;
+      }
+      showToast('Failed to reach the LUA-X backend.');
+      return;
+    }
     const reply = (typeof b.response === 'string' && b.response) || (b.plan && b.plan.summary) || 'No response from backend.';
     typing.remove();
     addMessage(reply, 'assistant');

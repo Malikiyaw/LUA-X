@@ -59,14 +59,23 @@ function clientKey(request: IncomingMessage): string {
 
 function createDependencies(): ApiDependencies {
   const config = loadConfig();
-  const nvidia = new NvidiaClientPool({
-    apiKeys: config.nvidiaApiKeys,
-    baseUrl: config.nvidiaBaseUrl,
-    model: config.nvidiaModel,
-    maxTokens: config.aiMaxTokens,
-    temperature: config.aiTemperature,
-    timeoutMs: config.aiTimeoutMs,
-  });
+  let nvidia: NvidiaClientPool;
+  if (config.nvidiaApiKeys.length === 0) {
+    nvidia = {
+      size: 0,
+      isConfigured: () => false,
+      chat: async () => { throw new NvidiaApiError('AI provider is not configured on the backend.', 503, false); },
+    } as unknown as NvidiaClientPool;
+  } else {
+    nvidia = new NvidiaClientPool({
+      apiKeys: config.nvidiaApiKeys,
+      baseUrl: config.nvidiaBaseUrl,
+      model: config.nvidiaModel,
+      maxTokens: config.aiMaxTokens,
+      temperature: config.aiTemperature,
+      timeoutMs: config.aiTimeoutMs,
+    });
+  }
   return { config, nvidia, limiter: new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests) };
 }
 

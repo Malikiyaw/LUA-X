@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AddressInfo } from 'node:net';
 import { createApiServer, type ApiDependencies } from './server.js';
-import { NvidiaClientPool } from './nvidia-pool.js';
+import { NvidiaClientPool, NvidiaApiError } from '@lua-x/nvidia-provider';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 
 function deps(): ApiDependencies {
@@ -64,7 +64,7 @@ describe('API server', () => {
     expect(connect.status).toBe(200);
     const connectBody = await connect.json();
     expect(connectBody.status).toBe('waiting');
-    expect(connectBody.expiresIn).toBe(30);
+    expect(connectBody.expiresIn).toBe(60);
     expect(connectBody.requestId).toMatch(/^connect_/);
 
     const pending = await fetch(`${url}/api/studio/connect/pending`);
@@ -80,7 +80,7 @@ describe('API server', () => {
       body: JSON.stringify({
         projectId: 'demo',
         sessionId: 'session-handshake',
-        pluginVersion: '1.2.0',
+        pluginVersion: '1.2.1',
         requestId: connectBody.requestId,
       }),
     });
@@ -142,7 +142,7 @@ describe('API server', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.status).toBe('waiting');
-    expect(body.expiresIn).toBe(30);
+    expect(body.expiresIn).toBe(60);
     expect(typeof body.requestId).toBe('string');
     expect(body.requestId.startsWith('connect_')).toBe(true);
   }));
@@ -164,4 +164,36 @@ describe('API server', () => {
     const missingBody = await post(null);
     expect(missingBody.status).toBe(400);
   }));
+
+  it('stays online with zero NVIDIA keys configured (health + studio still work)', async () => {
+    const config = {
+      host: '127.0.0.1', port: 0, nodeEnv: 'test',
+      nvidiaApiKeys: [] as string[], nvidiaBaseUrl: 'https://example.test/v1', nvidiaModel: 'test-model',
+      aiMaxTokens: 128, aiTemperature: 0.2, aiTimeoutMs: 1000,
+      rateLimitWindowMs: 60_000, rateLimitMaxRequests: 20, corsOrigin: '*',
+    };
+    const nvidia = {
+      size: 0,
+      isConfigured: () => false,
+      chat: async () => { throw new NvidiaApiError('AI provider is not configured on the backend.', 503, false); },
+    } as unknown as NvidiaClientPool;
+    const server = createApiServer({ config, nvidia, limiter: new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests) });
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
+    try {
+      const address = server.address() as AddressInfo;
+      const url = `http://127.0.0.1:${address.port}`;
+      const health = await fetch(`${url}/api/health`);
+      expect(health.status).toBe(200);
+      expect((await health.json()).aiKeysConfigured).toBe(0);
+      const ready = await fetch(`${url}/ready`);
+      expect(ready.status).toBe(503);
+      const ping = await fetch(`${url}/api/studio/ping`);
+      expect(ping.status).toBe(200);
+      const connect = await fetch(`${url}/api/studio/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'web' }) });
+      expect(connect.status).toBe(200);
+      expect((await connect.json()).requestId).toMatch(/^connect_/);
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
 });
