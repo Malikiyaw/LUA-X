@@ -1,4 +1,4 @@
-export const config = { runtime: 'nodejs' };
+export const config = { runtime: 'nodejs', maxDuration: 300 };
 
 import { randomUUID } from 'node:crypto';
 
@@ -8,7 +8,7 @@ const DEFAULT_MODELS = [
   'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
 const MAX_BODY = 128 * 1024;
-const MAX_ATTEMPTS_PER_PAIR = 2;
+const MAX_ATTEMPTS_PER_PAIR = 1;
 const MODES = new Set(['chat', 'build', 'plan']);
 const OPERATIONS = new Set([
   'create_script', 'update_script', 'create_instance', 'update_instance', 'delete_instance',
@@ -257,18 +257,19 @@ function parseAIPlan(text: string): AIPlan {
   };
 }
 
-async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = []) {
+async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = [], timeoutMs?: number) {
   const configuredMax = Number(process.env.AI_MAX_TOKENS || 0);
   const defaultMax = mode === 'chat' ? 4096 : 8192;
   const maxTokens = configuredMax > 0
     ? Math.min(Math.max(configuredMax, 256), 16384)
     : Math.min(Math.max(defaultMax, 256), 16384);
   const temperature = Math.min(Math.max(Number(process.env.AI_TEMPERATURE || 0.2), 0), 1);
-  const timeoutMs = Math.min(Math.max(Number(process.env.AI_TIMEOUT_MS || 60000), 1000), 120000);
+  const defaultTimeout = Math.min(Math.max(Number(process.env.AI_TIMEOUT_MS || 120000), 1000), 120000);
+  const effectiveTimeout = timeoutMs !== undefined ? Math.min(Math.max(timeoutMs, 1000), 120000) : defaultTimeout;
   const system = mode === 'chat' ? CHAT_SYSTEM_PROMPT : BUILD_SYSTEM_PROMPT;
   const user = mode === 'chat' ? chatUserPrompt(body) : buildUserPrompt(body);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
@@ -356,22 +357,29 @@ export async function POST(request: Request): Promise<Response> {
     const mode = modeOf(body);
     const baseUrl = (process.env.NVIDIA_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/$/, '');
     const modelList = models();
+    const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 270000), 1000), 285000);
+    const startedAt = Date.now();
+    const remaining = () => deadlineMs - (Date.now() - startedAt);
     let lastMessage = 'All NVIDIA generation attempts failed.';
     let lastStatus = 502;
     let retriesUsed = 0;
 
-    for (const model of modelList) {
+    attempts: for (const model of modelList) {
       for (const key of apiKeys) {
+        if (remaining() < 10000) {
+          lastMessage = `NVIDIA generation exceeded the ${Math.round(deadlineMs / 1000)}s deadline. Try again or retry later.`;
+          break attempts;
+        }
         for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_PAIR; attempt += 1) {
           try {
-            const result = await callNvidia(baseUrl, model, key, body, id, mode);
+            const result = await callNvidia(baseUrl, model, key, body, id, mode, [], remaining());
             if (mode !== 'chat') {
               let outcome = tryPlan(result.response);
-              if (outcome.error) {
+              if (outcome.error && remaining() >= 60000) {
                 try {
                   const repaired = await callNvidia(baseUrl, model, key, body, id, mode, [
                     { role: 'user', content: repairPrompt(result.response, outcome.error) },
-                  ]);
+                  ], remaining());
                   outcome = tryPlan(repaired.response);
                 } catch (repairError) {
                   outcome = { error: repairError instanceof Error ? repairError : new Error('Repair attempt failed.') };
@@ -422,6 +430,7 @@ export async function POST(request: Request): Promise<Response> {
       modelsTried: modelList,
       keysTried: apiKeys.length,
       retriesUsed,
+      elapsedMs: Date.now() - startedAt,
     }, { 'x-request-id': id });
   } catch (error) {
     return json(400, { error: error instanceof Error ? error.message : 'Invalid request.', requestId: id }, { 'x-request-id': id });
