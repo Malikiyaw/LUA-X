@@ -265,7 +265,7 @@ function parseAIPlan(text: string): AIPlan {
 
 async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = [], timeoutMs?: number) {
   const configuredMax = Number(process.env.AI_MAX_TOKENS || 0);
-  const defaultMax = mode === 'chat' ? 4096 : 8192;
+  const defaultMax = mode === 'chat' ? 4096 : 16384;
   const maxTokens = configuredMax > 0
     ? Math.min(Math.max(configuredMax, 256), 16384)
     : Math.min(Math.max(defaultMax, 256), 16384);
@@ -330,11 +330,12 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
 }
 
 function repairPrompt(text: string, error: Error): string {
-  const previous = text.slice(0, 2500);
+  const previous = text.slice(0, 4000);
   return [
     'Your previous response was not accepted as a valid change plan.',
     `Validation error: ${error.message}`,
     '',
+    'If the previous response was cut off mid-JSON (truncated), rebuild the plan COMPACTLY so it fits: fewer changes, shorter content strings, only essential fields. Otherwise fix the specific validation error.',
     'Return ONLY the corrected JSON object matching the requested schema. No markdown fences, no prose, no explanations, no extra keys.',
     'Previous response (may be truncated):',
     '---',
@@ -382,14 +383,20 @@ export async function POST(request: Request): Promise<Response> {
             const result = await callNvidia(baseUrl, model, key, body, id, mode, [], remaining());
             if (mode !== 'chat') {
               let outcome = tryPlan(result.response);
+              let firstError = '';
+              if (outcome.error) {
+                firstError = outcome.error.message;
+                attemptLog.push({ model, ms: Date.now() - startedAt, error: `parse: ${firstError}` });
+              }
               if (outcome.error && remaining() >= 60000) {
                 try {
                   const repaired = await callNvidia(baseUrl, model, key, body, id, mode, [
                     { role: 'user', content: repairPrompt(result.response, outcome.error) },
                   ], remaining());
                   outcome = tryPlan(repaired.response);
+                  if (outcome.error) attemptLog.push({ model, ms: Date.now() - startedAt, error: `parse(repair): ${outcome.error.message}` });
                 } catch (repairError) {
-                  outcome = { error: repairError instanceof Error ? repairError : new Error('Repair attempt failed.') };
+                  outcome = { error: new Error(`${firstError} | repair failed: ${repairError instanceof Error ? repairError.message : 'repair call failed'}`) };
                 }
               }
               if (outcome.plan) {
