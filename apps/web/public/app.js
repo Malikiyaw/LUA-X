@@ -1,29 +1,4 @@
-let API_BASE = '';
-let apiBaseResolved = false;
-async function resolveApiBase() {
-  if (apiBaseResolved) return API_BASE;
-  try {
-    const r = await fetch('/api/config', { cache: 'no-store' });
-    if (r.ok) {
-      const cfg = await r.json();
-      if (cfg && typeof cfg.apiBase === 'string' && cfg.apiBase && cfg.apiBase !== 'http://127.0.0.1:4000') {
-        // Only override if config suggests a different absolute origin (covers local dev with custom port)
-        // For Vercel relative mode, config may return '' or same-origin - keep relative for same-origin
-        if (cfg.apiBase.startsWith('http')) {
-          // Use relative via proxy instead of absolute to avoid CORS when same-origin proxy works
-          // But if web proxy is broken, absolute can be fallback - keep relative as primary
-        }
-      }
-    }
-  } catch { /* keep relative */ }
-  apiBaseResolved = true;
-  return API_BASE;
-}
-// Also allow manual override via localStorage for debugging separate API deployments
-try {
-  const override = localStorage.getItem('lua_x_api_base');
-  if (override) API_BASE = override;
-} catch {}
+const API_BASE = '';
 const messagesEl = document.querySelector('#messages');
 const promptEl = document.querySelector('#prompt');
 const sendButton = document.querySelector('#send-button');
@@ -114,7 +89,7 @@ const comingText = document.querySelector('#coming-text');
 let toastTimer;
 let sending = false;
 
-const PLUGIN_VERSION = '1.2.1';
+const PLUGIN_VERSION = '1.2.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;
@@ -225,10 +200,7 @@ async function fetchDetailed(path, init = {}) {
 
 function classifyHttpError(detail) {
   if (!detail || !detail.reached || !detail.status) {
-    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-    return { title: 'Could not reach LUA-X API', hint: isLocal
-      ? 'Network or CORS problem — the request never got an HTTP response. For local dev: 1) Run API: `NVIDIA_API_KEY=test npm run dev:api` (port 4000) 2) Run Web: `npm run dev` (port 3000) 3) Make sure LUA_X_API_URL points to the API port.'
-      : 'Network or CORS problem — the request never got an HTTP response. Check your internet and that the LUA-X deployment is online.' };
+    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response. If running locally, make sure both the web server (port 3000) and API server (port 4000) are running.' };
   }
   const serverError = detail.body && typeof detail.body === 'object' && detail.body.error && typeof detail.body.error === 'object'
     ? detail.body.error
@@ -241,18 +213,13 @@ function classifyHttpError(detail) {
       serverRequestId: typeof serverError.requestId === 'string' ? serverError.requestId : null,
     };
   }
-  const bodyText = detail.body && typeof detail.body === 'object' && detail.body.detail ? String(detail.body.detail) : '';
-  const isProxyUnreachable = bodyText.includes('API server unreachable') || (detail.body && detail.body.error === 'API server unreachable.');
-  if (isProxyUnreachable) {
-    return { title: 'Web cannot reach API server', hint: 'The web server is running but cannot connect to the API. If running locally, start the API with: `NVIDIA_API_KEY=test LUA_X_STANDALONE=true npm run dev:api` and ensure LUA_X_API_URL=http://127.0.0.1:4000. On Vercel, this indicates a deployment misconfiguration.' };
-  }
   const status = detail.status;
-  if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder. If running locally, make sure the API server is running on port 4000 and that vercel.json rewrites are correct.' };
+  if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder. If running locally, make sure the API server is running on port 4000.' };
   if (status === 405) return { title: 'Wrong route or method', hint: 'The deployed API routes /api/studio differently than expected.' };
   if (status === 401 || status === 403) return { title: 'Authorization rejected', hint: 'The API rejected the request — check authentication configuration.' };
   if (status === 429) return { title: 'Too many requests', hint: 'Rate limit exceeded — wait a moment and press Retry.' };
-  if (status === 502 || status === 503) return { title: 'LUA-X Studio bridge unavailable', hint: 'The backend function or a dependency failed. If running locally, make sure the API server (LUA_X_STANDALONE=true) is running on the correct port and has a valid NVIDIA key (or dummy). On Vercel, check function logs for STUDIO_CONNECT_FAILED.' };
-  if (status >= 500) return { title: 'LUA-X backend error', hint: 'The API function crashed (FUNCTION_INVOCATION_FAILED). Check the Vercel function logs or local API console.' };
+  if (status === 502 || status === 503) return { title: 'LUA-X Studio bridge unavailable', hint: 'The backend function or a dependency failed. Check Vercel function logs. If running locally, make sure the API server (LUA_X_STANDALONE=true) is running.' };
+  if (status >= 500) return { title: 'LUA-X backend error', hint: 'The API function crashed (FUNCTION_INVOCATION_FAILED). Check the Vercel function logs.' };
   return { title: `Request failed (HTTP ${status})`, hint: 'The API rejected the connection request.' };
 }
 
@@ -273,32 +240,8 @@ function renderConnectError(detail, requestId) {
 }
 
 async function refreshHealth() {
-  await resolveApiBase();
   const h = await fetchDetailed('/api/health');
-  // Handle both direct API health and web-proxy error format
-  const isApiHealth = h.reached && h.status === 200 && h.body && h.body.status === 'ok' && (h.body.service === 'lua-x-api' || h.body.service === 'lua-x-web');
-  // Specifically check service to distinguish web vs api when proxy fails
-  if (h.reached && h.status === 200 && h.body && h.body.status === 'ok' && h.body.service === 'lua-x-api') {
-    backendOk = true;
-    backendHttp = 200;
-    backendStatus.textContent = 'Online';
-    backendStatus.classList.add('ok');
-  } else if (h.reached && h.status === 200 && h.body && h.body.service === 'lua-x-web' && h.body.status === 'ok') {
-    // Web server is up but API may be down - do extra check via diagnostics ping
-    const ping = await fetchDetailed('/api/studio/ping');
-    if (ping.reached && ping.status === 200 && ping.body && ping.body.ok) {
-      backendOk = true;
-      backendHttp = 200;
-      backendStatus.textContent = 'Online';
-      backendStatus.classList.add('ok');
-    } else {
-      backendOk = false;
-      backendHttp = ping.reached ? ping.status : h.status;
-      backendStatus.textContent = 'API Unreachable';
-      backendStatus.classList.remove('ok');
-    }
-  } else if (isApiHealth && h.body.service === 'lua-x-web') {
-    // Fallback: web health but check studio ping
+  if (h.reached && h.status === 200 && h.body && h.body.status === 'ok') {
     backendOk = true;
     backendHttp = 200;
     backendStatus.textContent = 'Online';
@@ -625,25 +568,15 @@ async function connectNowFlow() {
   handshakeDone = false;
   setConnectState('connecting');
   const attemptId = `web_${Date.now().toString(36)}`;
-  await resolveApiBase();
-  // First, quick check if Studio is already heartbeating (no need for connect request)
-  await refreshStudio();
-  if (studioConnected) {
-    showToast('Studio already detected via heartbeat — you are online ✓');
-    return;
-  }
-  // Check backend health, but allow proceed if studio ping works even if health is web-only
+
   const health = await fetchDetailed('/api/health');
-  const ping = await fetchDetailed('/api/studio/ping');
-  const backendReachable = (health.reached && health.status === 200) || (ping.reached && ping.status === 200);
-  if (!backendReachable) {
+  if (!health.reached || health.status !== 200) {
     setConnectState('backend_error');
-    renderConnectError(health.reached ? health : ping, attemptId);
+    renderConnectError(health, attemptId);
     showToast('Cannot reach the LUA-X backend — check that the API server is running.');
     return;
   }
-  // Also refresh health for pill accuracy
-  refreshHealth();
+
   const detail = await fetchDetailed('/api/studio/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -658,9 +591,10 @@ async function connectNowFlow() {
   }
   connectRequestId = detail.body.requestId;
   clearInterval(connectTimer);
+
   await refreshStudio();
   await refreshConnectStatus();
-  // If heartbeat already visible, we will auto-transition to connected via renderStudioCard
+
   connectTimer = setInterval(() => {
     refreshStudio();
     refreshConnectStatus();
@@ -847,7 +781,6 @@ async function loadManifest() {
 async function send() {
   const text = promptEl.value.trim();
   if (!text || sending) return;
-  await resolveApiBase();
   addMessage(text, 'user');
   promptEl.value = '';
   setSending(true);
@@ -873,13 +806,9 @@ async function send() {
       : 'Answered by LUA-X. Connect Studio (Plugins) to make chat project-aware.';
   } catch (e) {
     typing.remove();
-    const msg = e instanceof Error ? e.message : 'AI generation failed.';
-    const isNotConfigured = msg.includes('not configured') || msg.includes('503');
-    addMessage(isNotConfigured ? 'AI provider is not configured on the backend. Set NVIDIA_API_KEY on the server and redeploy.' : msg, 'error');
-    composerNote.textContent = isNotConfigured
-      ? 'AI not configured — set NVIDIA_API_KEY in Vercel / local .env and restart.'
-      : 'Request failed. Check that the backend is running and the AI provider is configured.';
-    showToast(isNotConfigured ? 'AI not configured — check server env.' : 'Failed to reach the LUA-X backend.');
+    addMessage(e instanceof Error ? e.message : 'AI generation failed.', 'error');
+    composerNote.textContent = 'Request failed. Check that the backend is running and the AI provider is configured.';
+    showToast('Failed to reach the LUA-X backend.');
   } finally {
     setSending(false);
   }
