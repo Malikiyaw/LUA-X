@@ -54,6 +54,47 @@ describe('API server', () => {
     expect(body.plan.summary).toBe('Build a test feature');
   }));
 
+  it('returns a structured plan when mode is build', async () => withServer(async url => {
+    const response = await fetch(`${url}/api/ai/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Add a sprint system with a sound', projectId: 'demo', mode: 'build' }) });
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.plan).toBeDefined();
+    expect(body.plan.summary).toBe('Build a test feature');
+    expect(Array.isArray(body.plan.changes)).toBe(true);
+    expect(body.rawTextAvailable).toBe(false);
+  }));
+
+  it('returns plain chat text when mode is chat', async () => withServer(async url => {
+    const config = {
+      host: '127.0.0.1', port: 0, nodeEnv: 'test',
+      nvidiaApiKeys: ['test-key-1'], nvidiaBaseUrl: 'https://example.test/v1', nvidiaModel: 'test-model',
+      aiMaxTokens: 128, aiTemperature: 0.2, aiTimeoutMs: 1000,
+      rateLimitWindowMs: 60_000, rateLimitMaxRequests: 20, corsOrigin: '*',
+    };
+    const nvidia = new NvidiaClientPool({
+      apiKeys: config.nvidiaApiKeys,
+      baseUrl: config.nvidiaBaseUrl,
+      model: config.nvidiaModel,
+      maxTokens: config.aiMaxTokens,
+      temperature: config.aiTemperature,
+      timeoutMs: config.aiTimeoutMs,
+      fetchImpl: async () => new Response(JSON.stringify({ model: 'test-model', choices: [{ message: { content: 'Use a LocalScript for client input.' } }] }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    });
+    const server = createApiServer({ config, nvidia, limiter: new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests) });
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
+    try {
+      const address = server.address() as AddressInfo;
+      const url = `http://127.0.0.1:${address.port}`;
+      const response = await fetch(`${url}/api/ai/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Explain sprint systems', mode: 'chat' }) });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.response).toBe('Use a LocalScript for client input.');
+      expect(body.plan).toBeUndefined();
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  }));
+
   it('rejects invalid generate payloads', async () => withServer(async url => {
     const response = await fetch(`${url}/api/ai/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: '' }) });
     expect(response.status).toBe(400);

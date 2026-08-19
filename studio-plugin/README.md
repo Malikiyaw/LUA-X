@@ -18,13 +18,25 @@ LUA-X-connected.lua  →  sync-plugin.mjs  →  LUA-X.lua  →  website download
   website shows your Studio session as **Online**. The session ID is persistent
   (stored in plugin settings) and survives Studio restarts.
 - **Commands from the website:** polls the backend command queue and answers
-  `ping`, `refresh_context`, `analyze`, `verify`, `stop`, and `build` requests.
+  `ping`, `refresh_context`, `analyze`, `verify`, `stop`, and `build` requests
+  (a website `build` command switches the dock to Build · Plan mode).
+- **Chat pane:** a full chat composer with message history. Chat mode answers
+  questions and explains code; Build · Plan mode generates reviewable change sets.
+- **Build · Plan toggle:** switch between **Chat** and **Build · Plan** modes
+  from the dock header. Build · Plan turns a natural-language request into a
+  structured plan (scripts + UI + animation + VFX + sound + geometry) for review.
+- **Plan → review → confirm → apply → verify:** generates a structured change
+  plan from the LUA-X API, shows it for review, applies it through Studio, records
+  `ChangeHistoryService` waypoints (Studio Undo works), and verifies the result.
+  Applied operations: `create_script`, `update_script` (via `ScriptEditorService`
+  with a `Source` fallback), `create_instance` / `update_instance` /
+  `delete_instance`, and the shorthand ops `create_animation`, `create_sound`,
+  `create_vfx`, `create_ui` — which build real Roblox Instances from JSON specs
+  (`className`, `properties` with resolvable values like `Vector3.new(...)`,
+  `Color3.fromRGB(...)`, `UDim2.new(...)`, `Enum.Material.Slate`). `note` ops are
+  never applied.
 - **Context:** reads the current Studio selection, selected scripts and their
   source, and reports it to the backend with every heartbeat.
-- **Plan → review → confirm → apply → verify:** generates a structured change
-  plan from the LUA-X API, shows it for review, applies script updates through
-  `ScriptEditorService` with a `Source` fallback, records `ChangeHistoryService`
-  waypoints (Studio Undo works), and verifies the result.
 - **No silent failures:** widget creation falls back from the async API to the
   legacy API, and any startup error is shown in a visible error widget and
   printed to the Studio Output window.

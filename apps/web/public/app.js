@@ -109,7 +109,7 @@ const comingText = document.querySelector('#coming-text');
 let toastTimer;
 let sending = false;
 
-const PLUGIN_VERSION = '1.2.1';
+const PLUGIN_VERSION = '1.3.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;
@@ -156,6 +156,15 @@ function addMessage(text, kind) {
   const el = document.createElement('div');
   el.className = `msg ${kind}`;
   el.innerHTML = `<span class="msg-sender">${kind === 'user' ? 'You' : kind === 'error' ? 'LUA-X · error' : 'LUA-X'}</span><span class="msg-text">${esc(text)}</span>`;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return el;
+}
+
+function addTyping() {
+  const el = document.createElement('div');
+  el.className = 'msg skeleton skeleton-shimmer';
+  el.innerHTML = '<span class="msg-sender">LUA-X</span><span class="line"></span><span class="line"></span><span class="line"></span>';
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return el;
@@ -263,7 +272,7 @@ function renderConnectError(detail, requestId) {
   if (!connectErrorBox) return;
   const cls = classifyHttpError(detail);
   connectErrorBox.classList.remove('hidden');
-  if (connectErrorTitle) connectErrorTitle.textContent = `🔴 ${cls.title}`;
+  if (connectErrorTitle) connectErrorTitle.textContent = cls.title;
   if (connectErrorHint) connectErrorHint.textContent = cls.hint;
   if (connectErrorEndpoint) connectErrorEndpoint.textContent = `Endpoint: POST /api/studio/connect`;
   if (connectErrorHttp) connectErrorHttp.textContent = detail && detail.reached ? `HTTP: ${detail.status} ${detail.statusText || ''}` : 'HTTP: no response (network/CORS)';
@@ -320,25 +329,26 @@ async function refreshHealth() {
 
 function updateServicePills() {
   if (!svcBackend) return;
-  svcBackend.textContent = backendOk ? 'Backend 🟢 Online' : (backendHttp ? `Backend 🔴 HTTP ${backendHttp}` : 'Backend 🔴 Unreachable');
+  svcBackend.textContent = backendOk ? 'Backend · Online' : (backendHttp ? `Backend · HTTP ${backendHttp}` : 'Backend · Unreachable');
   svcBackend.className = `status-pill ${backendOk ? 'ok' : 'bad'}`;
-  svcAi.textContent = aiOk ? 'NVIDIA 🟢 Ready' : (aiHttp === 200 ? 'NVIDIA 🟠 Not configured' : (aiHttp ? `NVIDIA 🔴 HTTP ${aiHttp}` : 'NVIDIA 🔴 Unreachable'));
+  svcAi.textContent = aiOk ? 'NVIDIA · Ready' : (aiHttp === 200 ? 'NVIDIA · Not configured' : (aiHttp ? `NVIDIA · HTTP ${aiHttp}` : 'NVIDIA · Unreachable'));
   svcAi.className = `status-pill ${aiOk ? 'ok' : aiHttp === 200 ? 'warn' : 'bad'}`;
-  svcBridge.textContent = bridgeUp ? 'Studio Bridge 🟢 Available' : (bridgeHttp ? `Studio Bridge 🔴 HTTP ${bridgeHttp}` : 'Studio Bridge 🔴 Unreachable');
+  svcBridge.textContent = bridgeUp ? 'Studio Bridge · Available' : (bridgeHttp ? `Studio Bridge · HTTP ${bridgeHttp}` : 'Studio Bridge · Unreachable');
   svcBridge.className = `status-pill ${bridgeUp ? 'ok' : 'bad'}`;
-  svcStudio.textContent = studioConnected ? 'Studio 🟢 Connected' : 'Studio 🟡 Waiting';
+  svcStudio.textContent = studioConnected ? 'Studio · Connected' : 'Studio · Waiting';
   svcStudio.className = `status-pill ${studioConnected ? 'ok' : 'warn'}`;
 }
 
 function renderChecklist() {
   if (!checkDownload) return;
-  checkDownload.textContent = `${pluginDownloaded() ? '✓' : '…'} LUA-X download available`;
+  checkDownload.textContent = `${pluginDownloaded() ? 'PASS' : 'WAIT'} LUA-X download available`;
   checkDownload.className = pluginDownloaded() ? 'ok' : 'bad';
-  checkBackend.textContent = `${backendOk ? '✓' : '✗'} Backend online`;
+  checkBackend.textContent = `${backendOk ? 'PASS' : 'FAIL'} Backend online`;
   checkBackend.className = backendOk ? 'ok' : 'bad';
-  checkAi.textContent = `${aiOk ? '✓' : '✗'} NVIDIA backend online`;
+  checkAi.textContent = `${aiOk ? 'PASS' : 'FAIL'} NVIDIA backend online`;
   checkAi.className = aiOk ? 'ok' : 'bad';
-  checkSession.textContent = '✗ Studio session not detected';
+  checkSession.textContent = 'FAIL Studio session not detected';
+  checkSession.className = 'bad';
 }
 
 function updateWaitingStage() {
@@ -346,18 +356,18 @@ function updateWaitingStage() {
   if (!waitingTitle || !waitingSteps) return;
   const elapsed = Date.now() - connectStartedAt;
   if (handshakeDone) {
-    waitingTitle.textContent = '🟡 Handshake complete — confirming session…';
+    waitingTitle.textContent = 'Handshake complete — confirming session…';
     waitingSteps.textContent = 'The plugin answered the connection request. Waiting for the heartbeat to confirm the session.';
     return;
   }
   if (elapsed < CONNECT_STAGE_1_MS) {
-    waitingTitle.textContent = '🟡 Connecting to Roblox Studio…';
-    waitingSteps.textContent = '✓ Connection request created — the plugin polls for it every few seconds.';
+    waitingTitle.textContent = 'Connecting to Roblox Studio…';
+    waitingSteps.textContent = 'Connection request created — the plugin polls for it every few seconds.';
   } else if (elapsed < CONNECT_STAGE_2_MS) {
-    waitingTitle.textContent = '🟡 Waiting for Studio plugin…';
+    waitingTitle.textContent = 'Waiting for Studio plugin…';
     waitingSteps.textContent = 'It polls for the request automatically. Keep LUA-X open in Roblox Studio.';
   } else {
-    waitingTitle.textContent = '🟡 Still waiting for the plugin to respond…';
+    waitingTitle.textContent = 'Still waiting for the plugin to respond…';
     waitingSteps.textContent = 'If LUA-X is running in Studio, it should connect shortly. Press Cancel to abort.';
   }
 }
@@ -398,7 +408,7 @@ function setConnectState(next) {
       updateWaitingStage();
       break;
     case 'connected':
-      btn.textContent = 'Connected ✓';
+      btn.textContent = 'Connected';
       btn.disabled = true;
       pingBtn.classList.remove('hidden');
       discBtn.classList.remove('hidden');
@@ -420,10 +430,10 @@ function setConnectState(next) {
       trouble.classList.remove('hidden');
       rowConnection.textContent = 'Connection timed out';
       if (backendOk && bridgeUp) {
-        if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Connection timed out';
+        if (troubleshootTitle) troubleshootTitle.textContent = 'Connection timed out';
         if (troubleshootSteps) troubleshootSteps.innerHTML = 'The backend is reachable but the Studio plugin did not claim the connection request in time.<br><br>Possible causes:<br>• LUA-X plugin is not open in Roblox Studio<br>• HTTP Requests are disabled (Game Settings → Security → Allow HTTP Requests)<br>• The plugin is pointing to a different API endpoint<br>• Serverless cold start may have cleared the request — press <b>Try Again</b><br><br>Steps:<br>1. Open Roblox Studio<br>2. Launch LUA-X (Plugins menu)<br>3. Make sure the plugin endpoint matches this website\'s API<br>4. Press <b>Try Again</b> on the website';
       } else {
-        if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Could not reach LUA-X';
+        if (troubleshootTitle) troubleshootTitle.textContent = 'Could not reach LUA-X';
         if (troubleshootSteps) troubleshootSteps.innerHTML = 'The website could not reach the LUA-X API. Fix the backend first — Studio installation steps only matter once the API is reachable.<br>Press <b>Test Studio Bridge</b> or <b>Run Connection Test</b> to see exactly where it fails.';
       }
       renderChecklist();
@@ -449,7 +459,7 @@ function renderStudioCard() {
     studioDetail.textContent = `session ${(studioSessionId || '—').slice(0, 8)} · seen ${secs}s ago · v${studioPluginVersion || '?'}`;
     pingButton.disabled = false;
     studioCard?.classList.add('connected');
-    studioBigStatus.textContent = '🟢 Online';
+    studioBigStatus.textContent = 'Online';
     studioBigStatus.className = 'plugin-status online';
     studioSubtitle.textContent = 'Connected — bridge is live.';
     rowProject.textContent = studioPlaceName || '—';
@@ -459,8 +469,8 @@ function renderStudioCard() {
     rowSession.textContent = studioSessionId ? `${studioSessionId.slice(0, 8)}…` : '—';
     pluginStatus.textContent = 'Installed · connected';
     pluginStatus.className = 'plugin-status online';
-    if (installState) installState.textContent = '✓ Installed (Studio connected)';
-    if (installStatus) installStatus.textContent = '✓ Installed · Studio connected';
+    if (installState) installState.textContent = 'Installed (Studio connected)';
+    if (installStatus) installStatus.textContent = 'Installed · Studio connected';
     const outdated = studioVersionStatus === 'update_required'
       || (!studioVersionStatus && !versionAtLeast(studioPluginVersion, requiredPluginVersion));
     versionWarning?.classList.toggle('hidden', !outdated);
@@ -472,13 +482,13 @@ function renderStudioCard() {
       clearInterval(connectTimer);
       connectTimer = null;
       connectRequestId = null;
-      showToast('Studio session detected — you are online. ✓');
+      showToast('Studio session detected — you are online.');
     }
     setConnectState('connected');
     updateServicePills();
     const lastPing = studioLastCommand && studioLastCommand.type === 'ping' ? studioLastCommand.at : null;
     if (lastPing && Date.now() - lastPing < 10000) {
-      pingBtnText('✓ Studio responded');
+      pingBtnText('Studio responded');
       setTimeout(() => { if (connectState === 'connected') pingBtnText('Ping Studio'); }, 8000);
     } else {
       pingBtnText('Ping Studio');
@@ -490,7 +500,7 @@ function renderStudioCard() {
     studioDetail.textContent = 'Open the LUA-X plugin in Roblox Studio to connect';
     pingButton.disabled = true;
     studioCard?.classList.remove('connected');
-    studioBigStatus.textContent = '🔴 Offline';
+    studioBigStatus.textContent = 'Offline';
     studioBigStatus.className = 'plugin-status';
     studioSubtitle.textContent = 'LUA-X Studio plugin has not connected.';
     rowProject.textContent = '—';
@@ -561,10 +571,10 @@ function pluginDownloaded() {
 function markPluginDownloaded() {
   try { localStorage.setItem(PLUGIN_DOWNLOADED_KEY, '1'); } catch { /* ignore */ }
   downloadState = 'downloaded';
-  if (downloadPlugin2) { downloadPlugin2.textContent = 'LUA-X.lua downloaded ✓'; downloadPlugin2.disabled = false; }
+  if (downloadPlugin2) { downloadPlugin2.textContent = 'LUA-X.lua downloaded'; downloadPlugin2.disabled = false; }
   pluginStatus.textContent = 'Downloaded · waiting for Studio';
   pluginStatus.className = 'plugin-status';
-  if (installState) installState.textContent = '✓ Downloaded (browser confirmed)';
+  if (installState) installState.textContent = 'Downloaded (browser confirmed)';
   if (installStatus) installStatus.textContent = 'Waiting for Studio…';
   installPanel?.classList.remove('hidden');
   renderChecklist();
@@ -662,14 +672,14 @@ async function testBridgeFlow() {
   const mark = (key, ok, text) => {
     const el = bridgeTestItems[key];
     if (el) {
-      el.textContent = `${ok ? '✓' : '✗'} ${text}`;
+      el.textContent = `${ok ? 'PASS' : 'FAIL'} ${text}`;
       el.className = ok ? 'ok' : 'bad';
     }
   };
   const spin = (key, text) => {
     const el = bridgeTestItems[key];
     if (el) {
-      el.textContent = `… ${text}`;
+      el.textContent = `WAIT ${text}`;
       el.className = '';
     }
   };
@@ -690,7 +700,7 @@ async function testBridgeFlow() {
   mark('request', connectOk, connectOk ? `Connection request created (${String(connect.body.requestId).slice(0, 12)}…)` : 'No connection request');
   if (connectOk) {
     connectRequestId = connect.body.requestId;
-    if (bridgeTestWait) bridgeTestWait.textContent = '⏳ Waiting for the plugin to claim the request — press Connect to finish the handshake.';
+    if (bridgeTestWait) bridgeTestWait.textContent = 'Waiting for the plugin to claim the request — press Connect to finish the handshake.';
   } else {
     if (bridgeTestWait) bridgeTestWait.textContent = 'The website → API path is broken. Check the Vercel deployment before debugging Roblox Studio.';
   }
@@ -721,7 +731,7 @@ async function runConnectionTest() {
     results[key] = ok;
     const el = diagItems[key];
     if (el) {
-      el.textContent = `${ok ? '✓' : '✗'} ${text}`;
+      el.textContent = `${ok ? 'PASS' : 'FAIL'} ${text}`;
       el.className = ok ? 'ok' : 'bad';
     }
   };
@@ -735,7 +745,7 @@ async function runConnectionTest() {
   const spin = (key, text) => {
     const el = diagItems[key];
     if (el) {
-      el.textContent = `… ${text}`;
+      el.textContent = `WAIT ${text}`;
       el.className = '';
     }
   };
@@ -810,7 +820,7 @@ async function runConnectionTest() {
   }
   const passed = Object.values(results).filter(Boolean).length;
   if (diagSummary) {
-    diagSummary.textContent = `${passed} of 9 checks passed. ${passed === 9 ? 'Everything is healthy. ✓' : 'See the failing check above — the most common cause is HTTP requests being disabled in Studio (Game Settings → Security).'}`;
+    diagSummary.textContent = `${passed} of 9 checks passed. ${passed === 9 ? 'Everything is healthy.' : 'See the failing check above — the most common cause is HTTP requests being disabled in Studio (Game Settings → Security).'}`;
   }
 }
 
@@ -839,7 +849,7 @@ async function send() {
   promptEl.value = '';
   setSending(true);
   composerNote.textContent = 'LUA-X is preparing an answer…';
-  const typing = addMessage('LUA-X is thinking…', 'typing');
+  const typing = addTyping();
   const body = { prompt: text, projectId: 'web', mode: 'chat' };
   if (studioConnected && studioSessionId) {
     body.sessionId = studioSessionId;
@@ -935,16 +945,16 @@ promptEl?.addEventListener('keydown', e => {
 });
 bindViewNav();
 
-addMessage('Hi, I\'m LUA-X. Ask me to write Luau code, design a Roblox system, or solve a scripting problem.', 'assistant');
+addMessage('Hi, I\'m LUA-X. Ask me to write Luau, design Roblox systems, or build UI, animation, VFX, sound, and 3D geometry.', 'assistant');
 refreshHealth();
 refreshStudio();
 loadManifest();
 if (pluginDownloaded()) {
   downloadState = 'downloaded';
   installPanel?.classList.remove('hidden');
-  if (installState) installState.textContent = '✓ Downloaded (browser confirmed)';
+  if (installState) installState.textContent = 'Downloaded (browser confirmed)';
   if (installStatus) installStatus.textContent = 'Waiting for Studio…';
-  if (downloadPlugin2) downloadPlugin2.textContent = 'LUA-X.lua downloaded ✓';
+  if (downloadPlugin2) downloadPlugin2.textContent = 'LUA-X.lua downloaded';
 }
 setInterval(refreshHealth, 30000);
 setInterval(refreshStudio, POLL_NORMAL_MS);

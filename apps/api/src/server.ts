@@ -2,19 +2,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { generateAIPlan, type AIRequest } from '@lua-x/api-core';
 import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
+import { buildSystemPrompt } from './prompt.js';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { studioHandler } from './studio-handler.js';
 
 export const API_VERSION = '0.11.0-alpha';
 
-const CHAT_SYSTEM_PROMPT = [
-  'You are LUA-X, an AI-native Roblox development assistant.',
-  'Help Roblox creators write Luau code, design game systems, and solve scripting problems.',
-  'Follow Roblox best practices: respect server/client boundaries, treat client-originated input as untrusted, and keep authoritative gameplay logic on the server.',
-  'Return plain text answers. Put Luau code inside ```lua ... ``` code blocks when code is relevant.',
-  'Never claim a Studio mutation, test, playtest, or publish succeeded. Describe what the creator must verify instead.',
-].join('\n');
+const CHAT_SYSTEM_PROMPT = buildSystemPrompt();
 
 export interface ApiDependencies {
   config: ReturnType<typeof loadConfig>;

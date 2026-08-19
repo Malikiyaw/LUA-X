@@ -40,6 +40,10 @@ export type ChangeOperation =
   | 'create_instance'
   | 'update_instance'
   | 'delete_instance'
+  | 'create_animation'
+  | 'create_sound'
+  | 'create_vfx'
+  | 'create_ui'
   | 'note';
 
 export type ChangeRisk = 'low' | 'medium' | 'high' | 'critical';
@@ -134,6 +138,10 @@ export function parseAIPlan(text: string): AIPlan {
     'create_instance',
     'update_instance',
     'delete_instance',
+    'create_animation',
+    'create_sound',
+    'create_vfx',
+    'create_ui',
     'note',
   ]);
   const riskLevels = new Set<ChangeRisk>(['low', 'medium', 'high', 'critical']);
