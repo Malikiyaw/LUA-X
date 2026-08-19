@@ -1,3 +1,5 @@
+export const config = { runtime: 'nodejs' };
+
 export default async function handler(request: Request): Promise<Response> {
   return new Response(JSON.stringify({ ok: true, route: 'ping' }), {
     status: 200,

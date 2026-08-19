@@ -1,3 +1,5 @@
+export const config = { runtime: 'nodejs' };
+
 export default function handler(request: { method?: string }): Response {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     return new Response(JSON.stringify({ error: 'Method not allowed.' }), {

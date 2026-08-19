@@ -1,3 +1,5 @@
+export const config = { runtime: 'nodejs' };
+
 import { randomUUID } from 'node:crypto';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';

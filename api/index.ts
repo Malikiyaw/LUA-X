@@ -1,3 +1,5 @@
+export const config = { runtime: 'nodejs' };
+
 import { randomUUID } from 'node:crypto';
 
 type ChatRequest = { prompt?: unknown; projectId?: unknown; context?: unknown; sessionId?: unknown; mode?: unknown };
