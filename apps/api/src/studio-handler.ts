@@ -24,10 +24,10 @@ type ConnectRequest = {
   sessionId?: string;
 };
 
-const PRESENCE_TTL = 20;
+const PRESENCE_TTL = 30;
 const COMMAND_TTL = 60;
-const CONNECT_REQUEST_TTL = 30;
-const REQUIRED_PLUGIN_VERSION = '1.2.0';
+const CONNECT_REQUEST_TTL = 60;
+const REQUIRED_PLUGIN_VERSION = '1.2.1';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
@@ -149,10 +149,21 @@ async function loadPresence(projectId?: string): Promise<Presence | null> {
   if (typeof remote === 'string') {
     try { return JSON.parse(remote) as Presence; } catch { /* fall through */ }
   }
-  const memory = projectId ? memoryPresence.get(`project:${projectId}`) : memoryPresence.get('latest');
-  if (!memory) return null;
-  if (Date.now() - memory.at > PRESENCE_TTL * 1000) return null;
-  return memory;
+  // Fallback to memory - try exact key first, then scan for freshest if latest missing
+  if (projectId) {
+    const mem = memoryPresence.get(`project:${projectId}`);
+    if (mem && Date.now() - mem.at <= PRESENCE_TTL * 1000) return mem;
+  } else {
+    const mem = memoryPresence.get('latest');
+    if (mem && Date.now() - mem.at <= PRESENCE_TTL * 1000) return mem;
+    // Scan all presence entries for freshest as fallback for Vercel instance mismatch
+    let freshest: Presence | null = null;
+    for (const p of memoryPresence.values()) {
+      if (Date.now() - p.at <= PRESENCE_TTL * 1000 && (!freshest || p.at > freshest.at)) freshest = p;
+    }
+    if (freshest) return freshest;
+  }
+  return null;
 }
 
 async function clearPresence(sessionId: string): Promise<void> {
@@ -220,10 +231,16 @@ async function loadPendingConnectRequest(): Promise<ConnectRequest | null> {
       } catch { /* fall through */ }
     }
   }
-  if (!memoryLatestRequestId) return null;
-  const memory = memoryConnectRequests.get(memoryLatestRequestId);
-  if (!memory || !connectRequestAlive(memory)) return null;
-  return memory;
+  if (memoryLatestRequestId) {
+    const memory = memoryConnectRequests.get(memoryLatestRequestId);
+    if (memory && connectRequestAlive(memory)) return memory;
+  }
+  // Fallback scan - find any alive waiting request (for Vercel cold start where latest pointer lost)
+  let freshest: ConnectRequest | null = null;
+  for (const req of memoryConnectRequests.values()) {
+    if (connectRequestAlive(req) && (!freshest || req.requestedAt > freshest.requestedAt)) freshest = req;
+  }
+  return freshest;
 }
 
 async function fulfillConnectRequest(requestId: string, sessionId: string): Promise<boolean> {
@@ -446,7 +463,7 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
 }
 
 export default async function handler(request: Request): Promise<Response> {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
+  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' } });
 
   let url: URL;
   let pathname: string;
