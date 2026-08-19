@@ -1,12 +1,11 @@
 import { createServer, type IncomingMessage, type ServerResponse, request as httpRequest } from 'node:http';
-import { request as httpsRequest } from 'node:https';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HOST = process.env.HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 3000);
-const API_BASE = (process.env.LUA_X_API_URL ?? (process.env.VERCEL ? 'https://lua-x-api.vercel.app' : 'http://127.0.0.1:4000')).replace(/\/$/, '');
+const API_BASE = process.env.LUA_X_API_URL ?? 'http://127.0.0.1:4000';
 const VERSION = '0.11.0-alpha';
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public');
 
@@ -61,10 +60,6 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
 function proxyToApi(request: IncomingMessage, response: ServerResponse): void {
   const chunks: Buffer[] = [];
   request.on('data', (chunk: Buffer) => chunks.push(chunk));
-  request.on('error', () => {
-    setCorsHeaders(response);
-    sendJson(response, 502, { error: 'API server unreachable.', detail: `Could not connect to ${API_BASE}` });
-  });
   request.on('end', () => {
     const body = Buffer.concat(chunks);
     const headers: Record<string, string | string[]> = {};
@@ -74,50 +69,22 @@ function proxyToApi(request: IncomingMessage, response: ServerResponse): void {
       else if (Array.isArray(value)) headers[key] = value;
     }
 
-    let parsed: URL;
-    try {
-      parsed = new URL(API_BASE);
-    } catch {
-      setCorsHeaders(response);
-      sendJson(response, 502, { error: 'API server unreachable.', detail: `Invalid API base URL: ${API_BASE}` });
-      return;
-    }
-    const isHttps = parsed.protocol === 'https:';
-    const transport = isHttps ? httpsRequest : httpRequest;
-    const proxyReq = transport({
+    const parsed = new URL(API_BASE);
+    const proxyReq = httpRequest({
       hostname: parsed.hostname,
-      port: parsed.port ? Number(parsed.port) : isHttps ? 443 : 80,
+      port: parsed.port || 80,
       path: request.url,
       method: request.method,
       headers,
     }, (proxyRes: IncomingMessage) => {
       setCorsHeaders(response);
-      // Merge CORS and strip hop-by-hop that shouldn't be forwarded
-      const outHeaders: Record<string, string> = {};
-      for (const [k, v] of Object.entries(proxyRes.headers)) {
-        if (!v) continue;
-        const val = Array.isArray(v) ? v.join(', ') : (v as string);
-        // Skip headers we'll set ourselves
-        if (k.toLowerCase() === 'access-control-allow-origin') continue;
-        if (k.toLowerCase() === 'access-control-allow-methods') continue;
-        if (k.toLowerCase() === 'access-control-allow-headers') continue;
-        outHeaders[k] = val;
-      }
-      setCorsHeaders(response);
-      response.writeHead(proxyRes.statusCode ?? 502, outHeaders);
+      response.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers as Record<string, string>);
       proxyRes.pipe(response);
     });
 
-    proxyReq.on('error', (err) => {
-      console.error(`[web-proxy] failed to proxy ${request.url} to ${API_BASE}:`, err);
-      if (!response.headersSent) {
-        setCorsHeaders(response);
-        sendJson(response, 502, { error: 'API server unreachable.', detail: `Could not connect to ${API_BASE}` });
-      }
-    });
-
-    proxyReq.setTimeout(15000, () => {
-      proxyReq.destroy(new Error('Proxy timeout'));
+    proxyReq.on('error', () => {
+      setCorsHeaders(response);
+      sendJson(response, 502, { error: 'API server unreachable.', detail: `Could not connect to ${API_BASE}` });
     });
 
     if (body.length > 0) proxyReq.write(body);
@@ -134,14 +101,16 @@ export const server = createServer(async (request: IncomingMessage, response: Se
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
 
   if (method === 'OPTIONS') {
-    setCorsHeaders(response);
-    response.writeHead(204);
+    response.writeHead(204, {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET,POST,OPTIONS',
+      'access-control-allow-headers': 'content-type,authorization,x-request-id',
+    });
     response.end();
     return;
   }
 
-  // Web health - only at /health and /web/health, NOT /api/health (which proxies to API)
-  if (method === 'GET' && (url.pathname === '/health' || url.pathname === '/web/health')) {
+  if (method === 'GET' && (url.pathname === '/health' || url.pathname === '/api/health')) {
     sendJson(response, 200, {
       service: 'lua-x-web',
       status: 'ok',
@@ -152,19 +121,7 @@ export const server = createServer(async (request: IncomingMessage, response: Se
   }
 
   if (method === 'GET' && url.pathname === '/api/config') {
-    setCorsHeaders(response);
-    sendJson(response, 200, { apiBase: API_BASE, version: VERSION });
-    return;
-  }
-
-  // Also handle /api/health via proxy for diagnostics, but expose web health separately
-  if (method === 'GET' && url.pathname === '/api/health' && url.searchParams.has('web')) {
-    sendJson(response, 200, {
-      service: 'lua-x-web',
-      status: 'ok',
-      version: VERSION,
-      apiBase: API_BASE || null,
-    });
+    sendJson(response, 200, { apiBase: API_BASE });
     return;
   }
 
@@ -177,7 +134,6 @@ export const server = createServer(async (request: IncomingMessage, response: Se
     if (await serveStatic(url.pathname, response)) return;
   }
 
-  setCorsHeaders(response);
   sendJson(response, 404, { error: 'Not found.' });
 });
 

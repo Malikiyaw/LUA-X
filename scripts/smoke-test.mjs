@@ -46,7 +46,7 @@ const results = await Promise.all([
       signal,
     });
     const b = await r.json().catch(() => ({}));
-    const ok = r.status === 200 && typeof b.requestId === 'string' && b.status === 'waiting' && b.expiresIn === 60;
+    const ok = r.status === 200 && typeof b.requestId === 'string' && b.status === 'waiting' && b.expiresIn === 30;
     return { ok, detail: ok ? `requestId=${b.requestId}` : `HTTP ${r.status}` };
   }),
   check('GET  /api/studio/diagnostics', async signal => {

@@ -64,7 +64,7 @@ describe('API server', () => {
     expect(connect.status).toBe(200);
     const connectBody = await connect.json();
     expect(connectBody.status).toBe('waiting');
-    expect(connectBody.expiresIn).toBe(60);
+    expect(connectBody.expiresIn).toBe(30);
     expect(connectBody.requestId).toMatch(/^connect_/);
 
     const pending = await fetch(`${url}/api/studio/connect/pending`);
@@ -80,7 +80,7 @@ describe('API server', () => {
       body: JSON.stringify({
         projectId: 'demo',
         sessionId: 'session-handshake',
-        pluginVersion: '1.2.1',
+        pluginVersion: '1.2.0',
         requestId: connectBody.requestId,
       }),
     });
@@ -142,7 +142,7 @@ describe('API server', () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.status).toBe('waiting');
-    expect(body.expiresIn).toBe(60);
+    expect(body.expiresIn).toBe(30);
     expect(typeof body.requestId).toBe('string');
     expect(body.requestId.startsWith('connect_')).toBe(true);
   }));
