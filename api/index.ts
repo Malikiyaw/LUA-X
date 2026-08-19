@@ -180,7 +180,7 @@ async function generate(request: Request, id: string, cors: string): Promise<Res
   }
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function handler(request: Request): Promise<Response> {
   const id = requestId(request);
   const cors = getCorsOrigin(request);
   const common = { 'x-request-id': id, 'access-control-allow-origin': cors, vary: 'Origin' };
@@ -249,4 +249,16 @@ export default async function handler(request: Request): Promise<Response> {
       detail: error instanceof Error ? error.message : 'Unknown error.',
     }, common);
   }
+}
+
+export function GET(request: Request): Promise<Response> {
+  return handler(request);
+}
+
+export function POST(request: Request): Promise<Response> {
+  return handler(request);
+}
+
+export function OPTIONS(request: Request): Promise<Response> {
+  return handler(request);
 }

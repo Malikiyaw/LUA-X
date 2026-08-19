@@ -1,12 +1,6 @@
 export const config = { runtime: 'nodejs' };
 
-export default function handler(request: { method?: string }): Response {
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return new Response(JSON.stringify({ error: 'Method not allowed.' }), {
-      status: 405,
-      headers: { 'content-type': 'application/json; charset=utf-8', allow: 'GET, HEAD' },
-    });
-  }
+export function GET(): Response {
   return new Response(JSON.stringify({
     service: 'lua-x-api',
     status: 'ok',
@@ -18,6 +12,17 @@ export default function handler(request: { method?: string }): Response {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
       'access-control-allow-origin': '*',
+    },
+  });
+}
+
+export function OPTIONS(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET,OPTIONS',
+      'access-control-allow-headers': 'content-type,authorization,x-request-id',
     },
   });
 }

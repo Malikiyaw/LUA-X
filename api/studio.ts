@@ -1,3 +1,15 @@
 export const config = { runtime: 'nodejs' };
 
-export { default } from './studio-handler.js';
+import { studioHandler } from './studio-handler.js';
+
+export function GET(request: Request): Promise<Response> {
+  return studioHandler(request);
+}
+
+export function POST(request: Request): Promise<Response> {
+  return studioHandler(request);
+}
+
+export function OPTIONS(request: Request): Promise<Response> {
+  return studioHandler(request);
+}

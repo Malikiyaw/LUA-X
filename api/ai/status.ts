@@ -10,9 +10,7 @@ function configuredKeys(): string[] {
   ].map((value) => value?.trim()).filter((value): value is string => Boolean(value));
 }
 
-export default function handler(request: Request): Response {
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*' } });
-  if (request.method !== 'GET') return new Response(JSON.stringify({ error: 'Method not allowed.' }), { status: 405, headers: { 'content-type': 'application/json', allow: 'GET, OPTIONS' } });
+export function GET(): Response {
   const keyCount = new Set(configuredKeys()).size;
   const model = process.env.NVIDIA_MODEL?.trim() || DEFAULT_MODEL;
   return new Response(JSON.stringify({
@@ -24,5 +22,16 @@ export default function handler(request: Request): Response {
   }), {
     status: 200,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' },
+  });
+}
+
+export function OPTIONS(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      'access-control-allow-origin': '*',
+      'access-control-allow-methods': 'GET,OPTIONS',
+      'access-control-allow-headers': 'content-type,authorization,x-request-id',
+    },
   });
 }

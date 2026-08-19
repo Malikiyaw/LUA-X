@@ -4,7 +4,7 @@ import { generateAIPlan, type AIRequest } from '@lua-x/api-core';
 import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
-import studioHandler from './studio-handler.js';
+import { studioHandler } from './studio-handler.js';
 
 export const API_VERSION = '0.11.0-alpha';
 

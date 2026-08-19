@@ -131,10 +131,8 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
   }
 }
 
-export default async function handler(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   const id = requestId(request);
-  if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' } });
-  if (request.method !== 'POST') return json(405, { error: 'Method not allowed.', requestId: id }, { allow: 'POST, OPTIONS' });
 
   try {
     const body = await readBody(request);
@@ -186,4 +184,11 @@ export default async function handler(request: Request): Promise<Response> {
   } catch (error) {
     return json(400, { error: error instanceof Error ? error.message : 'Invalid request.', requestId: id }, { 'x-request-id': id });
   }
+}
+
+export function OPTIONS(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' },
+  });
 }

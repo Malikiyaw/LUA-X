@@ -459,7 +459,7 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
   return json(404, { error: 'Studio route not found.' });
 }
 
-export default async function handler(request: Request): Promise<Response> {
+export async function studioHandler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' } });
 
   let url: URL;
