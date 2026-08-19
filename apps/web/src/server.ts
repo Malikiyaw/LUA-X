@@ -1,11 +1,11 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse, request as httpRequest } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HOST = process.env.HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 3000);
-const API_BASE = process.env.LUA_X_API_URL ?? '';
+const API_BASE = process.env.LUA_X_API_URL ?? 'http://127.0.0.1:4000';
 const VERSION = '0.11.0-alpha';
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public');
 
@@ -24,6 +24,12 @@ function sendJson(response: ServerResponse, status: number, payload: unknown): v
     'cache-control': 'no-store',
   });
   response.end(JSON.stringify(payload));
+}
+
+function setCorsHeaders(response: ServerResponse): void {
+  response.setHeader('access-control-allow-origin', '*');
+  response.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+  response.setHeader('access-control-allow-headers', 'content-type,authorization,x-request-id');
 }
 
 async function serveStatic(pathname: string, response: ServerResponse): Promise<boolean> {
@@ -51,6 +57,45 @@ async function serveStatic(pathname: string, response: ServerResponse): Promise<
   }
 }
 
+function proxyToApi(request: IncomingMessage, response: ServerResponse): void {
+  const chunks: Buffer[] = [];
+  request.on('data', (chunk: Buffer) => chunks.push(chunk));
+  request.on('end', () => {
+    const body = Buffer.concat(chunks);
+    const headers: Record<string, string | string[]> = {};
+    for (const [key, value] of Object.entries(request.headers)) {
+      if (key === 'host') continue;
+      if (typeof value === 'string') headers[key] = value;
+      else if (Array.isArray(value)) headers[key] = value;
+    }
+
+    const parsed = new URL(API_BASE);
+    const proxyReq = httpRequest({
+      hostname: parsed.hostname,
+      port: parsed.port || 80,
+      path: request.url,
+      method: request.method,
+      headers,
+    }, (proxyRes: IncomingMessage) => {
+      setCorsHeaders(response);
+      response.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers as Record<string, string>);
+      proxyRes.pipe(response);
+    });
+
+    proxyReq.on('error', () => {
+      setCorsHeaders(response);
+      sendJson(response, 502, { error: 'API server unreachable.', detail: `Could not connect to ${API_BASE}` });
+    });
+
+    if (body.length > 0) proxyReq.write(body);
+    proxyReq.end();
+  });
+}
+
+function isApiRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/') || pathname === '/api';
+}
+
 export const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
   const method = request.method ?? 'GET';
   const url = new URL(request.url ?? '/', `http://${request.headers.host ?? `${HOST}:${PORT}`}`);
@@ -58,8 +103,8 @@ export const server = createServer(async (request: IncomingMessage, response: Se
   if (method === 'OPTIONS') {
     response.writeHead(204, {
       'access-control-allow-origin': '*',
-      'access-control-allow-methods': 'GET,OPTIONS',
-      'access-control-allow-headers': 'content-type',
+      'access-control-allow-methods': 'GET,POST,OPTIONS',
+      'access-control-allow-headers': 'content-type,authorization,x-request-id',
     });
     response.end();
     return;
@@ -80,6 +125,11 @@ export const server = createServer(async (request: IncomingMessage, response: Se
     return;
   }
 
+  if (isApiRoute(url.pathname)) {
+    proxyToApi(request, response);
+    return;
+  }
+
   if (method === 'GET') {
     if (await serveStatic(url.pathname, response)) return;
   }
@@ -88,5 +138,5 @@ export const server = createServer(async (request: IncomingMessage, response: Se
 });
 
 if (process.env.NODE_ENV !== 'test') {
-  server.listen(PORT, HOST, () => console.log(`LUA-X web listening on http://${HOST}:${PORT}`));
+  server.listen(PORT, HOST, () => console.log(`LUA-X web listening on http://${HOST}:${PORT} (API proxy → ${API_BASE})`));
 }

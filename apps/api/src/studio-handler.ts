@@ -35,10 +35,17 @@ const memoryCommandLog = new Map<string, CommandLog>();
 const memoryConnectRequests = new Map<string, ConnectRequest>();
 let memoryLatestRequestId: string | null = null;
 
+let redisWarned = false;
+
 function redisConfig() {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
-  return url && token ? { url: url.replace(/\/$/, ''), token } : null;
+  const configured = url && token ? { url: url.replace(/\/$/, ''), token } : null;
+  if (!configured && !redisWarned) {
+    redisWarned = true;
+    console.warn('[studio-handler] Redis not configured — Studio bridge uses in-memory state. On Vercel, connection may reset on cold start. Add UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN for reliable operation.');
+  }
+  return configured;
 }
 
 async function redisCommand(command: string[]): Promise<unknown | null> {
@@ -88,7 +95,9 @@ function versionAtLeast(installed: string, required: string): boolean {
   const a = versionParts(installed);
   const b = versionParts(required);
   for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-    if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av !== bv) return av > bv;
   }
   return true;
 }

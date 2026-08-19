@@ -1,4 +1,4 @@
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://127.0.0.1:4000' : '';
+const API_BASE = '';
 const messagesEl = document.querySelector('#messages');
 const promptEl = document.querySelector('#prompt');
 const sendButton = document.querySelector('#send-button');
@@ -92,8 +92,8 @@ let sending = false;
 const PLUGIN_VERSION = '1.2.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
-const POLL_CONNECTING_MS = 1500;
-const CONNECT_TIMEOUT_MS = 30000;
+const POLL_CONNECTING_MS = 1200;
+const CONNECT_TIMEOUT_MS = 25000;
 const CONNECT_STAGE_1_MS = 5000;
 const CONNECT_STAGE_2_MS = 15000;
 
@@ -200,7 +200,7 @@ async function fetchDetailed(path, init = {}) {
 
 function classifyHttpError(detail) {
   if (!detail || !detail.reached || !detail.status) {
-    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response.' };
+    return { title: 'Could not reach LUA-X API', hint: 'Network or CORS problem — the request never got an HTTP response. If running locally, make sure both the web server (port 3000) and API server (port 4000) are running.' };
   }
   const serverError = detail.body && typeof detail.body === 'object' && detail.body.error && typeof detail.body.error === 'object'
     ? detail.body.error
@@ -214,11 +214,11 @@ function classifyHttpError(detail) {
     };
   }
   const status = detail.status;
-  if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder.' };
+  if (status === 404) return { title: 'Studio connect endpoint is missing', hint: 'The deployed LUA-X API does not contain the /api/studio/connect endpoint. Redeploy the latest api/ folder. If running locally, make sure the API server is running on port 4000.' };
   if (status === 405) return { title: 'Wrong route or method', hint: 'The deployed API routes /api/studio differently than expected.' };
   if (status === 401 || status === 403) return { title: 'Authorization rejected', hint: 'The API rejected the request — check authentication configuration.' };
   if (status === 429) return { title: 'Too many requests', hint: 'Rate limit exceeded — wait a moment and press Retry.' };
-  if (status === 502 || status === 503) return { title: 'LUA-X Studio bridge unavailable', hint: 'The backend function or a dependency failed.' };
+  if (status === 502 || status === 503) return { title: 'LUA-X Studio bridge unavailable', hint: 'The backend function or a dependency failed. Check Vercel function logs. If running locally, make sure the API server (LUA_X_STANDALONE=true) is running.' };
   if (status >= 500) return { title: 'LUA-X backend error', hint: 'The API function crashed (FUNCTION_INVOCATION_FAILED). Check the Vercel function logs.' };
   return { title: `Request failed (HTTP ${status})`, hint: 'The API rejected the connection request.' };
 }
@@ -372,7 +372,7 @@ function setConnectState(next) {
       rowConnection.textContent = 'Connection timed out';
       if (backendOk && bridgeUp) {
         if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Connection timed out';
-        if (troubleshootSteps) troubleshootSteps.innerHTML = 'The backend is reachable but no Studio session registered. Your plugin may already be installed — the pending-poll runs every few seconds.<br>If nothing happens:<br>1. Open Roblox Studio<br>2. Launch LUA-X (Plugins menu)<br>3. Enable Game Settings → Security → Allow HTTP Requests';
+        if (troubleshootSteps) troubleshootSteps.innerHTML = 'The backend is reachable but the Studio plugin did not claim the connection request in time.<br><br>Possible causes:<br>• LUA-X plugin is not open in Roblox Studio<br>• HTTP Requests are disabled (Game Settings → Security → Allow HTTP Requests)<br>• The plugin is pointing to a different API endpoint<br>• Serverless cold start may have cleared the request — press <b>Try Again</b><br><br>Steps:<br>1. Open Roblox Studio<br>2. Launch LUA-X (Plugins menu)<br>3. Make sure the plugin endpoint matches this website\'s API<br>4. Press <b>Try Again</b> on the website';
       } else {
         if (troubleshootTitle) troubleshootTitle.textContent = '🔴 Could not reach LUA-X';
         if (troubleshootSteps) troubleshootSteps.innerHTML = 'The website could not reach the LUA-X API. Fix the backend first — Studio installation steps only matter once the API is reachable.<br>Press <b>Test Studio Bridge</b> or <b>Run Connection Test</b> to see exactly where it fails.';
@@ -476,24 +476,29 @@ function pingBtnText(text) {
 
 async function refreshStudio() {
   const s = await fetchDetailed('/api/studio/status');
-  if (s.reached && s.status === 200) {
+  if (s.reached && s.status === 200 && s.body) {
     bridgeUp = true;
     bridgeHttp = 200;
-    if (s.body && s.body.connected) {
-      studioSessionId = s.body.sessionId || null;
-      studioPlaceName = s.body.placeName || null;
-      studioPlaceId = s.body.placeId || null;
-      studioPluginVersion = s.body.pluginVersion || null;
-      studioVersionStatus = s.body.versionStatus || null;
-      studioContext = s.body.context || null;
-      studioLastCommand = s.body.lastCommand || null;
-      studioLastSeen = s.body.lastSeenAt || Date.now();
-      studioConnected = true;
+    if (s.body.connected) {
+      const freshness = s.body.lastSeenAt ? Date.now() - s.body.lastSeenAt : 99999;
+      if (freshness <= 25000) {
+        studioSessionId = s.body.sessionId || null;
+        studioPlaceName = s.body.placeName || null;
+        studioPlaceId = s.body.placeId || null;
+        studioPluginVersion = s.body.pluginVersion || null;
+        studioVersionStatus = s.body.versionStatus || null;
+        studioContext = s.body.context || null;
+        studioLastCommand = s.body.lastCommand || null;
+        studioLastSeen = s.body.lastSeenAt || Date.now();
+        studioConnected = true;
+      } else {
+        studioConnected = false;
+      }
     } else {
       studioConnected = false;
     }
   } else {
-    bridgeUp = false;
+    bridgeUp = s.reached && s.status === 200;
     bridgeHttp = s.reached ? s.status : null;
     studioConnected = false;
   }
@@ -563,6 +568,15 @@ async function connectNowFlow() {
   handshakeDone = false;
   setConnectState('connecting');
   const attemptId = `web_${Date.now().toString(36)}`;
+
+  const health = await fetchDetailed('/api/health');
+  if (!health.reached || health.status !== 200) {
+    setConnectState('backend_error');
+    renderConnectError(health, attemptId);
+    showToast('Cannot reach the LUA-X backend — check that the API server is running.');
+    return;
+  }
+
   const detail = await fetchDetailed('/api/studio/connect', {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -577,6 +591,10 @@ async function connectNowFlow() {
   }
   connectRequestId = detail.body.requestId;
   clearInterval(connectTimer);
+
+  await refreshStudio();
+  await refreshConnectStatus();
+
   connectTimer = setInterval(() => {
     refreshStudio();
     refreshConnectStatus();

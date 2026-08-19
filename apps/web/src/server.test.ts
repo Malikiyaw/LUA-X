@@ -18,12 +18,10 @@ test('health endpoint reports the current LUA-X web service', async () => {
     const response = await fetch(`${baseUrl}/health`);
     assert.equal(response.status, 200);
     const body = await response.json() as { service: string; status: string; version: string; apiBase: string | null };
-    assert.deepEqual(body, {
-      service: 'lua-x-web',
-      status: 'ok',
-      version: '0.11.0-alpha',
-      apiBase: null,
-    });
+    assert.equal(body.service, 'lua-x-web');
+    assert.equal(body.status, 'ok');
+    assert.equal(body.version, '0.11.0-alpha');
+    assert.equal(typeof body.apiBase, 'string');
   });
 });
 
@@ -49,13 +47,16 @@ test('root plugin path remains a compatible direct download alias', async () => 
   });
 });
 
-test('missing web routes return 404 instead of invoking an API planner route', async () => {
+test('non-API missing routes return 404', async () => {
   await withServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/plan`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: 'Build an animation system.' }),
-    });
+    const response = await fetch(`${baseUrl}/nonexistent-page`);
     assert.equal(response.status, 404);
+  });
+});
+
+test('API routes are proxied to the backend API server', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/health`);
+    assert.ok(response.status === 200 || response.status === 502);
   });
 });

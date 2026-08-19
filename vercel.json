@@ -3,13 +3,17 @@
   "buildCommand": "npm run sync:studio-handler && npm run sync:plugin && npm run build --workspace=@lua-x/web",
   "outputDirectory": "apps/web/public",
   "rewrites": [
-    { "source": "/api/studio/:path*", "destination": "/api/studio" }
+    { "source": "/api/studio/:path*", "destination": "/api/studio" },
+    { "source": "/api/ai/:path*", "destination": "/api/ai/generate" }
   ],
   "headers": [
     {
       "source": "/api/:path*",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store" }
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "content-type,authorization,x-request-id" }
       ]
     },
     {

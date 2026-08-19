@@ -11,9 +11,9 @@ local PLUGIN_VERSION = "1.2.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local SESSION_KEY = "LUA_X_STUDIO_SESSION"
-local HEARTBEAT_SECONDS = 5
+local HEARTBEAT_SECONDS = 4
 local COMMAND_SECONDS = 2
-local CONNECT_POLL_SECONDS = 3
+local CONNECT_POLL_SECONDS = 2
 local MAX_SCRIPTS = 16
 local MAX_SOURCE = 5000
 local MAX_CONTEXT = 16000
@@ -173,6 +173,12 @@ local function reportError(message)
 	if connDiagLabel then connDiagLabel.Text = "Last error: " .. trim(text, 160) end
 	if text:find("not enabled", 1, true) or text:find("HttpService", 1, true) then
 		setStatus("HTTP Requests disabled — Game Settings → Security → Allow HTTP Requests", "bad")
+	elseif text:find("404", 1, true) or text:find("Not Found", 1, true) then
+		setStatus("API endpoint not found — check the endpoint URL is correct.", "bad")
+	elseif text:find("CORS", 1, true) or text:find("cross-origin", 1, true) then
+		setStatus("CORS blocked — the API server must allow requests from this origin.", "bad")
+	elseif text:find("timeout", 1, true) or text:find("abort", 1, true) then
+		setStatus("Request timed out — the API server may be cold starting, retrying…", "warn")
 	else
 		setStatus("Backend unreachable: " .. trim(text, 120), "bad")
 	end
@@ -226,6 +232,7 @@ local function pollConnectionRequests()
 	if regOk then
 		lastClaimedRequest = request.requestId
 		setStatus("Website connection request answered · session registered.", "good")
+		task.defer(function() pcall(heartbeat) end)
 	else
 		lastClaimedRequest = nil
 	end
