@@ -1,4 +1,4 @@
--- LUA-X Studio Plugin 1.2
+-- LUA-X Studio Plugin 1.2.1
 -- Stable connected bridge: heartbeat, website commands, AI planning, safe script apply,
 -- connection card, disconnect/reconnect, and startup diagnostics.
 
@@ -7,7 +7,7 @@ local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 
-local PLUGIN_VERSION = "1.2.0"
+local PLUGIN_VERSION = "1.2.1"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local SESSION_KEY = "LUA_X_STUDIO_SESSION"
