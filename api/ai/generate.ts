@@ -369,6 +369,7 @@ export async function POST(request: Request): Promise<Response> {
     let lastMessage = 'All NVIDIA generation attempts failed.';
     let lastStatus = 502;
     let retriesUsed = 0;
+    const attemptLog: Array<{ model: string; ms: number; error: string }> = [];
 
     attempts: for (const model of modelList) {
       for (const key of apiKeys) {
@@ -420,6 +421,7 @@ export async function POST(request: Request): Promise<Response> {
             const retryable = typeof error === 'object' && error !== null && 'retryable' in error ? Boolean((error as { retryable?: unknown }).retryable) : true;
             lastStatus = Number.isFinite(status) && status >= 400 && status < 600 ? status : 502;
             lastMessage = error instanceof Error ? error.message : 'NVIDIA request failed.';
+            attemptLog.push({ model, ms: Date.now() - startedAt, error: `${status}: ${lastMessage}` });
             if (!retryable) break;
             retriesUsed += 1;
             if (attempt < MAX_ATTEMPTS_PER_PAIR) await new Promise((resolve) => setTimeout(resolve, Math.min(1200, 350 * attempt)));
@@ -437,6 +439,7 @@ export async function POST(request: Request): Promise<Response> {
       keysTried: apiKeys.length,
       retriesUsed,
       elapsedMs: Date.now() - startedAt,
+      attempts: attemptLog,
     }, { 'x-request-id': id });
   } catch (error) {
     return json(400, { error: error instanceof Error ? error.message : 'Invalid request.', requestId: id }, { 'x-request-id': id });
