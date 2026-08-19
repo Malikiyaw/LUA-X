@@ -4,13 +4,14 @@ import { randomUUID } from 'node:crypto';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODELS = [
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
+  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'meta/llama-3.1-8b-instruct',
 ];
 const BUILD_MODELS = [
-  'nvidia/llama-3.3-70b-instruct',
-  'nvidia/llama-3.1-8b-instruct',
-  ...DEFAULT_MODELS,
+  'nvidia/llama-3.3-nemotron-super-49b-v1',
+  'meta/llama-3.1-8b-instruct',
+  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
 ];
 const MAX_BODY = 128 * 1024;
 const MAX_ATTEMPTS_PER_PAIR = 1;
