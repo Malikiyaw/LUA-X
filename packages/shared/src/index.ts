@@ -45,3 +45,36 @@ export const VERSION = "0.2.0";
 export function healthStatus(): HealthStatus {
   return { service: "lua-x", status: "ok", version: VERSION };
 }
+
+/**
+ * Role hierarchy used across the LUA-X platform.
+ * @see cloud-core (project membership) and hardening-core (authorization).
+ */
+export type Role = 'owner' | 'admin' | 'developer' | 'designer' | 'reviewer' | 'viewer';
+
+export const ROLE_RANK: Readonly<Record<Role, number>> = {
+  viewer: 0,
+  reviewer: 1,
+  designer: 2,
+  developer: 3,
+  admin: 4,
+  owner: 5,
+};
+
+export function can(role: Role, requiredRole: Role): boolean {
+  return ROLE_RANK[role] >= ROLE_RANK[requiredRole];
+}
+
+/**
+ * Deterministic FNV-1a hash id: stable across processes and builds.
+ * @param prefix id prefix (e.g. "chg", "cs") — keeps id namespaces distinct.
+ * @param input canonical input string to hash.
+ */
+export function stableId(prefix: string, input: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${prefix}_${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}

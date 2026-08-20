@@ -6,6 +6,9 @@
 const base = (process.argv[2] || process.env.LUA_X_SMOKE_URL || 'https://lua-x-api.vercel.app').replace(/\/$/, '');
 const timeoutMs = 20000;
 
+const token = process.env.LUA_X_API_TOKEN?.trim();
+const authHeaders = token ? { authorization: `Bearer ${token}` } : {};
+
 async function check(name, fn) {
   const t0 = Date.now();
   const ac = new AbortController();
@@ -30,18 +33,18 @@ const results = await Promise.all([
     return { ok: r.status === 200 && b.status === 'ok', detail: `HTTP ${r.status}` };
   }),
   check('GET  /api/studio/ping', async signal => {
-    const r = await fetch(`${base}/api/studio/ping`, { signal });
+    const r = await fetch(`${base}/api/studio/ping`, { headers: authHeaders, signal });
     const b = await r.json().catch(() => ({}));
     return { ok: r.status === 200 && b.ok === true, detail: `HTTP ${r.status}` };
   }),
   check('GET  /api/studio/status', async signal => {
-    const r = await fetch(`${base}/api/studio/status`, { signal });
+    const r = await fetch(`${base}/api/studio/status`, { headers: authHeaders, signal });
     return { ok: r.status === 200, detail: `HTTP ${r.status}` };
   }),
   check('POST /api/studio/connect', async signal => {
     const r = await fetch(`${base}/api/studio/connect`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...authHeaders },
       body: JSON.stringify({ projectId: 'smoke-test' }),
       signal,
     });
@@ -50,7 +53,7 @@ const results = await Promise.all([
     return { ok, detail: ok ? `requestId=${b.requestId}` : `HTTP ${r.status}` };
   }),
   check('GET  /api/studio/diagnostics', async signal => {
-    const r = await fetch(`${base}/api/studio/diagnostics`, { signal });
+    const r = await fetch(`${base}/api/studio/diagnostics`, { headers: authHeaders, signal });
     const b = await r.json().catch(() => ({}));
     return { ok: r.status === 200 && b.handler === 'loaded', detail: `HTTP ${r.status} redis=${b.redisConfigured ? 'configured' : 'not-configured'}` };
   }),

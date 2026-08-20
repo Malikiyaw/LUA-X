@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { generateAIPlan, type AIRequest } from '@lua-x/api-core';
+import { generateAIPlan, parseAIPlan, type AIRequest } from '@lua-x/api-core';
 import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
 import { buildSystemPrompt } from './prompt.js';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
 import { studioHandler } from './studio-handler.js';
+import { authorized, rateLimitKey } from './auth.js';
 
 export const API_VERSION = '0.11.0-alpha';
 
@@ -46,10 +47,17 @@ function isGenerateRequest(value: unknown): value is AIRequest {
   return true;
 }
 
+function toHeaders(request: IncomingMessage): Headers {
+  const headers = new Headers();
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (typeof value === 'string') headers.set(key, value);
+    else if (Array.isArray(value)) headers.set(key, value.join(', '));
+  }
+  return headers;
+}
+
 function clientKey(request: IncomingMessage): string {
-  const forwarded = request.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.length > 0) return forwarded.split(',')[0]?.trim() || 'forwarded';
-  return request.socket.remoteAddress ?? 'unknown';
+  return rateLimitKey(toHeaders(request), request.socket.remoteAddress ?? 'unknown');
 }
 
 function createDependencies(): ApiDependencies {
@@ -168,6 +176,14 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
     }
 
     if (method === 'POST' && (url.pathname === '/api/ai/generate' || url.pathname === '/ai/generate')) {
+      if (!authorized(toHeaders(request))) {
+        sendJson(response, 401, { error: 'Unauthorized. Provide a valid LUA-X API token via the Authorization header.', requestId }, {
+          ...commonHeaders,
+          ...rateHeaders,
+        });
+        return;
+      }
+
       if (!deps.nvidia.isConfigured()) {
         sendJson(response, 503, { error: 'AI provider is not configured on the backend.', requestId }, {
           ...commonHeaders,
@@ -187,22 +203,39 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
 
       try {
         if ((payload as { mode?: string }).mode === 'chat') {
-          const requestBody = payload as { prompt: string; context?: unknown; sessionId?: string };
+          const requestBody = payload as { prompt: string; context?: unknown; sessionId?: string; history?: unknown };
           const contextBlock = requestBody.context && typeof requestBody.context === 'object'
             ? `\n\nLive Studio context:\n${JSON.stringify(requestBody.context)}`
             : '';
           const sessionBlock = typeof requestBody.sessionId === 'string' && requestBody.sessionId
             ? `\nConnected Studio session: ${requestBody.sessionId}`
             : '';
+          const history = Array.isArray(requestBody.history)
+            ? requestBody.history
+                .filter((entry): entry is { role: 'user' | 'assistant'; content: string } =>
+                  typeof entry === 'object' && entry !== null
+                  && (entry.role === 'user' || entry.role === 'assistant')
+                  && typeof entry.content === 'string')
+                .slice(-10)
+            : [];
           const chatResult = await deps.nvidia.chat([
             { role: 'system', content: CHAT_SYSTEM_PROMPT },
+            ...history,
             { role: 'user', content: requestBody.prompt + sessionBlock + contextBlock },
           ]);
+          let plan: unknown;
+          try {
+            const parsed = parseAIPlan(chatResult.content);
+            if (parsed.changes.length > 0) plan = parsed;
+          } catch {
+            // chat responses are free-form; a plan is optional
+          }
           sendJson(response, 200, {
             requestId,
             provider: 'nvidia',
             model: chatResult.model ?? deps.config.nvidiaModel,
             response: chatResult.content,
+            ...(plan ? { plan } : {}),
           }, { ...commonHeaders, ...rateHeaders });
           return;
         }

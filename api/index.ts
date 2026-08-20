@@ -1,10 +1,11 @@
 export const config = { runtime: 'nodejs' };
 
 import { randomUUID } from 'node:crypto';
+import { authorized, rateLimitKey } from './auth';
 
 type ChatRequest = { prompt?: unknown; projectId?: unknown; context?: unknown; sessionId?: unknown; mode?: unknown };
 
-const VERSION = '0.11.0-chat';
+const VERSION = '0.11.0-alpha';
 const DEFAULT_BASE_URL = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODEL = 'nvidia/llama-3.3-nemotron-super-49b-v1';
 const MAX_BODY_BYTES = 128 * 1024;
@@ -30,7 +31,7 @@ function json(status: number, body: unknown, extraHeaders: Record<string, string
 }
 
 function getClientKey(request: Request): string {
-  return request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'anonymous';
+  return rateLimitKey(request.headers, 'anonymous');
 }
 
 function consumeRateLimit(key: string) {
@@ -236,6 +237,9 @@ async function handler(request: Request): Promise<Response> {
     }
 
     if (request.method === 'POST' && (url.pathname === '/api/ai/generate' || url.pathname === '/ai/generate')) {
+      if (!authorized(request.headers)) {
+        return json(401, { error: 'Unauthorized. Provide a valid LUA-X API token via the Authorization header.', requestId: id }, { ...common, ...rateHeaders });
+      }
       const result = await generate(request, id, cors);
       for (const [key, value] of Object.entries(rateHeaders)) result.headers.set(key, value);
       return result;

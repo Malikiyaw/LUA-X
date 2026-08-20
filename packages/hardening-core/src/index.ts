@@ -1,4 +1,6 @@
-export type Role = 'owner' | 'admin' | 'developer' | 'designer' | 'reviewer' | 'viewer';
+import { ROLE_RANK, type Role } from "@lua-x/shared";
+
+export type { Role } from "@lua-x/shared";
 export type Risk = 'low' | 'medium' | 'high' | 'critical';
 export type MutationKind = 'read' | 'write' | 'delete' | 'execute' | 'publish' | 'secret';
 export interface Principal { userId: string; projectId: string; role: Role; authenticated: boolean }
@@ -8,14 +10,13 @@ export interface RetryPolicy { maxAttempts: number; baseDelayMs: number; maxDela
 export interface HealthState { ok: boolean; dependencies: Record<string, 'up' | 'down' | 'degraded'>; checkedAt: string }
 export interface AuditRecord { id: string; projectId: string; actorId: string; action: string; success: boolean; requestId: string; at: string }
 
-const rank: Record<Role, number> = { viewer: 0, reviewer: 1, designer: 2, developer: 3, admin: 4, owner: 5 };
 const requiredRole: Record<MutationKind, Role> = { read: 'viewer', write: 'developer', delete: 'admin', execute: 'developer', publish: 'admin', secret: 'admin' };
 const riskRank: Record<Risk, number> = { low: 0, medium: 1, high: 2, critical: 3 };
 
 export function authorize(p: Principal, request: MutationRequest): { allowed: boolean; reason: string } {
   if (!p.authenticated) return { allowed: false, reason: 'authentication_required' };
   if (!p.projectId || !request.resource) return { allowed: false, reason: 'invalid_context' };
-  if (rank[p.role] < rank[requiredRole[request.kind]]) return { allowed: false, reason: 'insufficient_permission' };
+  if (ROLE_RANK[p.role] < ROLE_RANK[requiredRole[request.kind]]) return { allowed: false, reason: 'insufficient_permission' };
   if (request.destructive && riskRank[request.risk] >= riskRank.high && !request.requiresApproval) return { allowed: false, reason: 'approval_required' };
   return { allowed: true, reason: 'authorized' };
 }

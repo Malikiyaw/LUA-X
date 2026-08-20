@@ -106,8 +106,44 @@ const pluginMeta = document.querySelector('#plugin-meta');
 const viewTitle = document.querySelector('#view-title');
 const comingTitle = document.querySelector('#coming-title');
 const comingText = document.querySelector('#coming-text');
+const tokenInput = document.querySelector('#token-input');
+const saveTokenBtn = document.querySelector('#save-token');
+const clearTokenBtn = document.querySelector('#clear-token');
 let toastTimer;
 let sending = false;
+
+const TOKEN_KEY = 'lua_x_api_token';
+const webChatHistory = [];
+
+function getToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; }
+}
+
+function saveToken(value) {
+  try { localStorage.setItem(TOKEN_KEY, (value || '').trim()); } catch { /* ignore */ }
+}
+
+function clearToken() {
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
+function promptForToken() {
+  const existing = getToken();
+  const entered = window.prompt('This LUA-X API requires a token. Paste your LUA-X API token:', existing);
+  if (entered === null) return false;
+  const trimmed = entered.trim();
+  if (!trimmed) {
+    clearToken();
+    return false;
+  }
+  saveToken(trimmed);
+  return true;
+}
 
 const PLUGIN_VERSION = '1.3.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
@@ -198,7 +234,7 @@ function versionAtLeast(installed, required) {
 
 async function getJson(path) {
   await resolveApiBase();
-  const r = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
+  const r = await fetch(`${API_BASE}${path}`, { headers: { accept: 'application/json', ...authHeaders() }, cache: 'no-store' });
   const b = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(b.error || `Request failed (${r.status})`);
   return b;
@@ -208,7 +244,7 @@ async function postJson(path, body) {
   await resolveApiBase();
   const r = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    headers: { 'content-type': 'application/json', accept: 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
   const b = await r.json().catch(() => ({}));
@@ -220,7 +256,7 @@ async function fetchDetailed(path, init = {}) {
   await resolveApiBase();
   const t0 = Date.now();
   try {
-    const r = await fetch(`${API_BASE}${path}`, { ...init, cache: 'no-store' });
+    const r = await fetch(`${API_BASE}${path}`, { ...init, headers: { ...(init.headers || {}), ...authHeaders() }, cache: 'no-store' });
     const text = await r.text();
     let body = null;
     try { body = JSON.parse(text); } catch { body = text; }
@@ -850,7 +886,7 @@ async function send() {
   setSending(true);
   composerNote.textContent = 'LUA-X is preparing an answer…';
   const typing = addTyping();
-  const body = { prompt: text, projectId: 'web', mode: 'chat' };
+  const body = { prompt: text, projectId: 'web', mode: 'chat', history: webChatHistory.slice(-10) };
   if (studioConnected && studioSessionId) {
     body.sessionId = studioSessionId;
     body.context = studioContext ? {
@@ -862,16 +898,27 @@ async function send() {
   }
   try {
     await resolveApiBase();
-    const r = await fetchDetailed('/api/ai/generate', {
+    let r = await fetchDetailed('/api/ai/generate', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify(body),
     });
+    if (r.status === 401 && promptForToken()) {
+      r = await fetchDetailed('/api/ai/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
     const b = r.body && typeof r.body === 'object' ? r.body : {};
     if (!r.reached || r.status !== 200 || !b) {
       typing.remove();
+      const unauthorized = r.reached && r.status === 401;
       const notConfigured = r.reached && (r.status === 503 || (typeof b.error === 'string' && /not configured/i.test(b.error)));
-      if (notConfigured) {
+      if (unauthorized) {
+        addMessage('Authorization rejected. Add a valid LUA-X API token in Settings and try again.', 'error');
+        composerNote.textContent = 'Authorization rejected — add the LUA-X API token in Settings.';
+      } else if (notConfigured) {
         addMessage('The AI provider is not configured on the backend. Add an NVIDIA_API_KEY in Vercel (Settings → Environment Variables → All Environments) and redeploy.', 'error');
         composerNote.textContent = 'AI not configured — set NVIDIA_API_KEY in Vercel and redeploy.';
       } else if (!r.reached) {
@@ -887,6 +934,11 @@ async function send() {
     const reply = (typeof b.response === 'string' && b.response) || (b.plan && b.plan.summary) || 'No response from backend.';
     typing.remove();
     addMessage(reply, 'assistant');
+    webChatHistory.push({ role: 'user', content: text });
+    webChatHistory.push({ role: 'assistant', content: reply });
+    if (b.plan && Array.isArray(b.plan.changes) && b.plan.changes.length > 0) {
+      addMessage(`Build plan ready — ${b.plan.changes.length} change${b.plan.changes.length === 1 ? '' : 's'}. Open the LUA-X plugin in Roblox Studio to review and apply it.`, 'assistant');
+    }
     composerNote.textContent = studioConnected
       ? 'Answered with your live Studio context. Use Sync Context to refresh it.'
       : 'Answered by LUA-X. Connect Studio (Plugins) to make chat project-aware.';
@@ -903,10 +955,14 @@ async function send() {
 function switchView(name) {
   document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === name));
   document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
-  const titles = { chat: 'Chat', plugins: 'Plugins', projects: 'Projects', history: 'History' };
+  const titles = { chat: 'Chat', plugins: 'Plugins', projects: 'Projects', history: 'History', settings: 'Settings' };
   viewTitle.textContent = titles[name] || 'LUA-X';
   if (name === 'chat') document.querySelector('#view-chat').classList.remove('hidden');
   else if (name === 'plugins') document.querySelector('#view-plugins').classList.remove('hidden');
+  else if (name === 'settings') {
+    document.querySelector('#view-settings').classList.remove('hidden');
+    if (tokenInput) tokenInput.value = getToken();
+  }
   else {
     comingTitle.textContent = (titles[name] || 'Section') + ' — coming soon';
     comingText.textContent = name === 'projects'
@@ -937,6 +993,15 @@ downloadPlugin?.addEventListener('click', startDownload);
 downloadPlugin2?.addEventListener('click', startDownload);
 versionDownload?.addEventListener('click', startDownload);
 openGuide?.addEventListener('click', e => { e.preventDefault(); openGuideFlow(); });
+saveTokenBtn?.addEventListener('click', () => {
+  saveToken(tokenInput ? tokenInput.value : '');
+  showToast('API token saved — requests send it as Bearer authorization.');
+});
+clearTokenBtn?.addEventListener('click', () => {
+  clearToken();
+  if (tokenInput) tokenInput.value = '';
+  showToast('API token cleared.');
+});
 promptEl?.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();

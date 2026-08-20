@@ -1,6 +1,7 @@
 export const config = { runtime: 'nodejs', maxDuration: 300 };
 
 import { randomUUID } from 'node:crypto';
+import { authorized } from '../auth';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODELS = [
@@ -30,20 +31,24 @@ const CHAT_SYSTEM_PROMPT = [
   'Never claim a Studio mutation, test, playtest, or publish succeeded. Describe what the creator must verify instead.',
   'You can create everything a Roblox experience needs: Luau systems, UI, animations, VFX/particles, sound, 3D geometry, persistence, networking, and localized text.',
   'Never invent asset IDs (AnimationId, SoundId, MeshId, TextureId). If a real asset is required, say exactly what must be uploaded and why.',
+  'When the creator asks for something buildable (a system, effect, animation, UI, sound cue, or game feature), ship it concretely: real Luau, real instance specs with concrete property values (Vector3.new, UDim2.new, Color3.fromRGB, Enum.<Class>.<Name> — never placeholders), gameplay values in a config module, and respect Roblox budgets.',
+  'When the creator asks for a feature, you may end your reply with an appliable change plan as a fenced JSON object (```json ... ```) using this shape: {"summary": "...", "assumptions": [...], "changes": [{"operation": "create_script|update_script|create_instance|update_instance|delete_instance|create_animation|create_sound|create_vfx|create_ui|note", "target": "game path", "content": "...", "reason": "...", "risk": "low|medium|high|critical"}], "acceptanceCriteria": [...], "verification": [...], "risks": [...]}. Only emit it when the plan is complete and appliable — never a placeholder plan.',
+  'For a buildable request, always include a plan; the creator can review and apply it in Studio.',
 ].join('\n');
 
 const BUILD_SYSTEM_PROMPT = [
   'You are LUA-X, a Roblox-native AI engineering orchestrator.',
   'Transform creator intent into a minimal, correct, reviewable change plan. You are a coordinated team: Luau engineer, UI engineer, animation director, VFX artist, audio designer, mesh/world engineer, security auditor, performance engineer, playtest engineer, reviewer.',
   'You can create everything a Roblox experience needs: Luau scripts, UI (ScreenGui/Frame/TextButton/ScrollingFrame), animations, VFX (ParticleEmitter/Beam/SurfaceAppearance/Light), sound (Sound/SoundService), 3D geometry (Parts/unions/MeshPart specs), terrain (Terrain API), persistence (DataStoreService), networking (remotes), and localized text.',
-  'Every request ships a complete, real, appliable artifact — never an outline or a description. Prefer reusable frameworks with a config module over one-off scripts. Ship named recipes instantly when asked (explosion, fire_loop, slash_trail, hit_spark, shockwave, aura, button, card, toast, cue bank, music sequencer, combat kit) with all values concrete.',
+  'Every request ships a complete, real, appliable artifact — never an outline or a description. Prefer reusable frameworks with a config module over one-off scripts. Ship named recipes instantly when asked (explosion, fire_loop, lightning_chain, shield_impact, footprint_steps, beam_trail, glow_pulse, portal, ember_rise, slash_trail, shockwave, aura, charge_up, muzzle_flash, run_cycle, idle_loop, emote_set, attack_chain, dash_blink, hit_reaction, npc_walk, hit_sting, ui_blip, ambience_bed, footstep_map, music_sequencer, minimap, radial_menu, settings_screen, party_hud, context_menu, toast, inventory_grid, hud_bar, vehicle_car, door_double, platformer_kit, furniture_set) with all values concrete.',
+  'Quality bars — every artifact must clear all three: (1) one-click playtestable: Play or Apply and the feature works, no dangling TODOs; (2) config-module tunable: damage/speed/duration/colors/cooldowns live in a Config module, not scattered literals; (3) budget-safe: no per-frame Instance.new, no per-frame allocation, no unbounded polling or RemoteEvent spam, particle emitters with sane rate/lifetime.',
   'Extract art direction (cartoon, fantasy, cyberpunk, minimal, anime, sci-fi) and keep one palette + motion language across UI, VFX, lighting, and materials.',
   'For multi-domain requests (animation + VFX + sound + UI), coordinate them on one millisecond timeline so hit frames line up with VFX bursts, sound cues, and UI feedback.',
   'Prime directive: build the smallest correct solution that satisfies intent, fits the existing project, respects Roblox architecture, and can be verified. Preserve unrelated behavior. Prefer targeted changes.',
   'Truth hierarchy: current creator instruction > explicit project rules > tool-confirmed project state > existing source/architecture > tests > official Roblox docs > memory > general knowledge.',
   'Never invent Roblox APIs, project facts, asset IDs, tool results, test results, or publish results. Asset IDs (AnimationId, SoundId, MeshId, TextureId) are facts, never guesses — if an asset is required but unconfirmed, mark it pending in risks and emit the code/spec with a clearly marked ASSET REQUIRED note instead.',
   'Respect server/client boundaries. Server is authoritative for currency, rewards, damage, inventory, permissions, progression, and cooldowns. Validate client input at the boundary.',
-  'Instance property values: use plain numbers/booleans/strings or resolvable forms only: Vector3.new(...), UDim2.new(...), UDim.new(...), Color3.fromRGB(...), BrickColor.new(...), Enum.<Class>.<Name>, NumberRange.new(...), NumberSequence.new(...), ColorSequence.new(...), CFrame.new(...), CFrame.lookAt(...).',
+  'Instance property values: use plain numbers/booleans/strings or resolvable forms only: Vector3.new(...), UDim2.new(...), UDim.new(...), Color3.fromRGB(...), BrickColor.new(...), Enum.<Class>.<Name>, NumberRange.new(...), NumberSequence.new(...), ColorSequence.new(...), CFrame.new(...), CFrame.lookAt(...). Never put Parent, tween logic, or function calls in a spec — ship a script change for logic.',
   'For animations: a real Animation instance requires a confirmed AnimationId. Without one, emit a Luau KeyframeSequence builder, an AnimationController module, or procedural motion code, and mark the upload pending. For sounds: a real SoundId is required; otherwise emit a cue-bank/sequencer module and mark assets pending.',
   'UI must be a real Roblox GUI structure or code that creates it: hierarchy, theme tokens, interaction states (default/hover/pressed/disabled/loading/error), empty/loading/failure screen states, responsive layout. Never just describe a UI.',
   'Return ONLY valid JSON with the exact top-level shape in the user message. No markdown fences. No prose outside the JSON.',
@@ -56,9 +61,10 @@ const BUILD_SCHEMA = `{
   "changes": [{
     "operation": "create_script|update_script|create_instance|update_instance|delete_instance|create_animation|create_sound|create_vfx|create_ui|note",
     "target": "Roblox path under game, e.g. game.ServerScriptService.Combat",
-    "content": "optional string — full Luau source for create_script/update_script; JSON spec {className, name?, properties} for create_instance/update_instance/create_animation/create_sound/create_vfx/create_ui; omitted for delete_instance/note",
+    "content": "optional string — full Luau source for create_script/update_script; JSON spec {className, name?, properties} for create_instance/update_instance/create_animation/create_sound/create_vfx/create_ui (property values must be plain values or resolvable: Vector3.new, UDim2.new, UDim.new, Color3.fromRGB, BrickColor.new, Enum.<Class>.<Name>, NumberRange.new, NumberSequence.new, ColorSequence.new, CFrame.new, CFrame.lookAt — never function calls, tweens, or Parent); omitted for delete_instance/note",
     "reason": "string",
-    "risk": "low|medium|high|critical"
+    "risk": "low|medium|high|critical",
+    "dependsOn": "optional string[] — targets this change depends on (applied first)"
   }],
   "acceptanceCriteria": ["string"],
   "verification": ["string"],
@@ -130,7 +136,27 @@ function validRequest(body: Record<string, unknown>): boolean {
   return typeof body.prompt === 'string' && body.prompt.trim().length >= 2 && body.prompt.length <= 12000
     && (body.projectId === undefined || typeof body.projectId === 'string')
     && (body.mode === undefined || typeof body.mode === 'string')
-    && (body.context === undefined || (typeof body.context === 'object' && body.context !== null));
+    && (body.context === undefined || (typeof body.context === 'object' && body.context !== null))
+    && validHistory(body);
+}
+
+function validHistory(body: Record<string, unknown>): boolean {
+  const history = body.history;
+  if (history === undefined) return true;
+  return Array.isArray(history) && history.length <= 12 && history.every((entry) => isRecord(entry)
+    && (entry.role === 'user' || entry.role === 'assistant')
+    && typeof entry.content === 'string'
+    && entry.content.length <= 12000);
+}
+
+function historyMessages(body: Record<string, unknown>): Array<{ role: 'user' | 'assistant'; content: string }> {
+  const history = body.history;
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((entry): entry is { role: 'user' | 'assistant'; content: string } =>
+      isRecord(entry) && (entry.role === 'user' || entry.role === 'assistant') && typeof entry.content === 'string')
+    .slice(-10)
+    .map((entry) => ({ role: entry.role, content: entry.content.slice(0, 12000) }));
 }
 
 function contextBlock(body: Record<string, unknown>): string {
@@ -264,7 +290,7 @@ function parseAIPlan(text: string): AIPlan {
   };
 }
 
-async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = [], timeoutMs?: number) {
+async function callNvidia(baseUrl: string, model: string, key: string, body: Record<string, unknown>, id: string, mode: string, extraMessages: Array<{ role: 'user'; content: string }> = [], timeoutMs?: number, history: Array<{ role: 'user' | 'assistant'; content: string }> = []) {
   const configuredMax = Number(process.env.AI_MAX_TOKENS || 0);
   const defaultMax = mode === 'chat' ? 4096 : 16384;
   const maxTokens = configuredMax > 0
@@ -290,6 +316,7 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
         model,
         messages: [
           { role: 'system', content: system },
+          ...history,
           { role: 'user', content: user },
           ...extraMessages,
         ],
@@ -359,10 +386,15 @@ export async function POST(request: Request): Promise<Response> {
     const body = await readBody(request);
     if (!validRequest(body)) return json(400, { error: 'Invalid AI request. Provide a prompt and optional project context.', requestId: id }, { 'x-request-id': id });
 
+    if (!authorized(request.headers)) {
+      return json(401, { error: 'Unauthorized. Provide a valid LUA-X API token via the Authorization header.', requestId: id }, { 'x-request-id': id });
+    }
+
     const apiKeys = keys();
     if (!apiKeys.length) return json(503, { error: 'AI provider is not configured on the backend.', requestId: id }, { 'x-request-id': id });
 
     const mode = modeOf(body);
+    const history = historyMessages(body);
     const baseUrl = (process.env.NVIDIA_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/$/, '');
     const modelList = models(mode);
     const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 270000), 1000), 285000);
@@ -381,7 +413,7 @@ export async function POST(request: Request): Promise<Response> {
         }
         for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_PAIR; attempt += 1) {
           try {
-            const result = await callNvidia(baseUrl, model, key, body, id, mode, [], remaining());
+            const result = await callNvidia(baseUrl, model, key, body, id, mode, [], remaining(), history);
             if (mode !== 'chat') {
               let outcome = tryPlan(result.response);
               let firstError = '';
@@ -393,7 +425,7 @@ export async function POST(request: Request): Promise<Response> {
                 try {
                   const repaired = await callNvidia(baseUrl, model, key, body, id, mode, [
                     { role: 'user', content: repairPrompt(result.response, outcome.error) },
-                  ], remaining());
+                  ], remaining(), history);
                   outcome = tryPlan(repaired.response);
                   if (outcome.error) attemptLog.push({ model, ms: Date.now() - startedAt, error: `parse(repair): ${outcome.error.message}` });
                 } catch (repairError) {
@@ -417,13 +449,24 @@ export async function POST(request: Request): Promise<Response> {
                 rawText: result.response.slice(0, 4000),
               }, { 'x-request-id': id });
             }
+            if (mode === 'chat') {
+              let plan: AIPlan | undefined;
+              try {
+                const parsed = parseAIPlan(result.response);
+                if (parsed.changes.length > 0) plan = parsed;
+              } catch {
+                // chat responses are free-form; a plan is optional
+              }
+              return json(200, {
+                requestId: id,
+                provider: 'nvidia',
+                model: result.model,
+                response: result.response,
+                ...(plan ? { plan } : {}),
+                retriesUsed,
+              }, { 'x-request-id': id });
+            }
             return json(200, {
-              requestId: id,
-              provider: 'nvidia',
-              model: result.model,
-              response: result.response,
-              retriesUsed,
-            }, { 'x-request-id': id });
           } catch (error) {
             const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) : 502;
             const retryable = typeof error === 'object' && error !== null && 'retryable' in error ? Boolean((error as { retryable?: unknown }).retryable) : true;

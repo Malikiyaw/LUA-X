@@ -27,7 +27,7 @@ type ConnectRequest = {
 const PRESENCE_TTL = 30;
 const COMMAND_TTL = 60;
 const CONNECT_REQUEST_TTL = 60;
-const REQUIRED_PLUGIN_VERSION = '1.2.1';
+const REQUIRED_PLUGIN_VERSION = '1.3.0';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
@@ -459,8 +459,28 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
   return json(404, { error: 'Studio route not found.' });
 }
 
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+function authorized(headers: Headers): boolean {
+  const token = process.env.LUA_X_API_TOKEN?.trim();
+  if (!token) return true;
+  const provided = headers.get('authorization');
+  if (!provided) return false;
+  const match = /^Bearer\s+(.+)$/i.exec(provided);
+  return match !== null && typeof match[1] === 'string' && safeEqual(match[1]!, token);
+}
+
 export async function studioHandler(request: Request): Promise<Response> {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' } });
+
+  if (!authorized(request.headers)) {
+    return json(401, { error: 'Unauthorized. Provide a valid LUA-X API token via the Authorization header.' });
+  }
 
   let url: URL;
   let pathname: string;

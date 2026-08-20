@@ -121,7 +121,7 @@ describe('API server', () => {
       body: JSON.stringify({
         projectId: 'demo',
         sessionId: 'session-handshake',
-        pluginVersion: '1.2.1',
+        pluginVersion: '1.3.0',
         requestId: connectBody.requestId,
       }),
     });

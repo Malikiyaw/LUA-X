@@ -9,6 +9,7 @@ const targets = [
   resolve(root, "apps", "web", "public", "download", "LUA-X.lua"),
 ];
 const manifest = resolve(root, "apps", "web", "public", "download", "plugin-manifest.json");
+const checkOnly = process.argv.includes("--check");
 
 const sourceContent = await readFile(source);
 const sourceText = sourceContent.toString("utf8");
@@ -20,6 +21,51 @@ if (!versionMatch) {
 }
 const version = versionMatch[1];
 const sha256 = createHash("sha256").update(sourceContent).digest("hex");
+
+if (checkOnly) {
+  let stale = false;
+  for (const target of targets) {
+    let targetContent;
+    try {
+      targetContent = await readFile(target);
+    } catch {
+      stale = true;
+      console.error(`[LUA-X] Missing synced copy: ${target}`);
+      continue;
+    }
+    if (!targetContent.equals(sourceContent)) {
+      stale = true;
+      console.error(`[LUA-X] Stale synced copy: ${target}`);
+    }
+  }
+  let manifestText;
+  try {
+    manifestText = await readFile(manifest, "utf8");
+  } catch {
+    stale = true;
+    console.error(`[LUA-X] Missing manifest: ${manifest}`);
+    manifestText = "";
+  }
+  const expectedManifest = JSON.stringify({
+    name: "LUA-X Studio Plugin",
+    filename: "LUA-X.lua",
+    version,
+    source: "studio-plugin/LUA-X-connected.lua",
+    sha256,
+    minimumStudioVersion: "2024",
+    requiredVersion: version,
+  }, null, 2) + "\n";
+  if (manifestText !== expectedManifest) {
+    stale = true;
+    console.error(`[LUA-X] Stale manifest: ${manifest}`);
+  }
+  if (stale) {
+    console.error("[LUA-X] Plugin sync drift detected. Run `npm run sync:plugin` and commit the result.");
+    process.exit(1);
+  }
+  console.log(`[LUA-X] Plugin v${version} copies and manifest are in sync (sha256=${sha256.slice(0, 12)}…).`);
+  process.exit(0);
+}
 
 for (const target of targets) {
   await mkdir(dirname(target), { recursive: true });

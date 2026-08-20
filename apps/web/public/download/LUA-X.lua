@@ -11,6 +11,7 @@ local ScriptEditorService = game:GetService("ScriptEditorService")
 local PLUGIN_VERSION = "1.3.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
+local TOKEN_KEY = "LUA_X_API_TOKEN"
 local SESSION_KEY = "LUA_X_STUDIO_SESSION"
 local HEARTBEAT_SECONDS = 4
 local COMMAND_SECONDS = 2
@@ -30,7 +31,7 @@ local toolbarButton = toolbar:CreateButton("LUA-X", "Open connected LUA-X Studio
 toolbarButton.ClickableWhenViewportHidden = true
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
-local endpointBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
+local endpointBox, tokenBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
 local websiteChip, aiChip, errorLabel
 local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton
 local chatModeButton, buildModeButton, chatPanel, buildPanel, chatScroller, chatList, chatInput, chatSend
@@ -83,8 +84,14 @@ local function setConnected(on, label)
 	if connButton then connButton.Text = on and "Disconnect" or (disconnected and "Reconnect" or "Disconnect") end
 	if connButton then connButton.Visible = true end
 end
+local function token()
+	return tostring(plugin:GetSetting(TOKEN_KEY) or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
 local function request(method, url, payload)
-	local options = {Url = url, Method = method, Headers = {Accept = "application/json"}}
+	local headers = {Accept = "application/json"}
+	local tok = token()
+	if tok ~= "" then headers["Authorization"] = "Bearer " .. tok end
+	local options = {Url = url, Method = method, Headers = headers}
 	if payload ~= nil then options.Headers["Content-Type"] = "application/json"; options.Body = HttpService:JSONEncode(payload) end
 	return HttpService:RequestAsync(options)
 end
@@ -179,6 +186,8 @@ local function reportError(message)
 		setStatus("HTTP Requests disabled — Game Settings → Security → Allow HTTP Requests", "bad")
 	elseif text:find("404", 1, true) or text:find("Not Found", 1, true) then
 		setStatus("API endpoint not found — check the endpoint URL is correct.", "bad")
+	elseif text:find("401", 1, true) or text:find("Unauthorized", 1, true) then
+		setStatus("Authorization rejected — add your LUA-X API token and Save Token.", "bad")
 	elseif text:find("CORS", 1, true) or text:find("cross-origin", 1, true) then
 		setStatus("CORS blocked — the API server must allow requests from this origin.", "bad")
 	elseif text:find("timeout", 1, true) or text:find("abort", 1, true) then
@@ -526,7 +535,14 @@ local function generatePlan()
 	busy = true; applyArmed = false; applyButton.Text = "Apply Changes"; refreshContext(); setStatus("LUA-X is generating a structured plan…", "warn")
 	local ok, response = safe("POST", saveEndpoint(), {prompt=prompt, projectId=tostring(game.PlaceId), mode="build", context=currentContext}, 3)
 	busy = false
-	if not ok then setStatus("Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable"), "bad"); warn("[LUA-X] " .. (response and bodyError(response) or "request failed")); return end
+	if not ok then
+		if response and response.StatusCode == 401 then
+			setStatus("Authorization rejected — add your LUA-X API token and Save Token.", "bad")
+		else
+			setStatus("Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable"), "bad")
+		end
+		warn("[LUA-X] " .. (response and bodyError(response) or "request failed")); return
+	end
 	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 	if not dOk or type(data) ~= "table" then setStatus("Backend returned invalid JSON.", "bad"); return end
 	if data.error then setStatus("LUA-X: " .. tostring(data.error), "bad"); return end
@@ -579,14 +595,32 @@ local function sendChat()
 	refreshContext()
 	busy = true
 	setStatus("LUA-X is answering…", "warn")
-	local ok, response = safe("POST", saveEndpoint(), {prompt=text, projectId=tostring(game.PlaceId), mode="chat", context=currentContext}, 3)
+	local history = {}
+	for i = math.max(1, #chatHistory - 10), #chatHistory - 1 do
+		local entry = chatHistory[i]
+		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") then
+			table.insert(history, {role = entry.role, content = entry.text})
+		end
+	end
+	local ok, response = safe("POST", saveEndpoint(), {prompt=text, projectId=tostring(game.PlaceId), mode="chat", context=currentContext, history=history}, 3)
 	busy = false
 	if not ok then
-		table.insert(chatHistory, {role = "assistant", text = "Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable")})
+		if response and response.StatusCode == 401 then
+			table.insert(chatHistory, {role = "assistant", text = "Authorization rejected — add your LUA-X API token in the Backend Connection card and Save Token."})
+		else
+			table.insert(chatHistory, {role = "assistant", text = "Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable")})
+		end
 	else
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		if dOk and type(data) == "table" and type(data.response) == "string" and data.response ~= "" then
 			table.insert(chatHistory, {role = "assistant", text = data.response})
+			if type(data.plan) == "table" and type(data.plan.changes) == "table" and #data.plan.changes > 0 then
+				currentPlan = data.plan
+				setMode("build")
+				planBox.Text = HttpService:JSONEncode(data.plan)
+				setStatus("Plan ready · review before applying.", "good")
+				table.insert(chatHistory, {role = "assistant", text = "Build plan ready — switch to Build · Plan to review and apply it."})
+			end
 		elseif dOk and type(data) == "table" and data.error then
 			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error)})
 		else
@@ -631,9 +665,11 @@ local function buildWidget()
 	local p1=ui("Frame",{Position=UDim2.new(0,0,0,0),Size=UDim2.new(.34,-1,1,0),BackgroundTransparency=1},metrics); local p2=ui("Frame",{Position=UDim2.new(.34,0,0,0),Size=UDim2.new(.33,-1,1,0),BackgroundTransparency=1},metrics); local p3=ui("Frame",{Position=UDim2.new(.67,0,0,0),Size=UDim2.new(.33,0,1,0),BackgroundTransparency=1},metrics)
 	for _,f in ipairs({p1,p2,p3}) do ui("TextLabel",{Position=UDim2.new(0,13,0,8),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},f); ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Font=Enum.Font.GothamBold,TextSize=12,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},f) end
 	p1:FindFirstChildOfClass("TextLabel").Text="PROJECT"; p1:GetChildren()[2].Text=tostring(game.PlaceId); p2:FindFirstChildOfClass("TextLabel").Text="SELECTION"; selectionLabel=p2:GetChildren()[2]; selectionLabel.Text="0 selected"; p3:FindFirstChildOfClass("TextLabel").Text="ACTIVITY"; activityLabel=p3:GetChildren()[2]; activityLabel.Text="Ready"
-	local net=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,150),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=4},scroll)))
+	local net=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,182),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=4},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="BACKEND CONNECTION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},net)
 	endpointBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,34),Size=UDim2.new(1,-26,0,32),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left,Text=type(plugin:GetSetting(ENDPOINT_KEY))=="string" and plugin:GetSetting(ENDPOINT_KEY) or DEFAULT_ENDPOINT},net),7)
+	tokenBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,138),Size=UDim2.new(1,-96,0,28),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left,PlaceholderText="LUA-X API token (optional)",Text=token()},net),7)
+	local saveToken=round(ui("TextButton",{Position=UDim2.new(1,-78,0,138),Size=UDim2.new(0,65,0,28),BackgroundColor3=C.field,BorderSizePixel=0,Text="Save Token",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
 	websiteChip=round(ui("TextLabel",{Position=UDim2.new(0,13,0,73),Size=UDim2.new(.5,-17,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="Website: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
 	aiChip=round(ui("TextLabel",{Position=UDim2.new(.5,3,0,73),Size=UDim2.new(.5,-16,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="AI: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
 	local test=round(ui("TextButton",{Position=UDim2.new(0,13,0,105),Size=UDim2.new(.5,-17,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Run Diagnostics",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
@@ -667,6 +703,7 @@ local function buildWidget()
 	connButton.MouseButton1Click:Connect(function() if disconnected then reconnectNow() else disconnectNow() end end)
 	test.MouseButton1Click:Connect(function() setStatus("Running diagnostics…", "warn"); task.defer(function() local ok = startupDiagnostics(); setStatus(ok and "Diagnostics complete · all checks passed." or "Diagnostics complete · see last error.", ok and "good" or "bad") end); refreshRemoteStatus() end)
 	save.MouseButton1Click:Connect(function() saveEndpoint(); setStatus("Endpoint saved.","good") end)
+	saveToken.MouseButton1Click:Connect(function() plugin:SetSetting(TOKEN_KEY, tostring(tokenBox.Text or "")); setStatus("Token saved · requests send it as Bearer authorization.","good") end)
 	refresh.MouseButton1Click:Connect(function() refreshContext(); setStatus("Context synced.","good") end); verify.MouseButton1Click:Connect(verifyLocal); gen.MouseButton1Click:Connect(generatePlan); applyButton.MouseButton1Click:Connect(applyPlan)
 	chatModeButton.MouseButton1Click:Connect(function() setMode("chat"); setStatus("Chat mode.","good") end)
 	buildModeButton.MouseButton1Click:Connect(function() setMode("build"); setStatus("Build · Plan mode.","good") end)

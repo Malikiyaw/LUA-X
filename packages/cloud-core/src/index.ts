@@ -1,14 +1,14 @@
-export type Role = 'owner' | 'admin' | 'developer' | 'designer' | 'reviewer' | 'viewer';
+import { can as roleCan, type Role } from "@lua-x/shared";
+
+export type { Role } from "@lua-x/shared";
 export interface Member { userId: string; role: Role }
 export interface ProjectRecord { id: string; name: string; ownerId: string; members: Member[]; createdAt: string; updatedAt: string }
 export interface AuditEvent { id: string; projectId: string; actorId: string; action: string; target?: string; metadata?: Record<string, string>; at: string }
 export interface Snapshot { id: string; projectId: string; label: string; createdAt: string; parentId?: string; changeIds: string[] }
 export interface Usage { projectId: string; period: string; requests: number; buildRuns: number; verificationRuns: number }
 
-const roleRank: Record<Role, number> = { viewer: 0, reviewer: 1, designer: 2, developer: 3, admin: 4, owner: 5 };
-
 export function can(member: Member, required: Role): boolean {
-  return roleRank[member.role] >= roleRank[required];
+  return roleCan(member.role, required);
 }
 
 export function createProject(id: string, name: string, ownerId: string): ProjectRecord {

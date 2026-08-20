@@ -1,10 +1,12 @@
 export const config = { runtime: 'nodejs' };
 
+const VERSION = '0.11.0-alpha';
+
 export function GET(): Response {
   return new Response(JSON.stringify({
     service: 'lua-x-api',
     status: 'ok',
-    version: '1.2.0',
+    version: VERSION,
     bridge: 'studio-v1',
   }), {
     status: 200,

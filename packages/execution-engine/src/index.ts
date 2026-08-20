@@ -1,4 +1,4 @@
-import type { ExecutionBrief } from "@lua-x/shared";
+import { stableId, type ExecutionBrief } from "@lua-x/shared";
 
 export type OperationKind = "create-script" | "replace-script" | "edit-script" | "delete-script";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
@@ -9,8 +9,7 @@ export interface ExecutionResult { readonly changeSetId: string; readonly status
 export interface CodeExecutionAdapter { readScript(target: string): Promise<{ content: string; hash?: string }>; applyOperation(operation: CodeOperation): Promise<ExecutionEvidence>; }
 export interface ApprovalPolicy { readonly requireApprovalFor: readonly RiskLevel[]; }
 const DEFAULT_POLICY: ApprovalPolicy = { requireApprovalFor: ["medium", "high", "critical"] };
-function stableId(input: string): string { let hash = 2166136261; for (let i = 0; i < input.length; i += 1) { hash ^= input.charCodeAt(i); hash = Math.imul(hash, 16777619); } return `cs_${(hash >>> 0).toString(16).padStart(8, "0")}`; }
-export function createChangeSet(brief: ExecutionBrief, operations: readonly CodeOperation[]): CodeChangeSet { return { id: stableId(JSON.stringify({ projectId: brief.project.projectId, operations })), projectId: brief.project.projectId, summary: brief.objective.summary, operations, acceptanceCriteria: brief.acceptanceCriteria, verification: brief.verification }; }
+export function createChangeSet(brief: ExecutionBrief, operations: readonly CodeOperation[]): CodeChangeSet { return { id: stableId("cs", JSON.stringify({ projectId: brief.project.projectId, operations })), projectId: brief.project.projectId, summary: brief.objective.summary, operations, acceptanceCriteria: brief.acceptanceCriteria, verification: brief.verification }; }
 export function requiresApproval(operation: CodeOperation, policy: ApprovalPolicy = DEFAULT_POLICY): boolean { return policy.requireApprovalFor.includes(operation.risk); }
 export interface ApplyOptions { readonly approvedChangeSetId?: string; readonly policy?: ApprovalPolicy; readonly allowDelete?: boolean; }
 export async function applyChangeSet(changeSet: CodeChangeSet, adapter: CodeExecutionAdapter, options: ApplyOptions = {}): Promise<ExecutionResult> {
