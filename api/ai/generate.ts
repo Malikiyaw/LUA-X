@@ -2,6 +2,7 @@ export const config = { runtime: 'nodejs', maxDuration: 300 };
 
 import { randomUUID } from 'node:crypto';
 import { authorized } from '../auth';
+import { appendConversationMessage } from '../studio-handler';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODELS = [
@@ -34,6 +35,8 @@ const CHAT_SYSTEM_PROMPT = [
   'When the creator asks for something buildable (a system, effect, animation, UI, sound cue, or game feature), ship it concretely: real Luau, real instance specs with concrete property values (Vector3.new, UDim2.new, Color3.fromRGB, Enum.<Class>.<Name> — never placeholders), gameplay values in a config module, and respect Roblox budgets.',
   'When the creator asks for a feature, you may end your reply with an appliable change plan as a fenced JSON object (```json ... ```) using this shape: {"summary": "...", "assumptions": [...], "changes": [{"operation": "create_script|update_script|create_instance|update_instance|delete_instance|create_animation|create_sound|create_vfx|create_ui|note", "target": "game path", "content": "...", "reason": "...", "risk": "low|medium|high|critical"}], "acceptanceCriteria": [...], "verification": [...], "risks": [...]}. Only emit it when the plan is complete and appliable — never a placeholder plan.',
   'For a buildable request, always include a plan; the creator can review and apply it in Studio.',
+  'Live Studio vision: the message may include a "Live Studio context" JSON — place, selection, workspaceTree (indented explorer tree, Name (ClassName)), scripts (readable script paths), architecture (full script source). Read it as real project state: use exact game paths from the tree, read existing source before modifying it, create what is missing instead of assuming it exists, and never claim a path or behavior that is not visible in the context.',
+  'Shared conversation: this chat is shared between the website and the Roblox Studio plugin — the creator may continue a thread from either surface. Do not restate what the history already established.',
 ].join('\n');
 
 const BUILD_SYSTEM_PROMPT = [
@@ -52,6 +55,7 @@ const BUILD_SYSTEM_PROMPT = [
   'For animations: a real Animation instance requires a confirmed AnimationId. Without one, emit a Luau KeyframeSequence builder, an AnimationController module, or procedural motion code, and mark the upload pending. For sounds: a real SoundId is required; otherwise emit a cue-bank/sequencer module and mark assets pending.',
   'UI must be a real Roblox GUI structure or code that creates it: hierarchy, theme tokens, interaction states (default/hover/pressed/disabled/loading/error), empty/loading/failure screen states, responsive layout. Never just describe a UI.',
   'Return ONLY valid JSON with the exact top-level shape in the user message. No markdown fences. No prose outside the JSON.',
+  'Live Studio vision: the user message may include a "Live Studio context" JSON — workspaceTree is the real explorer tree (Name (ClassName)), scripts lists readable scripts, architecture holds their full source. Use exact paths from the tree for targets; create anything missing rather than assuming it exists; read existing source from architecture before modifying it; never claim a path that is not visible in the context.',
   'Never claim that Studio execution, tests, playtests, or publishing succeeded unless evidence is present.',
 ].join('\n');
 
@@ -136,8 +140,18 @@ function validRequest(body: Record<string, unknown>): boolean {
   return typeof body.prompt === 'string' && body.prompt.trim().length >= 2 && body.prompt.length <= 12000
     && (body.projectId === undefined || typeof body.projectId === 'string')
     && (body.mode === undefined || typeof body.mode === 'string')
+    && (body.sessionId === undefined || typeof body.sessionId === 'string')
+    && (body.surface === undefined || typeof body.surface === 'string')
     && (body.context === undefined || (typeof body.context === 'object' && body.context !== null))
     && validHistory(body);
+}
+
+function sessionIdOf(body: Record<string, unknown>): string {
+  return typeof body.sessionId === 'string' ? body.sessionId.trim().slice(0, 100) : '';
+}
+
+function surfaceOf(body: Record<string, unknown>): 'plugin' | 'web' {
+  return typeof body.surface === 'string' && body.surface === 'plugin' ? 'plugin' : 'web';
 }
 
 function validHistory(body: Record<string, unknown>): boolean {
@@ -457,6 +471,21 @@ export async function POST(request: Request): Promise<Response> {
               } catch {
                 // chat responses are free-form; a plan is optional
               }
+              const sessionId = sessionIdOf(body);
+              if (sessionId) {
+                await appendConversationMessage(sessionId, {
+                  role: 'user',
+                  content: String(body.prompt ?? '').trim().slice(0, 12000),
+                  surface: surfaceOf(body),
+                  at: Date.now(),
+                });
+                await appendConversationMessage(sessionId, {
+                  role: 'assistant',
+                  content: result.response.slice(0, 12000),
+                  surface: 'server',
+                  at: Date.now(),
+                });
+              }
               return json(200, {
                 requestId: id,
                 provider: 'nvidia',
@@ -466,7 +495,6 @@ export async function POST(request: Request): Promise<Response> {
                 retriesUsed,
               }, { 'x-request-id': id });
             }
-            return json(200, {
           } catch (error) {
             const status = typeof error === 'object' && error !== null && 'status' in error ? Number((error as { status?: unknown }).status) : 502;
             const retryable = typeof error === 'object' && error !== null && 'retryable' in error ? Boolean((error as { retryable?: unknown }).retryable) : true;
@@ -479,6 +507,22 @@ export async function POST(request: Request): Promise<Response> {
           }
         }
       }
+    }
+
+    const sessionId = sessionIdOf(body);
+    if (mode === 'chat' && sessionId) {
+      await appendConversationMessage(sessionId, {
+        role: 'user',
+        content: String(body.prompt ?? '').trim().slice(0, 12000),
+        surface: surfaceOf(body),
+        at: Date.now(),
+      });
+      await appendConversationMessage(sessionId, {
+        role: 'assistant',
+        content: `Generation failed: ${lastMessage.slice(0, 12000)}`,
+        surface: 'server',
+        at: Date.now(),
+      });
     }
 
     return json(lastStatus >= 500 ? 502 : lastStatus, {

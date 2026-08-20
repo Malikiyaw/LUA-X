@@ -1,14 +1,17 @@
--- LUA-X Studio Plugin 1.3.0
--- Chat-first connected bridge: heartbeat, website commands, chat pane, AI planning,
--- safe apply of scripts AND real Roblox instances (UI, animation, sound, VFX, geometry),
--- connection card, disconnect/reconnect, and startup diagnostics.
+-- LUA-X Studio Plugin 1.4.0
+-- Chat-first connected bridge: heartbeat, website commands, forgeGUI-style chat pane,
+-- web<->plugin shared conversations, full workspace vision (explorer tree + all script source),
+-- AI planning, safe apply of scripts AND real Roblox instances (UI, animation, sound, VFX,
+-- geometry), connection card, disconnect/reconnect, and startup diagnostics.
 
 local HttpService = game:GetService("HttpService")
 local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
+local ClipboardService = game:GetService("ClipboardService")
+local UserInputService = game:GetService("UserInputService")
 
-local PLUGIN_VERSION = "1.3.0"
+local PLUGIN_VERSION = "1.4.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -16,9 +19,14 @@ local SESSION_KEY = "LUA_X_STUDIO_SESSION"
 local HEARTBEAT_SECONDS = 4
 local COMMAND_SECONDS = 2
 local CONNECT_POLL_SECONDS = 2
-local MAX_SCRIPTS = 16
-local MAX_SOURCE = 5000
-local MAX_CONTEXT = 16000
+local CHAT_POLL_SECONDS = 6
+local MAX_SCRIPTS = 24
+local MAX_SOURCE = 8000
+local MAX_CONTEXT = 40000
+local MAX_HISTORY = 50
+local MAX_TREE_NODES = 1200
+local TREE_DEPTH = 7
+local TREE_ROOTS = {"Workspace", "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterPlayer", "StarterGui", "Lighting", "SoundService", "ReplicatedFirst", "Teams"}
 
 local C = {
 	bg = Color3.fromRGB(9, 11, 17), panel = Color3.fromRGB(17, 20, 29), field = Color3.fromRGB(26, 30, 41),
@@ -34,7 +42,7 @@ local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLab
 local endpointBox, tokenBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
 local websiteChip, aiChip, errorLabel
 local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton
-local chatModeButton, buildModeButton, chatPanel, buildPanel, chatScroller, chatList, chatInput, chatSend
+local chatModeButton, buildModeButton, chatPanel, buildPanel, chatScroller, chatList, chatInput, chatSend, chatSyncLabel, typingLabel
 local currentPlan, currentContext = nil, {}
 local chatHistory = {}
 local currentMode = "chat"
@@ -83,6 +91,8 @@ local function setConnected(on, label)
 	if connCardWebsite then connCardWebsite.Text = "—" end
 	if connButton then connButton.Text = on and "Disconnect" or (disconnected and "Reconnect" or "Disconnect") end
 	if connButton then connButton.Visible = true end
+	if chatSyncLabel then chatSyncLabel.Text = on and "· synced to web" or "· local only" end
+	if chatSyncLabel then chatSyncLabel.TextColor3 = on and C.good or C.muted end
 end
 local function token()
 	return tostring(plugin:GetSetting(TOKEN_KEY) or ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -145,21 +155,69 @@ local function selectedScripts()
 	end
 	return result
 end
-local function refreshContext()
-	local selected = Selection:Get()
-	local instances, files, sourceParts = {}, {}, {}
-	for _, item in ipairs(selected) do table.insert(instances, pathOf(item) .. " [" .. item.ClassName .. "]") end
-	for _, script in ipairs(selectedScripts()) do
+local function compactTree()
+	local lines, count = {}, 0
+	local function walk(inst, depth)
+		if count >= MAX_TREE_NODES or depth > TREE_DEPTH then return end
+		table.insert(lines, string.rep("  ", depth) .. inst.Name .. " (" .. inst.ClassName .. ")")
+		count = count + 1
+		if inst.ClassName == "Terrain" then return end
+		for _, child in ipairs(inst:GetChildren()) do walk(child, depth + 1) end
+	end
+	local covered = {}
+	for _, root in ipairs(TREE_ROOTS) do
+		local svc = game:FindService(root)
+		if svc then covered[svc] = true; walk(svc, 0) end
+	end
+	for _, child in ipairs(game:GetChildren()) do
+		if not covered[child] then walk(child, 0) end
+	end
+	return table.concat(lines, "\n")
+end
+local function collectScripts(seen, files, sourceParts)
+	local function take(script)
+		if #files >= MAX_SCRIPTS or seen[script] then return end
+		seen[script] = true
 		table.insert(files, pathOf(script))
 		local source = readSource(script)
 		if source then table.insert(sourceParts, "-- " .. pathOf(script) .. "\n" .. trim(source, MAX_SOURCE)) end
 	end
+	for _, script in ipairs(selectedScripts()) do take(script) end
+	for _, root in ipairs(TREE_ROOTS) do
+		if #files >= MAX_SCRIPTS then break end
+		local svc = game:FindService(root)
+		if svc then
+			for _, desc in ipairs(svc:GetDescendants()) do
+				if #files >= MAX_SCRIPTS then break end
+				if desc:IsA("LuaSourceContainer") then take(desc) end
+			end
+		end
+	end
+end
+local function refreshContext()
+	local selected = Selection:Get()
+	local instances, files, sourceParts, seen = {}, {}, {}, {}
+	for _, item in ipairs(selected) do table.insert(instances, pathOf(item) .. " [" .. item.ClassName .. "]") end
+	collectScripts(seen, files, sourceParts)
+	local tree = compactTree()
 	currentContext = {
-		relevantFiles = files, relevantInstances = instances, architecture = trim(table.concat(sourceParts, "\n\n"), MAX_CONTEXT),
-		constraints = {"Use the current Roblox Studio selection as context.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence."},
+		place = { name = tostring(game.Name), placeId = tostring(game.PlaceId), services = TREE_ROOTS },
+		selection = instances,
+		workspaceTree = tree,
+		scripts = files,
+		architecture = trim(table.concat(sourceParts, "\n\n"), MAX_CONTEXT),
+		constraints = {"Use the current Roblox Studio selection as context.", "workspaceTree is the live Studio explorer — you can see the whole place.", "scripts lists every Lua source LUA-X could read; architecture holds their full source.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence."},
 	}
-	if contextBox then contextBox.Text = table.concat({"SELECTIONS  " .. #selected, "SCRIPTS     " .. #files, "", "INSTANCES", #instances > 0 and table.concat(instances, "\n") or "(none)", #files > 0 and ("\nSCRIPTS\n" .. table.concat(files, "\n")) or ""}, "\n") end
+	if contextBox then contextBox.Text = table.concat({"SELECTIONS  " .. #selected, "SCRIPTS     " .. #files, "TREE        " .. select(2, tree:gsub("\n", "\n")) + 1 .. " nodes", "", "TREE", #tree > 0 and trim(tree, 1500) or "(empty)", #files > 0 and ("\nSCRIPTS\n" .. table.concat(files, "\n")) or ""}, "\n") end
 	if selectionLabel then selectionLabel.Text = tostring(#selected) .. " selected" end
+	contextDirty = true
+end
+local contextDirty = false
+local function pushContext()
+	if disconnected or contextDirty == false then return end
+	contextDirty = false
+	local ok, response = safe("POST", rootUrl() .. "/api/studio/context", {sessionId = sessionId, context = type(currentContext) == "table" and currentContext or {}}, 1)
+	if not ok then contextDirty = true end
 end
 local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
 
@@ -171,8 +229,8 @@ local function heartbeatBody()
 		placeName = tostring(game.Name),
 		placeId = tostring(game.PlaceId),
 		pluginVersion = PLUGIN_VERSION,
-		capabilities = {"chat", "context", "build", "apply", "verify", "instances"},
-		context = {selection=#Selection:Get(), scripts=#(type(context.relevantFiles)=="table" and context.relevantFiles or {})},
+		capabilities = {"chat", "context", "build", "apply", "verify", "instances", "sync", "vision"},
+		context = {selection=#Selection:Get(), scripts=#(type(context.scripts)=="table" and context.scripts or {}), tree=select(2, tostring(context.workspaceTree or ""):gsub("\n", "\n")) + 1},
 	}
 end
 
@@ -573,17 +631,96 @@ local function applyPlan()
 	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed==0 and "good" or "bad")
 end
 
+local function codeSegments(text)
+	local segments, pos, openIdx = {}, 1, nil
+	while true do
+		local start = string.find(text, "```", pos, true)
+		if not start then break end
+		if openIdx == nil then
+			if start > pos then table.insert(segments, {code = false, text = string.sub(text, pos, start - 1)}) end
+			openIdx = start
+			pos = start + 3
+		else
+			table.insert(segments, {code = true, text = string.sub(text, openIdx + 3, start - 1)})
+			openIdx = nil
+			pos = start + 3
+		end
+	end
+	if openIdx ~= nil then table.insert(segments, {code = true, text = string.sub(text, openIdx + 3)}) end
+	if openIdx == nil and pos <= #text then table.insert(segments, {code = false, text = string.sub(text, pos)}) end
+	if #segments == 0 then table.insert(segments, {code = false, text = text}) end
+	return segments
+end
+local function copyCode(text)
+	local ok = pcall(function() ClipboardService:SetClipboard(text) end)
+	setStatus(ok and "Code copied to clipboard." or "Clipboard unavailable in this Studio version.", ok and "good" or "warn")
+end
+local function stripLangTag(text)
+	local first, rest = text:match("^([^\n]-)\n(.*)$")
+	if first and #first <= 16 and first:match("^%a+$") then return rest end
+	return text
+end
 local function renderChat()
 	if not chatList then return end
 	for _, child in ipairs(chatList:GetChildren()) do child:Destroy() end
 	for index, entry in ipairs(chatHistory) do
+		local isUser = entry.role == "user"
+		local when = type(entry.at) == "number" and os.date("%H:%M", entry.at / 1000) or nil
 		local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
-		ui("TextLabel", {Size = UDim2.new(1, 0, 0, 13), BackgroundTransparency = 1, Text = entry.role == "user" and "YOU" or "LUA-X", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = entry.role == "user" and C.accent or C.muted, TextXAlignment = Enum.TextXAlignment.Left}, row)
-		local code = string.find(entry.text, "```", 1, true) ~= nil
-		local bubble = round(ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = entry.role == "user" and C.field or C.panel, BorderSizePixel = 0, Font = code and Enum.Font.Code or Enum.Font.Gotham, TextSize = code and 10 or 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = entry.text}, row), 7)
-		stroke(bubble)
+		ui("TextLabel", {Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, Text = (isUser and "YOU" or "LUA-X") .. (when and (" · " .. when) or ""), Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = isUser and C.accent or C.muted, TextXAlignment = isUser and Enum.TextXAlignment.Right or Enum.TextXAlignment.Left}, row)
+		for _, segment in ipairs(codeSegments(entry.text)) do
+			local bubble
+			if segment.code then
+				local codeText = stripLangTag(segment.text)
+				bubble = round(ui("Frame", {Position = isUser and UDim2.new(0.18, 0, 0, 0) or UDim2.new(0, 0, 0, 0), Size = isUser and UDim2.new(0.82, 0, 0, 0) or UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Color3.fromRGB(10, 13, 20), BorderSizePixel = 0}, row), 7)
+				stroke(bubble)
+				local bar = ui("Frame", {Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = Color3.fromRGB(15, 19, 28), BorderSizePixel = 0}, bubble)
+				ui("UICorner", {CornerRadius = UDim.new(0, 7)}, bar)
+				ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -60, 0, 14), BackgroundTransparency = 1, Text = "lua · code", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, bar)
+				local copy = round(ui("TextButton", {Position = UDim2.new(1, -52, 0, 2), Size = UDim2.new(0, 46, 0, 18), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy", Font = Enum.Font.GothamMedium, TextSize = 8, TextColor3 = C.text}, bar), 4)
+				local codeScroll = round(ui("ScrollingFrame", {Position = UDim2.new(0, 8, 0, 26), Size = UDim2.new(1, -16, 0, 150), BackgroundColor3 = Color3.fromRGB(8, 10, 16), BorderSizePixel = 0, ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y}, bubble), 4)
+				ui("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, codeScroll)
+				ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 10, TextColor3 = Color3.fromRGB(205, 217, 240), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = codeText}, codeScroll)
+				copy.MouseButton1Click:Connect(function() copyCode(codeText) end)
+				task.defer(function()
+					pcall(function()
+						if codeScroll then codeScroll.CanvasPosition = Vector2.new(0, 0) end
+					end)
+				end)
+			else
+				local cleaned = segment.text:gsub("^%s+", ""):gsub("%s+$", "")
+				if cleaned ~= "" then
+					bubble = round(ui("TextLabel", {Position = isUser and UDim2.new(0.18, 0, 0, 0) or UDim2.new(0, 0, 0, 0), Size = isUser and UDim2.new(0.82, 0, 0, 0) or UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = isUser and Color3.fromRGB(24, 32, 48) or C.panel, BorderSizePixel = 0, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = cleaned}, row), 7)
+					stroke(bubble)
+				end
+			end
+		end
 	end
 	pcall(function() if chatScroller then chatScroller.CanvasPosition = Vector2.new(0, chatScroller.AbsoluteCanvasSize.Y) end end)
+end
+local function syncFromServer()
+	if disconnected then return end
+	local ok, response = safe("GET", rootUrl() .. "/api/studio/chat?sessionId=" .. HttpService:UrlEncode(sessionId), nil, 1)
+	if not ok or not response then return end
+	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
+	if not dOk or type(data) ~= "table" or type(data.messages) ~= "table" then return end
+	if #data.messages < #chatHistory then return end
+	local merged = {}
+	for _, message in ipairs(data.messages) do
+		if type(message) == "table" and (message.role == "user" or message.role == "assistant") and type(message.content) == "string" then
+			table.insert(merged, {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"})
+			if #merged >= MAX_HISTORY then break end
+		end
+	end
+	chatHistory = merged
+	renderChat()
+end
+local function pollConversation()
+	if currentMode ~= "chat" then return end
+	if widget and widget.Enabled and not disconnected then
+		local ok = pcall(syncFromServer)
+		if not ok then warn("[LUA-X] conversation sync failed") end
+	end
 end
 local function sendChat()
 	if busy then return end
@@ -594,6 +731,7 @@ local function sendChat()
 	renderChat()
 	refreshContext()
 	busy = true
+	if typingLabel then typingLabel.Visible = true end
 	setStatus("LUA-X is answering…", "warn")
 	local history = {}
 	for i = math.max(1, #chatHistory - 10), #chatHistory - 1 do
@@ -602,14 +740,18 @@ local function sendChat()
 			table.insert(history, {role = entry.role, content = entry.text})
 		end
 	end
-	local ok, response = safe("POST", saveEndpoint(), {prompt=text, projectId=tostring(game.PlaceId), mode="chat", context=currentContext, history=history}, 3)
+	local payload = {prompt=text, projectId=tostring(game.PlaceId), mode="chat", context=currentContext, history=history}
+	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
+	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
+	if typingLabel then typingLabel.Visible = false end
 	if not ok then
 		if response and response.StatusCode == 401 then
 			table.insert(chatHistory, {role = "assistant", text = "Authorization rejected — add your LUA-X API token in the Backend Connection card and Save Token."})
 		else
 			table.insert(chatHistory, {role = "assistant", text = "Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable")})
 		end
+		task.defer(syncFromServer)
 	else
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		if dOk and type(data) == "table" and type(data.response) == "string" and data.response ~= "" then
@@ -621,6 +763,7 @@ local function sendChat()
 				setStatus("Plan ready · review before applying.", "good")
 				table.insert(chatHistory, {role = "assistant", text = "Build plan ready — switch to Build · Plan to review and apply it."})
 			end
+			task.defer(syncFromServer)
 		elseif dOk and type(data) == "table" and data.error then
 			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error)})
 		else
@@ -677,13 +820,15 @@ local function buildWidget()
 	local modebar=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,42),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=5},scroll)))
 	chatModeButton=round(ui("TextButton",{Position=UDim2.new(0,12,0,8),Size=UDim2.new(.5,-16,0,26),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Chat",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=C.text},modebar),6)
 	buildModeButton=round(ui("TextButton",{Position=UDim2.new(.5,4,0,8),Size=UDim2.new(.5,-16,0,26),BackgroundColor3=C.field,BorderSizePixel=0,Text="Build · Plan",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=C.muted},modebar),6)
-	chatPanel=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,400),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=6},scroll)))
+	chatPanel=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,440),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=6},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="CHAT",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},chatPanel)
-	chatScroller=round(ui("ScrollingFrame",{Position=UDim2.new(0,13,0,32),Size=UDim2.new(1,-26,0,296),BackgroundColor3=C.bg,BorderSizePixel=0,ScrollBarThickness=4,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y},chatPanel),6)
+	chatSyncLabel=ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="· local only",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Right},chatPanel)
+	chatScroller=round(ui("ScrollingFrame",{Position=UDim2.new(0,13,0,32),Size=UDim2.new(1,-26,0,278),BackgroundColor3=C.bg,BorderSizePixel=0,ScrollBarThickness=4,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y},chatPanel),6)
 	chatList=ui("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},chatScroller)
 	ui("UIPadding",{PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),PaddingLeft=UDim.new(0,10),PaddingRight=UDim.new(0,10)},chatScroller)
-	chatInput=round(ui("TextBox",{Position=UDim2.new(0,13,0,338),Size=UDim2.new(1,-86,0,38),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Gotham,TextSize=12,TextColor3=C.text,PlaceholderText="Ask LUA-X anything…",TextXAlignment=Enum.TextXAlignment.Left},chatPanel),6)
-	chatSend=round(ui("TextButton",{Position=UDim2.new(1,-70,0,338),Size=UDim2.new(0,58,0,38),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Send",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=C.text},chatPanel),6)
+	typingLabel=ui("TextLabel",{Position=UDim2.new(0,13,0,314),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Text="LUA-X is thinking…",Font=Enum.Font.Code,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left,Visible=false},chatPanel)
+	chatInput=round(ui("TextBox",{Position=UDim2.new(0,13,0,336),Size=UDim2.new(1,-86,0,56),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Gotham,TextSize=12,TextColor3=C.text,PlaceholderText="Ask LUA-X anything… (Enter to send, Shift+Enter for new line)",TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,MultiLine=true},chatPanel),6)
+	chatSend=round(ui("TextButton",{Position=UDim2.new(1,-70,0,336),Size=UDim2.new(0,58,0,56),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Send",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=C.text},chatPanel),6)
 	buildPanel=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,432),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=7},scroll)))
 	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="LUA-X ARCHITECT — BUILD · PLAN",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},buildPanel)
 	ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Text="Describe the system. LUA-X returns a reviewable change set — scripts, UI, animation, VFX, sound, geometry.",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},buildPanel)
@@ -708,7 +853,14 @@ local function buildWidget()
 	chatModeButton.MouseButton1Click:Connect(function() setMode("chat"); setStatus("Chat mode.","good") end)
 	buildModeButton.MouseButton1Click:Connect(function() setMode("build"); setStatus("Build · Plan mode.","good") end)
 	chatSend.MouseButton1Click:Connect(sendChat)
-	chatInput.FocusLost:Connect(function(enterPressed) if enterPressed then sendChat() end end)
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.Enter and chatInput and chatInput:IsFocused() then
+			local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			if not shiftDown then sendChat() end
+		end
+	end)
+	chatInput.FocusLost:Connect(function() if typingLabel then typingLabel.Visible = false end end)
 	Selection.SelectionChanged:Connect(function() if widget and widget.Enabled then refreshContext() end end)
 	refreshContext()
 	refreshRemoteStatus()
@@ -733,7 +885,7 @@ toolbarButton.Click:Connect(function()
 	local ok, err = pcall(function()
 		if buildWidget() then
 			widget.Enabled = not widget.Enabled
-			if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good") end
+			if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good"); task.defer(pollConversation) end
 		end
 	end)
 	if not ok then
@@ -745,7 +897,9 @@ end)
 task.spawn(function() local okReg=pcall(registerSession); if not okReg then warn("[LUA-X] register failed") end; task.wait(1); while true do if not disconnected then local ok=pcall(heartbeat); if not ok then warn("[LUA-X] heartbeat failed") end end; task.wait(HEARTBEAT_SECONDS) end end)
 task.spawn(function() while true do if not disconnected then local ok=pcall(pollConnectionRequests); if not ok then warn("[LUA-X] connect request poll failed") end end; task.wait(CONNECT_POLL_SECONDS) end end)
 task.spawn(function() while true do if widget and widget.Enabled and not disconnected then local ok=pcall(pollCommands); if not ok then warn("[LUA-X] command poll failed") end end; task.wait(COMMAND_SECONDS) end end)
+task.spawn(function() while true do local ok=pcall(pollConversation); if not ok then warn("[LUA-X] conversation poll failed") end; task.wait(CHAT_POLL_SECONDS) end end)
 task.spawn(function() while true do task.wait(30); local ok=pcall(refreshRemoteStatus); if not ok then warn("[LUA-X] remote status refresh failed") end end end)
+task.spawn(function() while true do task.wait(8); local ok=pcall(pushContext); if not ok then warn("[LUA-X] context push failed") end end end)
 task.spawn(function() pcall(refreshContext) end)
 
 print("[LUA-X] Connected Studio bridge v" .. PLUGIN_VERSION .. " active (session " .. sessionId .. ")")

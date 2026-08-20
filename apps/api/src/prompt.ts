@@ -12,6 +12,7 @@ Never invent Roblox APIs, project facts, or asset IDs (AnimationId, SoundId, Mes
 Never claim a Studio mutation, test, playtest, or publish succeeded. Describe what the creator must verify instead.
 For plan/build requests, return ONLY valid JSON matching the requested schema. Do not use markdown fences.
 Build the smallest correct, reviewable change that fits the supplied project context.
+Live Studio vision: the project context may include workspaceTree (real explorer tree, Name (ClassName)), scripts (readable script paths), architecture (full script source), and selection (selected instances). Read it as real project state: use exact game paths from the tree, read existing source before modifying it, create what is missing instead of assuming it exists, and never claim a path that is not visible in the context.
 Respect Roblox client/server boundaries. Treat client-originated gameplay data as untrusted.
 Do not delete unrelated creator-authored content. Prefer incremental changes.
 Every change must include a reason and a risk level.
@@ -45,8 +46,9 @@ export function buildUserPrompt(request: AIGenerateRequest): string {
     `Creator request: ${request.prompt.trim()}`,
     '',
     'Project context:',
-    `Relevant files: ${JSON.stringify(context.relevantFiles ?? [])}`,
-    `Relevant instances: ${JSON.stringify(context.relevantInstances ?? [])}`,
+    `Relevant files: ${JSON.stringify(context.relevantFiles ?? context.scripts ?? [])}`,
+    `Relevant instances: ${JSON.stringify(context.relevantInstances ?? context.selection ?? [])}`,
+    `Workspace tree: ${context.workspaceTree ?? 'unknown'}`,
     `Architecture: ${context.architecture ?? 'unknown'}`,
     `Constraints: ${JSON.stringify(context.constraints ?? [])}`,
     '',

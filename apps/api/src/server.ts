@@ -5,7 +5,7 @@ import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
 import { buildSystemPrompt } from './prompt.js';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
-import { studioHandler } from './studio-handler.js';
+import { studioHandler, appendConversationMessage } from './studio-handler.js';
 import { authorized, rateLimitKey } from './auth.js';
 
 export const API_VERSION = '0.11.0-alpha';
@@ -237,6 +237,23 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
             response: chatResult.content,
             ...(plan ? { plan } : {}),
           }, { ...commonHeaders, ...rateHeaders });
+          const sessionId = typeof requestBody.sessionId === 'string' ? requestBody.sessionId.trim().slice(0, 100) : '';
+          if (sessionId) {
+            const surface = typeof (payload as { surface?: string }).surface === 'string'
+              && (payload as { surface?: string }).surface === 'plugin' ? 'plugin' : 'web';
+            await appendConversationMessage(sessionId, {
+              role: 'user',
+              content: requestBody.prompt.slice(0, 12000),
+              surface,
+              at: Date.now(),
+            });
+            await appendConversationMessage(sessionId, {
+              role: 'assistant',
+              content: chatResult.content.slice(0, 12000),
+              surface: 'server',
+              at: Date.now(),
+            });
+          }
           return;
         }
         const generated = await generateAIPlan(payload, deps.nvidia);
@@ -249,6 +266,25 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
           rawTextAvailable: false,
         }, { ...commonHeaders, ...rateHeaders });
       } catch (error) {
+        const sessionId = typeof (payload as { sessionId?: string }).sessionId === 'string'
+          ? (payload as { sessionId?: string }).sessionId!.trim().slice(0, 100)
+          : '';
+        if (sessionId && (payload as { mode?: string }).mode === 'chat') {
+          const surface = typeof (payload as { surface?: string }).surface === 'string'
+            && (payload as { surface?: string }).surface === 'plugin' ? 'plugin' : 'web';
+          await appendConversationMessage(sessionId, {
+            role: 'user',
+            content: String((payload as { prompt?: string }).prompt ?? '').trim().slice(0, 12000),
+            surface,
+            at: Date.now(),
+          });
+          await appendConversationMessage(sessionId, {
+            role: 'assistant',
+            content: `Generation failed: ${error instanceof Error ? error.message.slice(0, 12000) : 'Unknown error'}`,
+            surface: 'server',
+            at: Date.now(),
+          });
+        }
         if (error instanceof NvidiaApiError) {
           const status = error.status >= 400 && error.status < 600 ? error.status : 502;
           sendJson(response, status, {

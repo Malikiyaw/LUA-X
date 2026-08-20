@@ -24,15 +24,34 @@ type ConnectRequest = {
   sessionId?: string;
 };
 
+type ChatRole = 'user' | 'assistant' | 'system';
+
+type ChatMessage = {
+  role: ChatRole;
+  content: string;
+  surface: 'plugin' | 'web' | 'server';
+  at: number;
+};
+
+type Conversation = { sessionId: string; messages: ChatMessage[]; at: number };
+
+type StoredContext = { context: Record<string, unknown>; at: number };
+
 const PRESENCE_TTL = 30;
 const COMMAND_TTL = 60;
 const CONNECT_REQUEST_TTL = 60;
-const REQUIRED_PLUGIN_VERSION = '1.3.0';
+const CONVERSATION_TTL = 3600;
+const CONVERSATION_MAX_MESSAGES = 100;
+const CONVERSATION_MAX_CONTENT = 12000;
+const CONTEXT_MAX_BYTES = 60000;
+const REQUIRED_PLUGIN_VERSION = '1.4.0';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
 const memoryCommandLog = new Map<string, CommandLog>();
 const memoryConnectRequests = new Map<string, ConnectRequest>();
+const memoryConversations = new Map<string, Conversation>();
+const memoryContexts = new Map<string, StoredContext>();
 let memoryLatestRequestId: string | null = null;
 
 let redisWarned = false;
@@ -204,6 +223,84 @@ async function lastCommand(sessionId: string): Promise<CommandLog | null> {
     try { return JSON.parse(remote) as CommandLog; } catch { return null; }
   }
   return memory ?? null;
+}
+
+function parseChatMessage(body: Record<string, unknown>): ChatMessage | null {
+  const role = cleanString(body.role, 20);
+  if (role !== 'user' && role !== 'assistant' && role !== 'system') return null;
+  const content = typeof body.content === 'string' ? body.content.trim().slice(0, CONVERSATION_MAX_CONTENT) : '';
+  if (!content) return null;
+  const surface = cleanString(body.surface, 20);
+  return {
+    role,
+    content,
+    surface: surface === 'plugin' || surface === 'web' ? surface : 'server',
+    at: Date.now(),
+  };
+}
+
+export async function appendConversationMessage(sessionId: string, message: ChatMessage): Promise<number> {
+  if (!sessionId) return 0;
+  const key = `studio:conversation:${sessionId}`;
+  const memory = memoryConversations.get(sessionId);
+  const conversation: Conversation = memory ?? { sessionId, messages: [], at: Date.now() };
+  conversation.messages.push(message);
+  if (conversation.messages.length > CONVERSATION_MAX_MESSAGES) {
+    conversation.messages.splice(0, conversation.messages.length - CONVERSATION_MAX_MESSAGES);
+  }
+  conversation.at = Date.now();
+  memoryConversations.set(sessionId, conversation);
+  await redisCommand(['SET', key, JSON.stringify(conversation), 'EX', String(CONVERSATION_TTL)]);
+  return conversation.messages.length;
+}
+
+export async function loadConversation(sessionId: string): Promise<{ messages: ChatMessage[]; at: number } | null> {
+  if (!sessionId) return null;
+  const remote = await redisCommand(['GET', `studio:conversation:${sessionId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as Conversation;
+      if (parsed && Array.isArray(parsed.messages)) {
+        return { messages: parsed.messages.slice(-CONVERSATION_MAX_MESSAGES), at: parsed.at ?? Date.now() };
+      }
+    } catch { /* fall through */ }
+  }
+  const memory = memoryConversations.get(sessionId);
+  if (!memory) return null;
+  if (Date.now() - memory.at > CONVERSATION_TTL * 1000) {
+    memoryConversations.delete(sessionId);
+    return null;
+  }
+  return { messages: memory.messages, at: memory.at };
+}
+
+export async function storeContext(sessionId: string, context: Record<string, unknown>): Promise<number> {
+  if (!sessionId) return 0;
+  const stored: StoredContext = { context, at: Date.now() };
+  memoryContexts.set(sessionId, stored);
+  await redisCommand(['SET', `studio:context:${sessionId}`, JSON.stringify(stored)]);
+  return stored.at;
+}
+
+export async function loadContext(sessionId: string): Promise<StoredContext | null> {
+  if (!sessionId) return null;
+  const remote = await redisCommand(['GET', `studio:context:${sessionId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as StoredContext;
+      if (parsed && typeof parsed.context === 'object' && parsed.context !== null) return parsed;
+    } catch { /* fall through */ }
+  }
+  return memoryContexts.get(sessionId) ?? null;
+}
+
+function contextPayload(body: Record<string, unknown>): { sessionId: string; context: Record<string, unknown> } | null {
+  const sessionId = cleanString(body.sessionId, 100);
+  if (!sessionId) return null;
+  const context = body.context;
+  if (!context || typeof context !== 'object' || Array.isArray(context)) return null;
+  if (new TextEncoder().encode(JSON.stringify(context)).byteLength > CONTEXT_MAX_BYTES) return null;
+  return { sessionId, context: context as Record<string, unknown> };
 }
 
 function connectRequestAlive(request: ConnectRequest): boolean {
@@ -401,6 +498,8 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
       heartbeatRoute: 'ok',
       disconnectRoute: 'ok',
       commandRoute: 'ok',
+      chatRoute: 'ok',
+      contextRoute: 'ok',
       diagnosticsRoute: 'ok',
       redisConfigured: Boolean(redisConfig()),
       redisReachable,
@@ -454,6 +553,46 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
     if (!sessionId) return json(400, { error: 'sessionId is required.' });
     const command = await takeCommand(sessionId);
     return json(200, { command });
+  }
+
+  if (request.method === 'GET' && pathname === 'chat') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const conversation = await loadConversation(sessionId);
+    return json(200, conversation ?? { sessionId, messages: [], at: Date.now() });
+  }
+
+  if (request.method === 'POST' && pathname === 'chat') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const sessionId = cleanString(body.sessionId, 100);
+      if (!sessionId) return json(400, { error: 'sessionId is required.' });
+      const message = parseChatMessage(body);
+      if (!message) return json(400, { error: 'role and content are required.' });
+      const count = await appendConversationMessage(sessionId, message);
+      return json(200, { ok: true, count });
+    } catch {
+      return json(400, { error: 'Invalid chat payload.' });
+    }
+  }
+
+  if (request.method === 'GET' && pathname === 'context') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const stored = await loadContext(sessionId);
+    return json(200, stored ?? { context: null, at: null });
+  }
+
+  if (request.method === 'POST' && pathname === 'context') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const parsed = contextPayload(body);
+      if (!parsed) return json(400, { error: 'sessionId and context object are required.' });
+      const at = await storeContext(parsed.sessionId, parsed.context);
+      return json(200, { ok: true, at });
+    } catch {
+      return json(400, { error: 'Invalid context payload.' });
+    }
   }
 
   return json(404, { error: 'Studio route not found.' });

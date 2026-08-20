@@ -100,6 +100,57 @@ describe('API server', () => {
     expect(response.status).toBe(400);
   }));
 
+  it('shares chat messages across web and plugin through the studio conversation', async () => withServer(async url => {
+    const empty = await fetch(`${url}/api/studio/chat?sessionId=session-shared`);
+    expect(empty.status).toBe(200);
+    expect((await empty.json()).messages).toEqual([]);
+
+    const config = {
+      host: '127.0.0.1', port: 0, nodeEnv: 'test',
+      nvidiaApiKeys: ['test-key-1'], nvidiaBaseUrl: 'https://example.test/v1', nvidiaModel: 'test-model',
+      aiMaxTokens: 128, aiTemperature: 0.2, aiTimeoutMs: 1000,
+      rateLimitWindowMs: 60_000, rateLimitMaxRequests: 20, corsOrigin: '*',
+    };
+    const nvidia = new NvidiaClientPool({
+      apiKeys: config.nvidiaApiKeys,
+      baseUrl: config.nvidiaBaseUrl,
+      model: config.nvidiaModel,
+      maxTokens: config.aiMaxTokens,
+      temperature: config.aiTemperature,
+      timeoutMs: config.aiTimeoutMs,
+      fetchImpl: async () => new Response(JSON.stringify({ model: 'test-model', choices: [{ message: { content: 'Use a LocalScript for client input.' } }] }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    });
+    const server = createApiServer({ config, nvidia, limiter: new FixedWindowRateLimiter(config.rateLimitWindowMs, config.rateLimitMaxRequests) });
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', () => resolve()); });
+    try {
+      const address = server.address() as AddressInfo;
+      const host = `http://127.0.0.1:${address.port}`;
+      const response = await fetch(`${host}/api/ai/generate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: 'Explain sprint systems', mode: 'chat', sessionId: 'session-shared', surface: 'plugin' }) });
+      expect(response.status).toBe(200);
+
+      const conversation = await fetch(`${host}/api/studio/chat?sessionId=session-shared`);
+      expect(conversation.status).toBe(200);
+      const body = await conversation.json();
+      expect(body.messages.length).toBe(2);
+      expect(body.messages[0].role).toBe('user');
+      expect(body.messages[0].surface).toBe('plugin');
+      expect(body.messages[1].role).toBe('assistant');
+      expect(body.messages[1].surface).toBe('server');
+      expect(body.messages[1].content).toBe('Use a LocalScript for client input.');
+
+      const posted = await fetch(`${host}/api/studio/chat`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: 'session-shared', role: 'user', content: 'Hi from the web', surface: 'web' }) });
+      expect(posted.status).toBe(200);
+      expect((await posted.json()).count).toBe(3);
+
+      const after = await fetch(`${host}/api/studio/chat?sessionId=session-shared`);
+      const afterBody = await after.json();
+      expect(afterBody.messages[2].surface).toBe('web');
+      expect(afterBody.messages[2].content).toBe('Hi from the web');
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  }));
+
   it('runs the full Studio connect handshake (connect → pending → register → status)', async () => withServer(async url => {
     const connect = await fetch(`${url}/api/studio/connect`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: 'web' }) });
     expect(connect.status).toBe(200);
@@ -121,7 +172,7 @@ describe('API server', () => {
       body: JSON.stringify({
         projectId: 'demo',
         sessionId: 'session-handshake',
-        pluginVersion: '1.3.0',
+        pluginVersion: '1.4.0',
         requestId: connectBody.requestId,
       }),
     });
@@ -165,6 +216,8 @@ describe('API server', () => {
     expect(body.registerRoute).toBe('ok');
     expect(body.heartbeatRoute).toBe('ok');
     expect(body.commandRoute).toBe('ok');
+    expect(body.chatRoute).toBe('ok');
+    expect(body.contextRoute).toBe('ok');
     expect(body.redisConfigured).toBe(false);
     expect(body.redisReachable).toBe(false);
   }));

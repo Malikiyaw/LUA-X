@@ -27,6 +27,9 @@ jobs:
       - name: Sync drift guard
         run: npm run sync:check
 
+      - name: API functions parse guard
+        run: npm run check:api
+
       - name: Typecheck
         run: npm run typecheck
 

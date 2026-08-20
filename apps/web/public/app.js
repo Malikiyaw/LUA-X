@@ -145,7 +145,7 @@ function promptForToken() {
   return true;
 }
 
-const PLUGIN_VERSION = '1.3.0';
+const PLUGIN_VERSION = '1.4.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;
@@ -175,6 +175,8 @@ let aiHttp = null;
 let bridgeUp = false;
 let bridgeHttp = null;
 let downloadState = 'idle'; // idle | downloading | downloaded
+let sharedChatCount = 0;
+let studioDeepContext = null;
 
 function showToast(message) {
   if (!toast) return;
@@ -195,6 +197,65 @@ function addMessage(text, kind) {
   messagesEl.appendChild(el);
   messagesEl.scrollTop = messagesEl.scrollHeight;
   return el;
+}
+
+function renderCode(text) {
+  const parts = String(text).split(/```/);
+  let out = '';
+  let inCode = false;
+  for (const part of parts) {
+    if (inCode) {
+      const lines = part.split('\n');
+      if (lines[0] && /^[a-zA-Z0-9_-]{1,16}$/.test(lines[0].trim())) lines.shift();
+      out += `<pre class="msg-code">${esc(lines.join('\n'))}</pre>`;
+    } else if (part) {
+      out += `<span class="msg-text">${esc(part)}</span>`;
+    }
+    inCode = !inCode;
+  }
+  return out;
+}
+
+function renderMessages() {
+  if (!messagesEl) return;
+  messagesEl.innerHTML = '';
+  if (webChatHistory.length === 0) {
+    const el = document.createElement('div');
+    el.className = 'msg assistant';
+    el.innerHTML = `<span class="msg-sender">LUA-X</span><span class="msg-text">${esc('Hi, I\'m LUA-X. Ask me to write Luau, design Roblox systems, or build UI, animation, VFX, sound, and 3D geometry. Connect the Studio plugin to make me see your whole workspace and share this chat across the website and Roblox Studio.')}</span>`;
+    messagesEl.appendChild(el);
+  } else {
+    for (const entry of webChatHistory) {
+      const el = document.createElement('div');
+      el.className = `msg ${entry.role === 'user' ? 'user' : 'assistant'}`;
+      el.innerHTML = `<span class="msg-sender">${entry.role === 'user' ? 'You' : 'LUA-X'}</span>${renderCode(entry.content)}`;
+      messagesEl.appendChild(el);
+    }
+  }
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function refreshSharedChat() {
+  if (!studioConnected || !studioSessionId) return;
+  try {
+    const c = await getJson(`/api/studio/chat?sessionId=${encodeURIComponent(studioSessionId)}`);
+    if (!c || !Array.isArray(c.messages)) return;
+    const messages = c.messages.filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
+    if (messages.length < sharedChatCount) return;
+    const merged = messages.slice(-50).map(m => ({ role: m.role, content: m.content }));
+    webChatHistory.length = 0;
+    for (const m of merged) webChatHistory.push(m);
+    sharedChatCount = messages.length;
+    renderMessages();
+  } catch { /* transient sync error — retry on next poll */ }
+}
+
+async function refreshSharedContext() {
+  if (!studioConnected || !studioSessionId) return;
+  try {
+    const c = await getJson(`/api/studio/context?sessionId=${encodeURIComponent(studioSessionId)}`);
+    if (c && c.context && typeof c.context === 'object') studioDeepContext = c.context;
+  } catch { /* context stays stale until next poll */ }
 }
 
 function addTyping() {
@@ -881,7 +942,8 @@ async function loadManifest() {
 async function send() {
   const text = promptEl.value.trim();
   if (!text || sending) return;
-  addMessage(text, 'user');
+  webChatHistory.push({ role: 'user', content: text });
+  renderMessages();
   promptEl.value = '';
   setSending(true);
   composerNote.textContent = 'LUA-X is preparing an answer…';
@@ -889,12 +951,13 @@ async function send() {
   const body = { prompt: text, projectId: 'web', mode: 'chat', history: webChatHistory.slice(-10) };
   if (studioConnected && studioSessionId) {
     body.sessionId = studioSessionId;
-    body.context = studioContext ? {
+    body.surface = 'web';
+    body.context = studioDeepContext || {
       projectId: studioPlaceId,
       placeName: studioPlaceName,
-      scripts: studioContext.scripts,
-      selection: studioContext.selection,
-    } : { projectId: studioPlaceId, placeName: studioPlaceName };
+      scripts: studioContext && studioContext.scripts,
+      selection: studioContext && studioContext.selection,
+    };
   }
   try {
     await resolveApiBase();
@@ -933,15 +996,15 @@ async function send() {
     }
     const reply = (typeof b.response === 'string' && b.response) || (b.plan && b.plan.summary) || 'No response from backend.';
     typing.remove();
-    addMessage(reply, 'assistant');
-    webChatHistory.push({ role: 'user', content: text });
     webChatHistory.push({ role: 'assistant', content: reply });
     if (b.plan && Array.isArray(b.plan.changes) && b.plan.changes.length > 0) {
-      addMessage(`Build plan ready — ${b.plan.changes.length} change${b.plan.changes.length === 1 ? '' : 's'}. Open the LUA-X plugin in Roblox Studio to review and apply it.`, 'assistant');
+      webChatHistory.push({ role: 'assistant', content: `Build plan ready — ${b.plan.changes.length} change${b.plan.changes.length === 1 ? '' : 's'}. Open the LUA-X plugin in Roblox Studio to review and apply it.` });
     }
+    renderMessages();
+    if (studioConnected && studioSessionId) refreshSharedChat();
     composerNote.textContent = studioConnected
-      ? 'Answered with your live Studio context. Use Sync Context to refresh it.'
-      : 'Answered by LUA-X. Connect Studio (Plugins) to make chat project-aware.';
+      ? 'Answered with your live Studio context. Chat is synced with the LUA-X plugin — messages appear in Roblox Studio too.'
+      : 'Answered by LUA-X. Connect Studio (Plugins) to make chat project-aware and synced.';
   } catch (e) {
     typing.remove();
     addMessage(e instanceof Error ? e.message : 'AI generation failed.', 'error');
@@ -1010,7 +1073,7 @@ promptEl?.addEventListener('keydown', e => {
 });
 bindViewNav();
 
-addMessage('Hi, I\'m LUA-X. Ask me to write Luau, design Roblox systems, or build UI, animation, VFX, sound, and 3D geometry.', 'assistant');
+renderMessages();
 refreshHealth();
 refreshStudio();
 loadManifest();
@@ -1024,3 +1087,5 @@ if (pluginDownloaded()) {
 setInterval(refreshHealth, 30000);
 setInterval(refreshStudio, POLL_NORMAL_MS);
 setInterval(() => renderStudioCard(), 1000);
+setInterval(refreshSharedChat, 5000);
+setInterval(refreshSharedContext, 15000);

@@ -71,6 +71,14 @@ export interface AIRequest extends CreatorRequest {
     readonly relevantInstances?: readonly string[];
     readonly architecture?: string;
     readonly constraints?: readonly string[];
+    readonly workspaceTree?: string;
+    readonly scripts?: readonly string[];
+    readonly selection?: readonly string[];
+    readonly place?: {
+      readonly name?: string;
+      readonly placeId?: string;
+      readonly services?: readonly string[];
+    };
   };
 }
 
