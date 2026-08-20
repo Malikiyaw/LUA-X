@@ -77,11 +77,17 @@
                 <span id="install-status">Waiting for Studio…</span>
               </div>
               <div class="install-step done" id="step-1"><span>1</span><div><b>Download LUA-X</b><em id="step-1-state">Downloaded</em></div></div>
-              <div class="install-step"><span>2</span><div><b>Open Roblox Studio</b><em>Plugins → Manage Plugins → Open Plugins Folder</em></div></div>
-              <div class="install-step"><span>3</span><div><b>Put LUA-X.lua into that exact folder</b><em>A plugin script file, not a folder</em></div></div>
+              <div class="install-step"><span>2</span><div><b>Open Roblox Studio</b><em>Plugins → Manage Plugins → Open Plugins Folder. It opens %LOCALAPPDATA%\Roblox\Plugins.</em></div></div>
+              <div class="install-step"><span>3</span><div><b>Put the downloaded file into that exact folder</b><em>Must be a single file named LUA-X.lua — not a folder, not LUA-X.lua.txt. If Windows hides extensions, enable them first.</em></div></div>
               <div class="install-step"><span>4</span><div><b>Restart Roblox Studio</b><em>Fully close and reopen Studio</em></div></div>
-              <div class="install-step"><span>5</span><div><b>Open Plugins → LUA-X</b><em>The dock appears and connects automatically</em></div></div>
+              <div class="install-step"><span>5</span><div><b>Open the Plugins tab → LUA-X</b><em>The dock appears and connects automatically</em></div></div>
               <div class="install-note" id="install-note">Downloaded = confirmed by your browser. Installed = confirmed only when the plugin connects to Studio.</div>
+              <div class="install-faq">
+                <b>Not showing? Check the three most common causes</b>
+                <span>1. The file must be exactly <b>LUA-X.lua</b>. A saved copy often ends up as <b>LUA-X.lua.txt</b> (or LUA-X (1).lua) — Studio ignores those. Enable <em>View → File name extensions</em> in File Explorer and rename it.</span>
+                <span>2. It must be directly inside the Plugins folder, not inside a subfolder or ZIP. Paste the path <b>%LOCALAPPDATA%\Roblox\Plugins</b> into File Explorer to verify.</span>
+                <span>3. If it still doesn't appear after a full Studio restart, delete the file, download again, and try once more.</span>
+              </div>
             </div>
           </div>
 
