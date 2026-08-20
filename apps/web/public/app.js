@@ -145,7 +145,7 @@ function promptForToken() {
   return true;
 }
 
-const PLUGIN_VERSION = '1.4.0';
+const PLUGIN_VERSION = '1.4.1';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;

@@ -11,7 +11,7 @@ local ScriptEditorService = game:GetService("ScriptEditorService")
 local ClipboardService = game:GetService("ClipboardService")
 local UserInputService = game:GetService("UserInputService")
 
-local PLUGIN_VERSION = "1.4.0"
+local PLUGIN_VERSION = "1.4.1"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -891,6 +891,19 @@ toolbarButton.Click:Connect(function()
 	if not ok then
 		pcall(showErrorWidget, err)
 		warn("[LUA-X] startup failed: " .. tostring(err))
+	end
+end)
+
+task.delay(2.5, function()
+	local ok, err = pcall(function()
+		if buildWidget() then
+			widget.Enabled = true
+			refreshContext(); setStatus("LUA-X Studio ready.", "good"); task.defer(pollConversation)
+		end
+	end)
+	if not ok then
+		pcall(showErrorWidget, err)
+		warn("[LUA-X] auto-open failed: " .. tostring(err))
 	end
 end)
 
