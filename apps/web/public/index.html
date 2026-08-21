@@ -15,7 +15,12 @@
       <div class="brand"><div class="brand-mark">LX</div><div><strong>LUA-X</strong><span>Roblox engineering</span></div></div>
       <nav>
         <a class="nav-item active" data-view="chat" href="#chat">Chat</a>
+        <a class="nav-item" data-view="dashboard" href="#dashboard">Dashboard</a>
         <a class="nav-item" data-view="plugins" href="#plugins">Plugins</a>
+        <a class="nav-item" data-view="sync" href="#sync">Sync</a>
+        <a class="nav-item" data-view="assets" href="#assets">Assets</a>
+        <a class="nav-item" data-view="ui-studio" href="#ui-studio">UI Studio</a>
+        <a class="nav-item" data-view="playtest" href="#playtest">Playtest</a>
         <a class="nav-item" data-view="projects" href="#projects">Projects</a>
         <a class="nav-item" data-view="history" href="#history">History</a>
         <a class="nav-item" data-view="settings" href="#settings">Settings</a>
@@ -80,6 +85,70 @@
             <small>LUA-X UI Studio vs ForgeGUI — validation + theme + responsive.</small>
             <div id="vision-forge">Connect Studio and ask LUA-X to build a UI — score appears here.</div>
           </div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-dashboard">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head"><div class="plugin-logo small">📊</div><div class="plugin-title"><strong>Dashboard — Overview</strong><span>Live WEPPY-style topology + LUA-X hardening</span></div><span class="plugin-status" id="dash-status">—</span></div>
+            <div class="service-pills"><span class="status-pill" id="dash-backend">Backend —</span><span class="status-pill" id="dash-bridge">Bridge —</span><span class="status-pill" id="dash-studio">Studio —</span><span class="status-pill" id="dash-ai">AI —</span></div>
+            <div class="meta-rows"><div class="meta-row"><span>Studio Targets (max 5)</span><b id="dash-targets">—</b></div><div class="meta-row"><span>Active Sync Places</span><b id="dash-sync">—</b></div><div class="meta-row"><span>Last Change</span><b id="dash-change">—</b></div><div class="meta-row"><span>Verification</span><b id="dash-verify">—</b></div></div>
+            <div id="dash-targets-list" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
+            <div class="plugin-actions"><button class="ghost-button" id="dash-refresh" type="button">Refresh</button><button class="ghost-button" id="dash-open-sync" type="button">Open Sync</button></div>
+          </div>
+          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Changelog — Before & After</strong><span>Like WEPPY dashboard_changelog</span></div></div><div id="dash-changelog" style="font-size:11.5px;color:var(--muted);line-height:1.6">No changes yet. Apply a plan in Studio to see diff here.</div></div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-sync">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head"><div class="plugin-logo small">🔄</div><div class="plugin-title"><strong>Sync — File Mirror</strong><span>WEPPY-style snapshot scanner + multi-Place</span></div><span class="plugin-status" id="sync-status">—</span></div>
+            <div style="font-size:11px;color:var(--muted)">Root: <code>lua-x-sync/place_&lt;id&gt;/explorer/</code> — snapshot scanner, not OS watcher — <code>_tree.json</code> + <code>.server.luau</code>/<code>.props.json</code> per service. Like <code>weppy-project-sync</code>.</div>
+            <div class="meta-rows"><div class="meta-row"><span>Active Place</span><b id="sync-active">—</b></div><div class="meta-row"><span>Direction (scripts)</span><b id="sync-dir">forward / manual</b></div><div class="meta-row"><span>Sourcemap</span><b id="sync-sourcemap">—</b></div></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="primary-button" id="sync-start" type="button">Start Full Sync (Edit mode)</button><button class="ghost-button" id="sync-query-test" type="button">Test Query</button></div>
+            <div id="sync-places" style="margin-top:10px;font-size:11px;color:var(--muted)"></div>
+            <div id="sync-history" style="margin-top:8px;font-size:10.5px;color:var(--faint);max-height:120px;overflow:auto"></div>
+          </div>
+          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Per-Category Gates</strong><span>Forward/reverse/bidirectional + manual/auto (WEPPY safe defaults)</span></div></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:11px"><div>scripts: <code>forward</code> <code>manual</code></div><div>values: <code>forward</code> <code>manual</code></div><div>data: <code>forward</code> <code>manual</code></div><div>containers: <code>forward</code> <code>manual</code></div><div>services: <code>forward</code> <code>manual</code></div><div>autoApplyDeletes: <code>false</code> (uses <code>Parent=nil</code> for Undo)</div></div><small style="color:var(--faint)">Deletes always manual even if auto — matches WEPPY <code>conflicts.md</code>.</small></div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-assets">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head"><div class="plugin-logo small">🖼️</div><div class="plugin-title"><strong>Assets — Library + Open Cloud</strong><span>Generate → Library → Upload → Apply</span></div><span class="plugin-status" id="assets-status">—</span></div>
+            <div style="font-size:11px;color:var(--muted)">Local: <code>lua-x-sync/assets/{place,shared}/</code> — <code>export_selection_rbxm</code> → <code>Asset Library</code> → <code>Open Cloud upload</code> → apply URI to <code>ImageLabel/Decal</code>. WEPPY parity.</div>
+            <div class="meta-rows"><div class="meta-row"><span>Place Assets</span><b id="assets-count">0</b></div><div class="meta-row"><span>Shared</span><b id="assets-shared">0</b></div></div>
+            <div style="display:flex;gap:8px;margin-top:8px"><input id="assets-name" type="text" placeholder="Asset name (e.g. gem_icon)" style="flex:1;background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"/><select id="assets-type" style="background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"><option value="image">image</option><option value="rbxm">rbxm</option><option value="decal">decal</option></select><button class="primary-button" id="assets-add" type="button">Add to Library</button></div>
+            <div id="assets-list" style="margin-top:10px;font-size:11px;color:var(--muted)">No assets yet. Generate an image then upload — never invent IDs.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-ui-studio">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head"><div class="plugin-logo small">🎨</div><div class="plugin-title"><strong>UI Studio — ForgeGUI-beating</strong><span>Guided spec → tree → preview → check</span></div><span class="plugin-status" id="ui-status">—</span></div>
+            <div style="font-size:11px;color:var(--muted)">ForgeGUI: instant tree + drag. WEPPY: <code>design_brief → create_tree → preview → check (recompose|refine|approved)</code>. LUA-X: both — <code>UIScreenSpec</code> validation + live preview. Roots: <code>StarterGui</code>, tokens, responsive, <code>ScreenInsets</code>/safe-area.</div>
+            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="ui-brief" type="text" placeholder="Describe UI: e.g. shop with 3 tabs, dark, 48px targets" style="flex:1;min-width:200px;background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"/><button class="primary-button" id="ui-generate" type="button">Generate UI Plan</button><button class="ghost-button" id="ui-preview" type="button">Preview</button><button class="ghost-button" id="ui-check" type="button">Check</button></div>
+            <div id="ui-result" style="margin-top:10px;font-size:11.5px;color:var(--muted)">No UI yet. Ask for a shop/menu/HUD — LUA-X returns <code>UIScreenSpec</code> with theme + <code>forgeGuiParityScore</code>.</div>
+            <div id="ui-history" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"></div>
+          </div>
+          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Quality Gates (better than ForgeGUI)</strong><span>Readable text · 48px touch · safe-area · one family</span></div></div><div style="font-size:11px;color:var(--muted);line-height:1.8"><code>THEME_TOKENS_EMPTY</code> · <code>RESPONSIVE_RULES_MISSING</code> · <code>DEPTH_EXCEEDED</code> · <code>LAYOUT_GROUPING</code> · <code>BUTTON_DISABLED_STATE</code> — ForgeGUI has none.</div></div>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-playtest">
+        <div class="plugins-grid">
+          <div class="plugin-card">
+            <div class="plugin-card-head"><div class="plugin-logo small">▶️</div><div class="plugin-title"><strong>Playtest — Automated</strong><span>play/run + run_test + logs + reports</span></div><span class="plugin-status" id="playtest-status">—</span></div>
+            <div style="font-size:11px;color:var(--muted)"><code>play_status</code> → <code>play_start(play|run)</code> → <code>run_test(script, timeout)</code> → <code>manage_logs</code> → report at <code>lua-x-sync/place_&lt;id&gt;/tests/</code>. Sync suppressed during play, reconciles after.</div>
+            <div style="display:flex;gap:8px;margin-top:8px"><button class="primary-button" id="playtest-start-play" type="button">Start Play (F5)</button><button class="secondary-button" id="playtest-start-run" type="button">Start Run (F8)</button><button class="ghost-button" id="playtest-run-test" type="button">Run Test</button><button class="ghost-button" id="playtest-stop" type="button">Stop</button></div>
+            <div id="playtest-list" style="margin-top:10px;font-size:11px;color:var(--muted)">No tests yet.</div>
+          </div>
+          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Luau Validation</strong><span>WASM parser — Dashboard enforced</span></div><span class="plugin-status" id="luau-status">Enforced: Off</span></div><div style="font-size:11px;color:var(--muted)">Like WEPPY <code>luau-parser-v1.0.0</code> — source stays local, never sent remote. Toggle at <code>Controls → Luau Syntax Validation</code> — tool cannot override.</div><button class="ghost-button" id="luau-toggle" type="button" style="margin-top:8px">Toggle Validation</button></div>
         </div>
       </section>
 

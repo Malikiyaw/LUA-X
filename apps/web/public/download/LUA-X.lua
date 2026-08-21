@@ -350,13 +350,21 @@ local function saveEndpoint() local value = endpoint(); endpointBox.Text = value
 
 local function heartbeatBody()
 	local context = type(currentContext) == "table" and currentContext or {}
+	local placeIdStr = tostring(game.PlaceId)
+	local placeNameStr = tostring(game.Name)
+	-- WEPPY-style multi-Studio: clientId per Studio window (sessionId + PlaceId) + targetAlias for routing
+	local clientId = sessionId .. "_" .. placeIdStr
+	local aliasBase = placeNameStr:lower():gsub("%s+", "-"):gsub("[^%w%-]", ""):sub(1, 16)
+	if aliasBase == "" then aliasBase = "studio-" .. string.sub(placeIdStr, -4) else aliasBase = "studio-" .. aliasBase end
 	return {
-		projectId = tostring(game.PlaceId),
+		projectId = placeIdStr,
 		sessionId = sessionId,
-		placeName = tostring(game.Name),
-		placeId = tostring(game.PlaceId),
+		placeName = placeNameStr,
+		placeId = placeIdStr,
 		pluginVersion = PLUGIN_VERSION,
-		capabilities = {"chat", "context", "build", "apply", "verify", "instances", "sync", "vision"},
+		clientId = clientId,
+		targetAlias = aliasBase,
+		capabilities = {"chat", "context", "build", "apply", "verify", "instances", "sync", "vision", "multi-studio", "assets", "playtest", "ui-studio"},
 		context = {selection=#Selection:Get(), scripts=#(type(context.scripts)=="table" and context.scripts or {}), tree=select(2, tostring(context.workspaceTree or ""):gsub("\n", "\n")) + 1},
 	}
 end

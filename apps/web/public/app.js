@@ -121,6 +121,26 @@ const visionQueryInput = document.querySelector('#vision-query-input');
 const visionQueryBtn = document.querySelector('#vision-query-btn');
 const visionQueryResults = document.querySelector('#vision-query-results');
 const visionForge = document.querySelector('#vision-forge');
+// Dashboard + WEPPY-grade panels
+const dashStatus = document.querySelector('#dash-status');
+const dashTargets = document.querySelector('#dash-targets');
+const dashSync = document.querySelector('#dash-sync');
+const dashChange = document.querySelector('#dash-change');
+const dashVerify = document.querySelector('#dash-verify');
+const dashTargetsList = document.querySelector('#dash-targets-list');
+const dashChangelog = document.querySelector('#dash-changelog');
+const syncStatus = document.querySelector('#sync-status');
+const syncActive = document.querySelector('#sync-active');
+const syncDir = document.querySelector('#sync-dir');
+const syncSourcemap = document.querySelector('#sync-sourcemap');
+const syncPlaces = document.querySelector('#sync-places');
+const syncHistory = document.querySelector('#sync-history');
+const assetsCount = document.querySelector('#assets-count');
+const assetsShared = document.querySelector('#assets-shared');
+const assetsList = document.querySelector('#assets-list');
+const assetsName = document.querySelector('#assets-name');
+const assetsType = document.querySelector('#assets-type');
+const playtestList = document.querySelector('#playtest-list');
 let toastTimer;
 let sending = false;
 
@@ -1092,10 +1112,15 @@ async function send() {
 function switchView(name) {
   document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === name));
   document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
-  const titles = { chat: 'Chat', plugins: 'Plugins', projects: 'Projects', history: 'History', settings: 'Settings' };
+  const titles = { chat: 'Chat', dashboard: 'Dashboard', plugins: 'Plugins', sync: 'Sync', assets: 'Assets', 'ui-studio': 'UI Studio', playtest: 'Playtest', projects: 'Projects', history: 'History', settings: 'Settings' };
   viewTitle.textContent = titles[name] || 'LUA-X';
   if (name === 'chat') document.querySelector('#view-chat').classList.remove('hidden');
+  else if (name === 'dashboard') { document.querySelector('#view-dashboard').classList.remove('hidden'); refreshDashboard(); }
   else if (name === 'plugins') document.querySelector('#view-plugins').classList.remove('hidden');
+  else if (name === 'sync') { document.querySelector('#view-sync').classList.remove('hidden'); refreshSync(); }
+  else if (name === 'assets') { document.querySelector('#view-assets').classList.remove('hidden'); refreshAssets(); }
+  else if (name === 'ui-studio') document.querySelector('#view-ui-studio').classList.remove('hidden');
+  else if (name === 'playtest') { document.querySelector('#view-playtest').classList.remove('hidden'); refreshPlaytest(); }
   else if (name === 'settings') {
     document.querySelector('#view-settings').classList.remove('hidden');
     if (tokenInput) tokenInput.value = getToken();
@@ -1107,6 +1132,65 @@ function switchView(name) {
       : 'A history of plans, applies, and verifications will appear here.';
     document.querySelector('#view-coming').classList.remove('hidden');
   }
+}
+
+async function refreshDashboard() {
+  try {
+    const t = await getJson('/api/studio/targets').catch(() => ({ targets: [] }));
+    if (dashTargets) dashTargets.textContent = `${t.count ?? t.targets?.length ?? 0} / ${t.max ?? 5}`;
+    if (dashTargetsList) {
+      const list = t.targets ?? [];
+      dashTargetsList.innerHTML = list.length ? list.map(s => `${esc(s.clientId || s.sessionId.slice(0,8))} — ${esc(s.placeName)} ${esc(s.placeId || '')} ${s.pinned?'📌':''}`).join('<br>') : 'No Studio targets yet. Open 1-5 Studio windows.';
+    }
+    if (dashStatus) dashStatus.textContent = studioConnected ? 'Online' : 'Offline';
+  } catch { /* ignore */ }
+  try {
+    const ctx = studioDeepContext;
+    if (dashSync) dashSync.textContent = ctx ? `${Object.keys(ctx.instanceCounts || {}).length} services` : '—';
+    if (dashChange) dashChange.textContent = ctx ? `${(ctx.scripts || []).length} scripts indexed` : '—';
+    if (dashVerify) dashVerify.textContent = 'Evidence: screenshot/metric/assertion';
+  } catch { /* ignore */ }
+}
+
+async function refreshSync() {
+  try {
+    const placeId = studioPlaceId || 'shared';
+    const idx = await getJson(`/api/studio/index?sessionId=${encodeURIComponent(studioSessionId || placeId)}`).catch(() => null);
+    if (syncActive) syncActive.textContent = idx?.index ? `${idx.index.rootName} (${idx.index.scriptsCount} scripts)` : '—';
+    if (syncPlaces) syncPlaces.textContent = idx?.index ? `Tree ${idx.index.treeNodes} nodes · ${idx.index.scriptsCount} scripts` : 'No sync yet. Click Start Full Sync in Edit mode.';
+    if (syncSourcemap) {
+      const sm = await getJson(`/api/studio/sourcemap?placeId=${encodeURIComponent(placeId)}`).catch(() => null);
+      syncSourcemap.textContent = sm?.filePaths?.length ? `${sm.filePaths.length} paths` : '—';
+    }
+    if (syncHistory && studioSessionId) {
+      const h = await getJson(`/api/studio/chat?sessionId=${encodeURIComponent(studioSessionId)}`).catch(() => null);
+      if (h && Array.isArray(h.messages)) syncHistory.textContent = h.messages.slice(-5).map(m=>`${m.surface || ''}:${m.role}`).join(' → ') || 'No history';
+    }
+  } catch { /* ignore */ }
+}
+
+async function refreshAssets() {
+  try {
+    const placeId = studioPlaceId || 'shared';
+    const r = await getJson(`/api/studio/assets?placeId=${encodeURIComponent(placeId)}`).catch(() => ({ assets: [] }));
+    if (assetsCount) assetsCount.textContent = String(r.count ?? r.assets?.length ?? 0);
+    if (assetsShared) assetsShared.textContent = String(r.assets?.filter(a=>a.placeId==='shared')?.length ?? 0);
+    if (assetsList) {
+      const list = r.assets ?? [];
+      assetsList.innerHTML = list.length ? list.map(a=>`${esc(a.name)} [${esc(a.type)}] ${esc(a.uri || 'local')}`).join('<br>') : 'No assets yet. Generate an image then upload — never invent IDs.';
+    }
+  } catch { /* ignore */ }
+}
+
+async function refreshPlaytest() {
+  try {
+    const placeId = studioPlaceId || 'shared';
+    const r = await getJson(`/api/studio/playtest?placeId=${encodeURIComponent(placeId)}`).catch(() => ({ tests: [] }));
+    if (playtestList) {
+      const list = r.tests ?? [];
+      playtestList.innerHTML = list.length ? list.map(t=>`${esc(t.id)} ${esc(t.mode)} ${esc(t.status)} — ${esc(t.logs?.[0] || '')}`).join('<br>') : 'No tests yet.';
+    }
+  } catch { /* ignore */ }
 }
 
 function bindViewNav() {
@@ -1147,6 +1231,37 @@ promptEl?.addEventListener('keydown', e => {
 });
 visionQueryBtn?.addEventListener('click', runVisionQuery);
 visionQueryInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runVisionQuery(); } });
+document.querySelector('#dash-refresh')?.addEventListener('click', refreshDashboard);
+document.querySelector('#dash-open-sync')?.addEventListener('click', () => switchView('sync'));
+document.querySelector('#sync-start')?.addEventListener('click', async () => {
+  if (!studioSessionId) { showToast('Connect Studio first.'); return; }
+  try { await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'build', prompt: 'Start full sync — snapshot scanner' }); showToast('Sync command queued — check Studio'); } catch (e) { showToast(e instanceof Error ? e.message : 'Sync failed'); }
+});
+document.querySelector('#sync-query-test')?.addEventListener('click', async () => {
+  const q = prompt('Query sync (e.g. Shop):'); if (!q) return;
+  try { const r = await getJson(`/api/studio/query?sessionId=${encodeURIComponent(studioSessionId || '')}&q=${encodeURIComponent(q)}`); showToast(`${r.results?.length || 0} matches`); } catch (e) { showToast(e instanceof Error ? e.message : 'Query failed'); }
+});
+document.querySelector('#assets-add')?.addEventListener('click', async () => {
+  const name = (document.querySelector('#assets-name') as HTMLInputElement)?.value?.trim() || `asset_${Date.now()}`;
+  const type = (document.querySelector('#assets-type') as HTMLSelectElement)?.value || 'image';
+  try { await postJson('/api/studio/assets', { placeId: studioPlaceId || 'shared', name, type }); showToast(`Asset ${name} added`); refreshAssets(); } catch (e) { showToast(e instanceof Error ? e.message : 'Add failed'); }
+});
+document.querySelector('#playtest-start-play')?.addEventListener('click', async () => {
+  try { await postJson('/api/studio/playtest', { placeId: studioPlaceId || 'shared', mode: 'play' }); showToast('Playtest started (F5)'); refreshPlaytest(); } catch (e) { showToast(e instanceof Error ? e.message : 'Playtest failed'); }
+});
+document.querySelector('#playtest-start-run')?.addEventListener('click', async () => {
+  try { await postJson('/api/studio/playtest', { placeId: studioPlaceId || 'shared', mode: 'run' }); showToast('Run started (F8)'); refreshPlaytest(); } catch (e) { showToast(e instanceof Error ? e.message : 'Run failed'); }
+});
+document.querySelector('#playtest-run-test')?.addEventListener('click', async () => {
+  try { await postJson('/api/studio/playtest', { placeId: studioPlaceId || 'shared', mode: 'run' }); showToast('Test run queued'); refreshPlaytest(); } catch (e) { showToast(e instanceof Error ? e.message : 'Test failed'); }
+});
+document.querySelector('#playtest-stop')?.addEventListener('click', () => showToast('Stop: sync resumes after play — WEPPY parity'));
+document.querySelector('#ui-generate')?.addEventListener('click', () => {
+  const v = (document.querySelector('#ui-brief') as HTMLInputElement)?.value?.trim(); if (!v) { showToast('Describe UI first'); return; }
+  promptEl.value = `Build UI: ${v} — use UIScreenSpec, theme tokens, responsive, 48px targets`; switchView('chat'); send();
+});
+document.querySelector('#ui-preview')?.addEventListener('click', () => showToast('Preview: Studio captures before/after — like WEPPY dashboard_ui'));
+document.querySelector('#ui-check')?.addEventListener('click', () => showToast('Check: recompose|refine|approved — see vision-forge score'));
 bindViewNav();
 
 renderMessages();

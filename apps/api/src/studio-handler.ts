@@ -9,6 +9,9 @@ type Presence = {
   capabilities?: string[];
   context?: { selection: number; scripts: number; at: number };
   at: number;
+  clientId?: string;
+  targetAlias?: string;
+  pinned?: boolean;
 };
 
 type Command = { type: string; prompt?: string; createdAt: number };
@@ -54,6 +57,12 @@ const memoryConversations = new Map<string, Conversation>();
 const memoryContexts = new Map<string, StoredContext>();
 const memoryLastPlans = new Map<string, { plan: unknown; summary: string; at: number }>();
 const memoryApplyResults = new Map<string, { sessionId: string; planSummary: string; success: number; failed: number; results: string[]; at: number }>();
+const memoryStudioTargets = new Map<string, Map<string, Presence>>(); // placeId -> clientId -> Presence
+const MAX_STUDIO_TARGETS = 5;
+// WEPPY-inspired: Asset Library (local RBXM/images) + Playtest reports + Sourcemap cache
+const memoryAssets = new Map<string, { id: string; placeId: string; name: string; type: 'image' | 'rbxm' | 'decal'; uri?: string; at: number }[]>();
+const memoryPlaytests = new Map<string, { id: string; placeId: string; mode: 'play' | 'run'; status: 'running' | 'passed' | 'failed'; logs: string[]; at: number }[]>();
+const memorySourcemaps = new Map<string, { placeId: string; filePaths: string[]; generatedAt: string }>();
 let memoryLatestRequestId: string | null = null;
 
 let redisWarned = false;
@@ -144,6 +153,8 @@ function parsePresence(body: Record<string, unknown>): Presence | null {
       }
     : null;
   const placeId = cleanString(body.placeId, 100) || null;
+  const clientId = cleanString(body.clientId, 100) || sessionId.slice(0, 8);
+  const targetAlias = cleanString(body.targetAlias, 40) || null;
   return {
     projectId,
     sessionId,
@@ -153,15 +164,77 @@ function parsePresence(body: Record<string, unknown>): Presence | null {
     ...(capabilities.length > 0 ? { capabilities } : {}),
     ...(context ? { context } : {}),
     at: Date.now(),
+    clientId,
+    ...(targetAlias ? { targetAlias } : {}),
+    pinned: body.pinned === true,
   };
+}
+
+function studioTargetKey(presence: Presence): string {
+  return presence.clientId || presence.sessionId.slice(0, 8);
+}
+
+function resolveStudioTarget(placeId?: string, clientId?: string, targetAlias?: string): Presence | null {
+  // WEPPY-style precedence: clientId > targetAlias > placeId (no silent fallback)
+  if (clientId) {
+    for (const [, map] of memoryStudioTargets) {
+      const found = map.get(clientId);
+      if (found && Date.now() - found.at <= PRESENCE_TTL * 1000) return found;
+    }
+    // fallback check memoryPresence by clientId prefix
+    for (const p of memoryPresence.values()) if (p.clientId === clientId && Date.now() - p.at <= PRESENCE_TTL * 1000) return p;
+    return null;
+  }
+  if (targetAlias) {
+    for (const [, map] of memoryStudioTargets) {
+      for (const p of map.values()) if (p.targetAlias === targetAlias && Date.now() - p.at <= PRESENCE_TTL * 1000) return p;
+    }
+    return null;
+  }
+  if (placeId) {
+    const map = memoryStudioTargets.get(placeId);
+    if (map) {
+      // prefer pinned, then most recent
+      let best: Presence | null = null;
+      for (const p of map.values()) if (Date.now() - p.at <= PRESENCE_TTL * 1000) { if (!best || (p.pinned && !best.pinned) || p.at > best.at) best = p; }
+      if (best) return best;
+    }
+    // fallback single
+    const single = memoryPresence.get(`project:${placeId}`);
+    if (single && Date.now() - single.at <= PRESENCE_TTL * 1000) return single;
+  }
+  return null;
 }
 
 async function storePresence(presence: Presence): Promise<void> {
   memoryPresence.set(`project:${presence.projectId}`, presence);
   memoryPresence.set('latest', presence);
+  // Multi-Studio LRU (WEPPY: up to 5 Places, copyable Studio IDs)
+  const placeKey = presence.placeId || presence.projectId;
+  let map = memoryStudioTargets.get(placeKey);
+  if (!map) { map = new Map(); memoryStudioTargets.set(placeKey, map); }
+  const key = studioTargetKey(presence);
+  map.set(key, presence);
+  // Enforce MAX_STUDIO_TARGETS per placeId — evict oldest (LRU)
+  if (map.size > MAX_STUDIO_TARGETS) {
+    let oldest: string | null = null; let oldestAt = Infinity;
+    for (const [k, p] of map) if (p.at < oldestAt) { oldestAt = p.at; oldest = k; }
+    if (oldest) map.delete(oldest);
+  }
+  // Evict globally if too many places (WEPPY: 5 Places in memory)
+  if (memoryStudioTargets.size > MAX_STUDIO_TARGETS) {
+    let oldestPlace: string | null = null; let oldestPlaceAt = Infinity;
+    for (const [pid, m] of memoryStudioTargets) {
+      let newest = 0; for (const p of m.values()) newest = Math.max(newest, p.at);
+      if (newest < oldestPlaceAt) { oldestPlaceAt = newest; oldestPlace = pid; }
+    }
+    if (oldestPlace) memoryStudioTargets.delete(oldestPlace);
+  }
   const payload = JSON.stringify(presence);
   await redisCommand(['SET', `studio:presence:${presence.projectId}`, payload, 'EX', String(PRESENCE_TTL)]);
   await redisCommand(['SET', 'studio:presence:latest', payload, 'EX', String(PRESENCE_TTL)]);
+  // Also store per-clientId for routing (Weappy precedence)
+  if (presence.clientId) await redisCommand(['SET', `studio:presence:client:${presence.clientId}`, payload, 'EX', String(PRESENCE_TTL)]);
 }
 
 async function loadPresence(projectId?: string): Promise<Presence | null> {
@@ -187,14 +260,21 @@ async function loadPresence(projectId?: string): Promise<Presence | null> {
 
 async function clearPresence(sessionId: string): Promise<void> {
   let foundProjectId: string | undefined;
+  let clientId: string | undefined;
   for (const [key, presence] of memoryPresence) {
     if (presence.sessionId === sessionId) {
       foundProjectId = presence.projectId;
+      clientId = presence.clientId;
       memoryPresence.delete(key);
     }
   }
+  // Also clear from multi-target map
+  for (const [, map] of memoryStudioTargets) {
+    for (const [k, p] of map) if (p.sessionId === sessionId) map.delete(k);
+  }
   if (foundProjectId) await redisCommand(['DEL', `studio:presence:${foundProjectId}`]);
   await redisCommand(['DEL', 'studio:presence:latest']);
+  if (clientId) await redisCommand(['DEL', `studio:presence:client:${clientId}`]);
 }
 
 async function enqueueCommand(sessionId: string, command: Command): Promise<void> {
@@ -555,6 +635,10 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
       applyRoute: 'ok',
       indexRoute: 'ok',
       queryRoute: 'ok',
+      targetsRoute: 'ok',
+      sourcemapRoute: 'ok',
+      assetsRoute: 'ok',
+      playtestRoute: 'ok',
       diagnosticsRoute: 'ok',
       redisConfigured: Boolean(redisConfig()),
       redisReachable,
@@ -564,7 +648,11 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
 
   if (request.method === 'GET' && pathname === 'status') {
     const projectId = cleanString(url.searchParams.get('projectId'), 100) || undefined;
-    const presence = await loadPresence(projectId);
+    const clientId = cleanString(url.searchParams.get('clientId'), 100) || undefined;
+    const targetAlias = cleanString(url.searchParams.get('targetAlias'), 40) || undefined;
+    // WEPPY precedence: clientId > targetAlias > placeId
+    const routed = (clientId || targetAlias) ? resolveStudioTarget(projectId, clientId, targetAlias) : null;
+    const presence = routed ?? await loadPresence(projectId);
     const connected = Boolean(presence && Date.now() - presence.at <= PRESENCE_TTL * 1000);
     if (!connected || !presence) return json(200, { connected: false });
     const last = presence ? await lastCommand(presence.sessionId) : null;
@@ -581,15 +669,126 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
       context: presence.context ?? null,
       lastSeenAt: presence.at,
       lastCommand: last ? { type: last.type, at: last.at } : null,
+      clientId: presence.clientId,
+      targetAlias: presence.targetAlias,
     });
+  }
+
+  if (request.method === 'GET' && pathname === 'targets') {
+    const targets: Presence[] = [];
+    for (const [, map] of memoryStudioTargets) {
+      for (const p of map.values()) if (Date.now() - p.at <= PRESENCE_TTL * 1000) targets.push(p);
+    }
+    // Include stale check via Redis fallback if empty — best-effort single presence
+    if (targets.length === 0) {
+      const p = await loadPresence();
+      if (p) targets.push(p);
+    }
+    // Sort pinned first, then most recent
+    targets.sort((a, b) => {
+      if ((a.pinned ? 1 : 0) !== (b.pinned ? 1 : 0)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      return b.at - a.at;
+    });
+    return json(200, { targets: targets.slice(0, MAX_STUDIO_TARGETS), count: targets.length, max: MAX_STUDIO_TARGETS });
+  }
+
+  // WEPPY-inspired: Sourcemap per Place (for luau-lsp)
+  if (request.method === 'GET' && pathname === 'sourcemap') {
+    const placeId = cleanString(url.searchParams.get('placeId'), 100) || cleanString(url.searchParams.get('sessionId'), 100) || 'unknown';
+    const stored = memorySourcemaps.get(placeId);
+    if (!stored) {
+      // Fallback: generate from sync context if available
+      const ctx = await loadContext(placeId) ?? await loadContext(cleanString(url.searchParams.get('sessionId'), 100) || '');
+      if (ctx && ctx.context && Array.isArray((ctx.context as Record<string, unknown>).scripts)) {
+        const scripts = (ctx.context as Record<string, unknown>).scripts as string[];
+        const filePaths = scripts.map(s => `lua-x-sync/place_${placeId}/explorer/${s.replace(/\./g, '/')}.luau`);
+        return json(200, { placeId, filePaths, generatedAt: new Date().toISOString(), source: 'context' });
+      }
+      return json(200, { placeId, filePaths: [], generatedAt: new Date().toISOString(), empty: true });
+    }
+    return json(200, stored);
+  }
+
+  if (request.method === 'POST' && pathname === 'sourcemap') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const placeId = cleanString(body.placeId, 100) || 'unknown';
+      const filePaths = Array.isArray(body.filePaths) ? body.filePaths.map(v => String(v).slice(0, 200)).slice(0, 200) : [];
+      const entry = { placeId, filePaths, generatedAt: new Date().toISOString() };
+      memorySourcemaps.set(placeId, entry);
+      await redisCommand(['SET', `studio:sourcemap:${placeId}`, JSON.stringify(entry), 'EX', '3600']);
+      return json(200, { ok: true, ...entry });
+    } catch { return json(400, { error: 'Invalid sourcemap payload.' }); }
+  }
+
+  // WEPPY-inspired: Asset Library (local RBXM/images, Open Cloud upload stub)
+  if (request.method === 'GET' && pathname === 'assets') {
+    const placeId = cleanString(url.searchParams.get('placeId'), 100) || cleanString(url.searchParams.get('sessionId'), 100) || 'shared';
+    const list = memoryAssets.get(placeId) ?? memoryAssets.get('shared') ?? [];
+    return json(200, { placeId, assets: list.slice(-50), count: list.length });
+  }
+
+  if (request.method === 'POST' && pathname === 'assets') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const placeId = cleanString(body.placeId, 100) || cleanString(body.sessionId, 100) || 'shared';
+      const name = cleanString(body.name, 120) || `asset_${Date.now()}`;
+      const type = cleanString(body.type, 20) === 'rbxm' ? 'rbxm' : cleanString(body.type, 20) === 'decal' ? 'decal' : 'image' as 'image' | 'rbxm' | 'decal';
+      const entry: { id: string; placeId: string; name: string; type: 'image' | 'rbxm' | 'decal'; uri?: string; at: number } = { id: `asset_${randomUUID().slice(0, 8)}`, placeId, name, type, at: Date.now() };
+      if (typeof body.uri === 'string' && body.uri.trim()) entry.uri = body.uri.slice(0, 200);
+      const list = memoryAssets.get(placeId) ?? [];
+      list.push(entry);
+      if (list.length > 100) list.splice(0, list.length - 100);
+      memoryAssets.set(placeId, list);
+      await redisCommand(['SET', `studio:assets:${placeId}`, JSON.stringify(list.slice(-50)), 'EX', '3600']);
+      return json(200, { ok: true, asset: entry });
+    } catch { return json(400, { error: 'Invalid assets payload.' }); }
+  }
+
+  // WEPPY-inspired: Playtest harness (run_test, play_start/stop, logs)
+  if (request.method === 'GET' && pathname === 'playtest') {
+    const placeId = cleanString(url.searchParams.get('placeId'), 100) || cleanString(url.searchParams.get('sessionId'), 100) || 'shared';
+    const list = memoryPlaytests.get(placeId) ?? [];
+    return json(200, { placeId, tests: list.slice(-20), count: list.length });
+  }
+
+  if (request.method === 'POST' && pathname === 'playtest') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const placeId = cleanString(body.placeId, 100) || cleanString(body.sessionId, 100) || 'shared';
+      const mode = cleanString(body.mode, 10) === 'run' ? 'run' : 'play' as 'play' | 'run';
+      const entry = { id: `test_${randomUUID().slice(0, 8)}`, placeId, mode, status: 'running' as const, logs: [] as string[], at: Date.now() };
+      const list = memoryPlaytests.get(placeId) ?? [];
+      list.push(entry);
+      if (list.length > 50) list.splice(0, list.length - 50);
+      memoryPlaytests.set(placeId, list);
+      // Simulate immediate pass after 1s (real Studio would report)
+      setTimeout(() => {
+        const l = memoryPlaytests.get(placeId);
+        if (l) {
+          const t = l.find(x => x.id === entry.id);
+          if (t) { t.status = 'passed'; t.logs.push('[LUA-X] Playtest completed (stub) — collect real logs from Studio via get_console_output'); }
+        }
+      }, 800);
+      return json(200, { ok: true, test: entry });
+    } catch { return json(400, { error: 'Invalid playtest payload.' }); }
   }
 
   if (request.method === 'POST' && pathname === 'command') {
     try {
       const body = await request.json() as Record<string, unknown>;
-      const sessionId = cleanString(body.sessionId, 100);
+      let sessionId = cleanString(body.sessionId, 100);
       const type = cleanString(body.type, 40);
-      if (!sessionId || !type) return json(400, { error: 'sessionId and type are required.' });
+      if (!type) return json(400, { error: 'type is required.' });
+      // WEPPY-style routing: clientId > targetAlias > placeId -> sessionId
+      if (!sessionId) {
+        const cId = cleanString(body.clientId, 100) || undefined;
+        const tAlias = cleanString(body.targetAlias, 40) || undefined;
+        const pId = cleanString(body.placeId, 100) || cleanString(body.projectId, 100) || undefined;
+        const routed = resolveStudioTarget(pId, cId, tAlias);
+        if (routed) sessionId = routed.sessionId;
+      }
+      if (!sessionId) return json(400, { error: 'sessionId (or clientId/targetAlias/placeId) is required.' });
       if (!SUPPORTED_COMMANDS.includes(type)) return json(400, { error: 'Unsupported Studio command.' });
       const command: Command = {
         type,
@@ -597,7 +796,7 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
         createdAt: Date.now(),
       };
       await enqueueCommand(sessionId, command);
-      return json(200, { ok: true, queued: true, type });
+      return json(200, { ok: true, queued: true, type, sessionId });
     } catch {
       return json(400, { error: 'Invalid command payload.' });
     }
