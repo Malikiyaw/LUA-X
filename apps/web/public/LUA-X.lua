@@ -240,7 +240,7 @@ local function selectionDetailsList(selected)
 		if type(attrs) == "function" then
 			local ok2, a = pcall(function() return inst:GetAttributes() end)
 			if ok2 and type(a) == "table" then
-				local count = 0; for _ in pairs(a) do count+=1 end
+				local count = 0; for _ in pairs(a) do count = count + 1 end
 				if count>0 then entry.hasAttributes = true end
 			end
 		end
@@ -770,7 +770,7 @@ local function applyPlan()
 	if not applyArmed then applyArmed=true; applyButton.Text="Confirm Apply  ·  " .. #changes; setStatus("Review the change set, then confirm.", "warn"); return end
 	busy=true; applyArmed=false; applyButton.Text="Applying…"; ChangeHistoryService:SetWaypoint("LUA-X · Before Apply")
 	local success, failed, results = 0, 0, {}
-	for _, proposal in ipairs(changes) do local ok, result=applyProposal(proposal); if ok then success+=1; table.insert(results,"OK   "..result) else failed+=1; table.insert(results,"FAIL "..result) end end
+	for _, proposal in ipairs(changes) do local ok, result=applyProposal(proposal); if ok then success = success + 1; table.insert(results,"OK   "..result) else failed = failed + 1; table.insert(results,"FAIL "..result) end end
 	ChangeHistoryService:SetWaypoint("LUA-X · After Apply"); busy=false; applyButton.Text="Apply Changes"; planBox.Text=table.concat(results,"\n")
 	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed==0 and "good" or "bad")
 	if not disconnected then

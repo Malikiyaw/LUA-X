@@ -5,8 +5,13 @@
   "description": "LUA-X — AI-native development studio for Roblox creators.",
   "license": "MIT",
   "packageManager": "npm@11.5.1",
-  "engines": { "node": ">=18.0.0" },
-  "workspaces": ["apps/*", "packages/*"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "sync:plugin": "node scripts/sync-plugin.mjs",
     "sync:plugin:check": "node scripts/sync-plugin.mjs --check",
@@ -25,5 +30,8 @@
     "dev": "npm run dev --workspace=@lua-x/web",
     "dev:api": "npm run dev --workspace=@lua-x/api",
     "start:api": "npm run start --workspace=@lua-x/api"
+  },
+  "devDependencies": {
+    "luaparse": "^0.3.1"
   }
 }
