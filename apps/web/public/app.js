@@ -1114,23 +1114,23 @@ function switchView(name) {
   document.querySelectorAll('.view').forEach(view => view.classList.add('hidden'));
   const titles = { chat: 'Chat', dashboard: 'Dashboard', plugins: 'Plugins', sync: 'Sync', assets: 'Assets', 'ui-studio': 'UI Studio', playtest: 'Playtest', projects: 'Projects', history: 'History', settings: 'Settings' };
   viewTitle.textContent = titles[name] || 'LUA-X';
-  if (name === 'chat') document.querySelector('#view-chat').classList.remove('hidden');
-  else if (name === 'dashboard') { document.querySelector('#view-dashboard').classList.remove('hidden'); refreshDashboard(); }
-  else if (name === 'plugins') document.querySelector('#view-plugins').classList.remove('hidden');
-  else if (name === 'sync') { document.querySelector('#view-sync').classList.remove('hidden'); refreshSync(); }
-  else if (name === 'assets') { document.querySelector('#view-assets').classList.remove('hidden'); refreshAssets(); }
-  else if (name === 'ui-studio') document.querySelector('#view-ui-studio').classList.remove('hidden');
-  else if (name === 'playtest') { document.querySelector('#view-playtest').classList.remove('hidden'); refreshPlaytest(); }
+  if (name === 'chat') document.querySelector('#view-chat')?.classList.remove('hidden');
+  else if (name === 'dashboard') { document.querySelector('#view-dashboard')?.classList.remove('hidden'); try { refreshDashboard(); } catch {} }
+  else if (name === 'plugins') document.querySelector('#view-plugins')?.classList.remove('hidden');
+  else if (name === 'sync') { document.querySelector('#view-sync')?.classList.remove('hidden'); try { refreshSync(); } catch {} }
+  else if (name === 'assets') { document.querySelector('#view-assets')?.classList.remove('hidden'); try { refreshAssets(); } catch {} }
+  else if (name === 'ui-studio') document.querySelector('#view-ui-studio')?.classList.remove('hidden');
+  else if (name === 'playtest') { document.querySelector('#view-playtest')?.classList.remove('hidden'); try { refreshPlaytest(); } catch {} }
   else if (name === 'settings') {
-    document.querySelector('#view-settings').classList.remove('hidden');
+    document.querySelector('#view-settings')?.classList.remove('hidden');
     if (tokenInput) tokenInput.value = getToken();
   }
   else {
-    comingTitle.textContent = (titles[name] || 'Section') + ' — coming soon';
-    comingText.textContent = name === 'projects'
+    if (comingTitle) comingTitle.textContent = (titles[name] || 'Section') + ' — coming soon';
+    if (comingText) comingText.textContent = name === 'projects'
       ? 'Per-project workspaces and saved game context land here next.'
       : 'A history of plans, applies, and verifications will appear here.';
-    document.querySelector('#view-coming').classList.remove('hidden');
+    document.querySelector('#view-coming')?.classList.remove('hidden');
   }
 }
 
@@ -1242,8 +1242,10 @@ document.querySelector('#sync-query-test')?.addEventListener('click', async () =
   try { const r = await getJson(`/api/studio/query?sessionId=${encodeURIComponent(studioSessionId || '')}&q=${encodeURIComponent(q)}`); showToast(`${r.results?.length || 0} matches`); } catch (e) { showToast(e instanceof Error ? e.message : 'Query failed'); }
 });
 document.querySelector('#assets-add')?.addEventListener('click', async () => {
-  const name = (document.querySelector('#assets-name') as HTMLInputElement)?.value?.trim() || `asset_${Date.now()}`;
-  const type = (document.querySelector('#assets-type') as HTMLSelectElement)?.value || 'image';
+  const elName = document.querySelector('#assets-name');
+  const elType = document.querySelector('#assets-type');
+  const name = (elName && elName.value ? elName.value.trim() : '') || `asset_${Date.now()}`;
+  const type = (elType && elType.value) || 'image';
   try { await postJson('/api/studio/assets', { placeId: studioPlaceId || 'shared', name, type }); showToast(`Asset ${name} added`); refreshAssets(); } catch (e) { showToast(e instanceof Error ? e.message : 'Add failed'); }
 });
 document.querySelector('#playtest-start-play')?.addEventListener('click', async () => {
@@ -1257,7 +1259,8 @@ document.querySelector('#playtest-run-test')?.addEventListener('click', async ()
 });
 document.querySelector('#playtest-stop')?.addEventListener('click', () => showToast('Stop: sync resumes after play — WEPPY parity'));
 document.querySelector('#ui-generate')?.addEventListener('click', () => {
-  const v = (document.querySelector('#ui-brief') as HTMLInputElement)?.value?.trim(); if (!v) { showToast('Describe UI first'); return; }
+  const el = document.querySelector('#ui-brief');
+  const v = el && el.value ? el.value.trim() : ''; if (!v) { showToast('Describe UI first'); return; }
   promptEl.value = `Build UI: ${v} — use UIScreenSpec, theme tokens, responsive, 48px targets`; switchView('chat'); send();
 });
 document.querySelector('#ui-preview')?.addEventListener('click', () => showToast('Preview: Studio captures before/after — like WEPPY dashboard_ui'));
