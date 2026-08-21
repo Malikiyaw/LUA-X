@@ -52,6 +52,8 @@ const memoryCommandLog = new Map<string, CommandLog>();
 const memoryConnectRequests = new Map<string, ConnectRequest>();
 const memoryConversations = new Map<string, Conversation>();
 const memoryContexts = new Map<string, StoredContext>();
+const memoryLastPlans = new Map<string, { plan: unknown; summary: string; at: number }>();
+const memoryApplyResults = new Map<string, { sessionId: string; planSummary: string; success: number; failed: number; results: string[]; at: number }>();
 let memoryLatestRequestId: string | null = null;
 
 let redisWarned = false;
@@ -294,6 +296,56 @@ export async function loadContext(sessionId: string): Promise<StoredContext | nu
   return memoryContexts.get(sessionId) ?? null;
 }
 
+export async function storeLastPlan(sessionId: string, plan: unknown): Promise<void> {
+  if (!sessionId) return;
+  const summary = (() => {
+    try {
+      const p = plan as { summary?: unknown; changes?: unknown[] };
+      const s = typeof p.summary === 'string' ? p.summary.slice(0, 500) : 'Plan';
+      const c = Array.isArray(p.changes) ? ` (${p.changes.length} changes)` : '';
+      return `${s}${c}`;
+    } catch { return 'Plan'; }
+  })();
+  const entry = { plan, summary, at: Date.now() };
+  memoryLastPlans.set(sessionId, entry);
+  await redisCommand(['SET', `studio:lastplan:${sessionId}`, JSON.stringify(entry), 'EX', String(CONVERSATION_TTL)]);
+}
+
+export async function loadLastPlan(sessionId: string): Promise<{ plan: unknown; summary: string; at: number } | null> {
+  if (!sessionId) return null;
+  const remote = await redisCommand(['GET', `studio:lastplan:${sessionId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as { plan: unknown; summary: string; at: number };
+      if (parsed && parsed.summary) return parsed;
+    } catch { /* fall through */ }
+  }
+  const mem = memoryLastPlans.get(sessionId);
+  if (mem && Date.now() - mem.at <= CONVERSATION_TTL * 1000) return mem;
+  return null;
+}
+
+export async function storeApplyResult(sessionId: string, result: { planSummary: string; success: number; failed: number; results: string[] }): Promise<void> {
+  if (!sessionId) return;
+  const entry = { sessionId, planSummary: result.planSummary.slice(0, 500), success: result.success, failed: result.failed, results: result.results.slice(0, 20).map(s => String(s).slice(0, 500)), at: Date.now() };
+  memoryApplyResults.set(sessionId, entry);
+  await redisCommand(['SET', `studio:apply:${sessionId}`, JSON.stringify(entry), 'EX', String(CONVERSATION_TTL)]);
+}
+
+export async function loadApplyResult(sessionId: string): Promise<{ sessionId: string; planSummary: string; success: number; failed: number; results: string[]; at: number } | null> {
+  if (!sessionId) return null;
+  const remote = await redisCommand(['GET', `studio:apply:${sessionId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as { sessionId: string; planSummary: string; success: number; failed: number; results: string[]; at: number };
+      if (parsed && typeof parsed.planSummary === 'string') return parsed;
+    } catch { /* fall through */ }
+  }
+  const mem = memoryApplyResults.get(sessionId);
+  if (mem && Date.now() - mem.at <= CONVERSATION_TTL * 1000) return mem;
+  return null;
+}
+
 function contextPayload(body: Record<string, unknown>): { sessionId: string; context: Record<string, unknown> } | null {
   const sessionId = cleanString(body.sessionId, 100);
   if (!sessionId) return null;
@@ -500,6 +552,9 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
       commandRoute: 'ok',
       chatRoute: 'ok',
       contextRoute: 'ok',
+      applyRoute: 'ok',
+      indexRoute: 'ok',
+      queryRoute: 'ok',
       diagnosticsRoute: 'ok',
       redisConfigured: Boolean(redisConfig()),
       redisReachable,
@@ -593,6 +648,86 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
     } catch {
       return json(400, { error: 'Invalid context payload.' });
     }
+  }
+
+  if (request.method === 'POST' && pathname === 'apply') {
+    try {
+      const body = await request.json() as Record<string, unknown>;
+      const sessionId = cleanString(body.sessionId, 100);
+      if (!sessionId) return json(400, { error: 'sessionId is required.' });
+      const planSummary = cleanString(body.planSummary, 500) || 'Plan';
+      const success = typeof body.success === 'number' ? Math.floor(Number(body.success)) : 0;
+      const failed = typeof body.failed === 'number' ? Math.floor(Number(body.failed)) : 0;
+      const results = Array.isArray(body.results) ? body.results.map(v => String(v).slice(0, 500)).slice(0, 20) : [];
+      await storeApplyResult(sessionId, { planSummary, success, failed, results });
+      // Mirror into conversation for twin-AI visibility
+      await appendConversationMessage(sessionId, {
+        role: 'system',
+        content: `Studio apply result: ${success} succeeded, ${failed} failed — ${planSummary} :: ${results.slice(0, 3).join(' | ')}`,
+        surface: 'server',
+        at: Date.now(),
+      });
+      return json(200, { ok: true });
+    } catch {
+      return json(400, { error: 'Invalid apply payload.' });
+    }
+  }
+
+  if (request.method === 'GET' && pathname === 'apply') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const stored = await loadApplyResult(sessionId);
+    return json(200, stored ?? { result: null });
+  }
+
+  if (request.method === 'GET' && pathname === 'index') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const stored = await loadContext(sessionId);
+    if (!stored || !stored.context) return json(200, { context: null, at: null, index: null });
+    const ctx = stored.context as Record<string, unknown>;
+    const tree = typeof ctx.workspaceTree === 'string' ? ctx.workspaceTree as string : '';
+    const lines = tree.split('\n');
+    const scripts = Array.isArray(ctx.scripts) ? ctx.scripts as string[] : [];
+    const counts = (ctx.instanceCounts as Record<string, number>) ?? null;
+    const assets = (ctx.assetReferences as unknown[]) ?? [];
+    // Derive lightweight ProjectIndex-ish summary
+    const index = {
+      rootName: (ctx.place as { name?: string } | undefined)?.name ?? 'Game',
+      treeNodes: lines.length,
+      scriptsCount: scripts.length,
+      instanceCounts: counts,
+      assetCount: Array.isArray(assets) ? assets.length : 0,
+      selectionCount: Array.isArray(ctx.selection) ? (ctx.selection as unknown[]).length : 0,
+      generatedAt: stored.at,
+    };
+    return json(200, { at: stored.at, index, context: ctx });
+  }
+
+  if (request.method === 'GET' && pathname === 'query') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    const q = cleanString(url.searchParams.get('q'), 120) || cleanString(url.searchParams.get('query'), 120);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    if (!q) return json(400, { error: 'q query is required.' });
+    const stored = await loadContext(sessionId);
+    if (!stored || !stored.context) return json(200, { q, results: [] });
+    const ctx = stored.context as Record<string, unknown>;
+    const lower = q.toLowerCase();
+    const results: string[] = [];
+    const tree = typeof ctx.workspaceTree === 'string' ? ctx.workspaceTree as string : '';
+    for (const line of tree.split('\n')) {
+      if (line.toLowerCase().includes(lower) && results.length < 30) results.push(line.trim());
+    }
+    const scripts = Array.isArray(ctx.scripts) ? ctx.scripts as string[] : [];
+    for (const s of scripts) if (String(s).toLowerCase().includes(lower) && results.length < 50) results.push(`script: ${s}`);
+    const arch = typeof ctx.architecture === 'string' ? ctx.architecture as string : '';
+    if (arch.toLowerCase().includes(lower) && results.length < 50) results.push('architecture: contains match (see full context)');
+    const assets = Array.isArray(ctx.assetReferences) ? ctx.assetReferences as { path?: string; value?: string }[] : [];
+    for (const a of assets) {
+      const hay = `${a.path ?? ''} ${a.value ?? ''}`.toLowerCase();
+      if (hay.includes(lower) && results.length < 50) results.push(`asset: ${a.path} -> ${a.value}`);
+    }
+    return json(200, { q, results: results.slice(0, 50) });
   }
 
   return json(404, { error: 'Studio route not found.' });

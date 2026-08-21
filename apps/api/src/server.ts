@@ -5,7 +5,7 @@ import { NvidiaApiError, NvidiaClientPool } from '@lua-x/nvidia-provider';
 import { buildSystemPrompt } from './prompt.js';
 import { loadConfig } from './config.js';
 import { FixedWindowRateLimiter } from './rate-limit.js';
-import { studioHandler, appendConversationMessage } from './studio-handler.js';
+import { studioHandler, appendConversationMessage, loadConversation, storeLastPlan, loadLastPlan, loadApplyResult } from './studio-handler.js';
 import { authorized, rateLimitKey } from './auth.js';
 
 export const API_VERSION = '0.11.0-alpha';
@@ -204,20 +204,69 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
       try {
         if ((payload as { mode?: string }).mode === 'chat') {
           const requestBody = payload as { prompt: string; context?: unknown; sessionId?: string; history?: unknown };
-          const contextBlock = requestBody.context && typeof requestBody.context === 'object'
+          const sessionIdRaw = typeof requestBody.sessionId === 'string' ? requestBody.sessionId.trim().slice(0, 100) : '';
+          let history: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+          if (sessionIdRaw) {
+            try {
+              const stored = await loadConversation(sessionIdRaw);
+              if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
+                const mapped = stored.messages
+                  .map((m) => {
+                    if (m.role !== 'user' && m.role !== 'assistant') return null;
+                    const prefix = m.surface ? `[${m.surface}] ` : '';
+                    return { role: m.role as 'user' | 'assistant', content: `${prefix}${String(m.content).slice(0, 12000)}` };
+                  })
+                  .filter((v): v is { role: 'user' | 'assistant'; content: string } => v !== null)
+                  .slice(-10);
+                if (mapped.length > 0) history = mapped;
+                else throw new Error('empty');
+              } else throw new Error('no stored');
+            } catch {
+              history = Array.isArray(requestBody.history)
+                ? requestBody.history
+                    .filter((entry): entry is { role: 'user' | 'assistant'; content: string } =>
+                      typeof entry === 'object' && entry !== null
+                      && (entry.role === 'user' || entry.role === 'assistant')
+                      && typeof entry.content === 'string')
+                    .slice(-10)
+                : [];
+            }
+          } else {
+            history = Array.isArray(requestBody.history)
+              ? requestBody.history
+                  .filter((entry): entry is { role: 'user' | 'assistant'; content: string } =>
+                    typeof entry === 'object' && entry !== null
+                    && (entry.role === 'user' || entry.role === 'assistant')
+                    && typeof entry.content === 'string')
+                  .slice(-10)
+              : [];
+          }
+          let enrichedExtra = '';
+          if (sessionIdRaw) {
+            try {
+              const last = await loadLastPlan(sessionIdRaw);
+              if (last) {
+                enrichedExtra += `\n\nLast build plan: ${last.summary} (at ${new Date(last.at).toISOString()})`;
+                const p = last.plan as { changes?: { target?: string; operation?: string }[] };
+                if (p && Array.isArray(p.changes) && p.changes.length > 0) {
+                  const targets = p.changes.slice(0, 6).map(c => `${c.operation}:${c.target}`).join(', ');
+                  enrichedExtra += ` Targets: ${targets}${p.changes.length > 6 ? ` (+${p.changes.length - 6} more)` : ''}`;
+                }
+              }
+              const apply = await loadApplyResult(sessionIdRaw);
+              if (apply) {
+                enrichedExtra += `\nLast Studio apply: ${apply.success} ok / ${apply.failed} failed — ${apply.planSummary}`;
+                if (apply.results.length > 0) enrichedExtra += ` | ${apply.results.slice(0, 3).join(' | ')}`;
+              }
+            } catch { /* ignore */ }
+          }
+          const baseContextBlock = requestBody.context && typeof requestBody.context === 'object'
             ? `\n\nLive Studio context:\n${JSON.stringify(requestBody.context)}`
             : '';
+          const contextBlock = baseContextBlock + enrichedExtra;
           const sessionBlock = typeof requestBody.sessionId === 'string' && requestBody.sessionId
             ? `\nConnected Studio session: ${requestBody.sessionId}`
             : '';
-          const history = Array.isArray(requestBody.history)
-            ? requestBody.history
-                .filter((entry): entry is { role: 'user' | 'assistant'; content: string } =>
-                  typeof entry === 'object' && entry !== null
-                  && (entry.role === 'user' || entry.role === 'assistant')
-                  && typeof entry.content === 'string')
-                .slice(-10)
-            : [];
           const chatResult = await deps.nvidia.chat([
             { role: 'system', content: CHAT_SYSTEM_PROMPT },
             ...history,
@@ -253,10 +302,30 @@ export async function handleApiRequest(deps: ApiDependencies, request: IncomingM
               surface: 'server',
               at: Date.now(),
             });
+            if (plan) try { await storeLastPlan(sessionId, plan); } catch { /* ignore */ }
           }
           return;
         }
         const generated = await generateAIPlan(payload, deps.nvidia);
+        try {
+          const sId = typeof (payload as { sessionId?: string }).sessionId === 'string' ? (payload as { sessionId?: string }).sessionId!.trim().slice(0, 100) : '';
+          if (sId) {
+            const surface = typeof (payload as { surface?: string }).surface === 'string' && (payload as { surface?: string }).surface === 'plugin' ? 'plugin' : 'web';
+            await appendConversationMessage(sId, {
+              role: 'user',
+              content: String((payload as { prompt?: string }).prompt ?? '').slice(0, 12000),
+              surface,
+              at: Date.now(),
+            });
+            await appendConversationMessage(sId, {
+              role: 'assistant',
+              content: `Build plan ready: ${generated.plan.summary.slice(0, 800)} (${generated.plan.changes.length} changes)`,
+              surface: 'server',
+              at: Date.now(),
+            });
+            await storeLastPlan(sId, generated.plan);
+          }
+        } catch { /* best-effort */ }
         sendJson(response, 200, {
           requestId: generated.requestId ?? requestId,
           provider: generated.provider,

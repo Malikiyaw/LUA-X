@@ -2,7 +2,7 @@ export const config = { runtime: 'nodejs', maxDuration: 300 };
 
 import { randomUUID } from 'node:crypto';
 import { authorized } from '../auth';
-import { appendConversationMessage } from '../studio-handler';
+import { appendConversationMessage, loadConversation, storeLastPlan, loadLastPlan } from '../studio-handler';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const DEFAULT_MODELS = [
@@ -173,11 +173,64 @@ function historyMessages(body: Record<string, unknown>): Array<{ role: 'user' | 
     .map((entry) => ({ role: entry.role, content: entry.content.slice(0, 12000) }));
 }
 
+function historyForPrompt(entry: { role: string; content: string; surface?: string }): { role: 'user' | 'assistant'; content: string } | null {
+  if (entry.role !== 'user' && entry.role !== 'assistant') return null;
+  if (typeof entry.content !== 'string' || !entry.content.trim()) return null;
+  const surface = typeof entry.surface === 'string' && (entry.surface === 'plugin' || entry.surface === 'web' || entry.surface === 'server') ? entry.surface : '';
+  const prefix = surface ? `[${surface}] ` : '';
+  return { role: entry.role as 'user' | 'assistant', content: `${prefix}${entry.content.slice(0, 12000)}` };
+}
+
+async function authoritativeHistory(body: Record<string, unknown>): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> {
+  const sessionId = sessionIdOf(body);
+  if (sessionId) {
+    try {
+      const stored = await loadConversation(sessionId);
+      if (stored && Array.isArray(stored.messages) && stored.messages.length > 0) {
+        const mapped = stored.messages
+          .map((m) => historyForPrompt(m as { role: string; content: string; surface?: string }))
+          .filter((v): v is { role: 'user' | 'assistant'; content: string } => v !== null)
+          .slice(-10);
+        if (mapped.length > 0) return mapped;
+      }
+    } catch { /* fall through to client history */ }
+  }
+  return historyMessages(body);
+}
+
 function contextBlock(body: Record<string, unknown>): string {
   const context = body.context ?? {};
   return typeof context === 'object' && context !== null && Object.keys(context).length > 0
     ? `\nLive Studio context: ${JSON.stringify(context)}`
     : '';
+}
+
+async function enrichedContextBlock(body: Record<string, unknown>): Promise<string> {
+  const base = contextBlock(body);
+  const sessionId = sessionIdOf(body);
+  if (!sessionId) return base;
+  const parts: string[] = [base];
+  try {
+    const last = await loadLastPlan(sessionId);
+    if (last && last.summary) {
+      parts.push(`\nLast build plan: ${last.summary} (at ${new Date(last.at).toISOString()})`);
+      try {
+        const p = last.plan as { changes?: { target?: string; operation?: string }[] };
+        if (p && Array.isArray(p.changes) && p.changes.length > 0) {
+          const targets = p.changes.slice(0, 6).map(c => `${c.operation}:${c.target}`).join(', ');
+          parts.push(` Last plan targets: ${targets}${p.changes.length > 6 ? ` (+${p.changes.length - 6} more)` : ''}`);
+        }
+      } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+  try {
+    const apply = await loadApplyResult(sessionId);
+    if (apply) {
+      parts.push(`\nLast Studio apply: ${apply.success} succeeded, ${apply.failed} failed — ${apply.planSummary} (at ${new Date(apply.at).toISOString()})`);
+      if (apply.results.length > 0) parts.push(` Apply details: ${apply.results.slice(0, 3).join(' | ')}`);
+    }
+  } catch { /* ignore */ }
+  return parts.join('');
 }
 
 function sessionBlock(body: Record<string, unknown>): string {
@@ -190,12 +243,32 @@ function chatUserPrompt(body: Record<string, unknown>): string {
   return `Project: ${project}\nCreator: ${prompt}${sessionBlock(body)}${contextBlock(body)}`;
 }
 
+async function chatUserPromptEnriched(body: Record<string, unknown>): Promise<string> {
+  const prompt = String(body.prompt ?? '').trim();
+  const project = typeof body.projectId === 'string' && body.projectId ? body.projectId : 'unknown';
+  const enriched = await enrichedContextBlock(body);
+  return `Project: ${project}\nCreator: ${prompt}${sessionBlock(body)}${enriched}`;
+}
+
 function buildUserPrompt(body: Record<string, unknown>): string {
   const prompt = String(body.prompt ?? '').trim();
   const project = typeof body.projectId === 'string' && body.projectId ? body.projectId : 'unknown';
   return [
     `Project: ${project}`,
     `Creator request: ${prompt}${sessionBlock(body)}${contextBlock(body)}`,
+    '',
+    'Return ONLY valid JSON matching this exact schema (no markdown fences):',
+    BUILD_SCHEMA,
+  ].join('\n');
+}
+
+async function buildUserPromptEnriched(body: Record<string, unknown>): Promise<string> {
+  const prompt = String(body.prompt ?? '').trim();
+  const project = typeof body.projectId === 'string' && body.projectId ? body.projectId : 'unknown';
+  const enriched = await enrichedContextBlock(body);
+  return [
+    `Project: ${project}`,
+    `Creator request: ${prompt}${sessionBlock(body)}${enriched}`,
     '',
     'Return ONLY valid JSON matching this exact schema (no markdown fences):',
     BUILD_SCHEMA,
@@ -314,7 +387,7 @@ async function callNvidia(baseUrl: string, model: string, key: string, body: Rec
   const defaultTimeout = Math.min(Math.max(Number(process.env.AI_TIMEOUT_MS || 120000), 1000), 120000);
   const effectiveTimeout = timeoutMs !== undefined ? Math.min(Math.max(timeoutMs, 1000), 120000) : defaultTimeout;
   const system = mode === 'chat' ? CHAT_SYSTEM_PROMPT : BUILD_SYSTEM_PROMPT;
-  const user = mode === 'chat' ? chatUserPrompt(body) : buildUserPrompt(body);
+  const user = mode === 'chat' ? await chatUserPromptEnriched(body) : await buildUserPromptEnriched(body);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
@@ -408,7 +481,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!apiKeys.length) return json(503, { error: 'AI provider is not configured on the backend.', requestId: id }, { 'x-request-id': id });
 
     const mode = modeOf(body);
-    const history = historyMessages(body);
+    const history = await authoritativeHistory(body);
     const baseUrl = (process.env.NVIDIA_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/$/, '');
     const modelList = models(mode);
     const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 270000), 1000), 285000);
@@ -447,6 +520,24 @@ export async function POST(request: Request): Promise<Response> {
                 }
               }
               if (outcome.plan) {
+                const sessionIdBuild = sessionIdOf(body);
+                if (sessionIdBuild) {
+                  try {
+                    await appendConversationMessage(sessionIdBuild, {
+                      role: 'user',
+                      content: String(body.prompt ?? '').trim().slice(0, 12000),
+                      surface: surfaceOf(body),
+                      at: Date.now(),
+                    });
+                    await appendConversationMessage(sessionIdBuild, {
+                      role: 'assistant',
+                      content: `Build plan ready: ${outcome.plan.summary.slice(0, 500)} (${outcome.plan.changes.length} changes)`,
+                      surface: 'server',
+                      at: Date.now(),
+                    });
+                    await storeLastPlan(sessionIdBuild, outcome.plan);
+                  } catch { /* best-effort */ }
+                }
                 return json(200, {
                   requestId: id,
                   provider: 'nvidia',
@@ -485,6 +576,12 @@ export async function POST(request: Request): Promise<Response> {
                   surface: 'server',
                   at: Date.now(),
                 });
+                if (plan) {
+                  try { await storeLastPlan(sessionId, plan); } catch { /* ignore */ }
+                }
+              } else if (plan) {
+                const fallbackSession = sessionIdOf(body);
+                if (fallbackSession) try { await storeLastPlan(fallbackSession, plan); } catch { /* ignore */ }
               }
               return json(200, {
                 requestId: id,

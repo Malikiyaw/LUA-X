@@ -479,10 +479,22 @@ nav { display: flex; flex-direction: column; gap: 2px; }
 .coming-panel h2 { margin: 0; font-size: 15px; color: var(--text); font-weight: 600; }
 .coming-panel p { margin: 0; font-size: 12px; }
 
+.studio-vision { margin-top: 14px; }
+.studio-vision .plugin-status.online { color: var(--ok); }
+.vision-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; margin-top: 8px; }
+.vision-col { border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 10px; background: var(--bg-elevated); min-height: 120px; }
+.vision-col b { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.vision-tree { max-height: 220px; overflow: auto; font-family: var(--mono); font-size: 10.5px; line-height: 1.5; background: #0a0d14; border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 8px; margin: 6px 0 0; white-space: pre; color: var(--muted); }
+#vision-selection, #vision-counts, #vision-assets, #vision-query-results, #vision-forge { font-size: 11px; color: var(--muted); line-height: 1.6; margin-top: 6px; word-break: break-word; }
+.vision-query { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+.vision-query input { flex: 1; min-width: 180px; background: var(--field); border: 1px solid var(--hairline); border-radius: var(--radius-sm); padding: 7px 10px; color: var(--text); font: inherit; font-size: 12px; }
+.vision-forge { margin-top: 12px; border-top: 1px dashed var(--hairline); padding-top: 10px; }
+.vision-forge b { font-size: 11px; color: var(--text); }
 @media (max-width: 760px) {
   .sidebar { display: none; }
   .main { margin-left: 0; }
   .msg { max-width: 92%; }
   .topbar { padding: 12px 16px; }
   .chat-panel, .view { padding: 16px 14px 12px; }
+  .vision-grid { grid-template-columns: 1fr; }
 }

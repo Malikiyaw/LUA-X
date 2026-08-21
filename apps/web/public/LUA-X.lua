@@ -20,12 +20,14 @@ local HEARTBEAT_SECONDS = 4
 local COMMAND_SECONDS = 2
 local CONNECT_POLL_SECONDS = 2
 local CHAT_POLL_SECONDS = 6
-local MAX_SCRIPTS = 24
-local MAX_SOURCE = 8000
+local MAX_SCRIPTS = 32
+local MAX_SOURCE = 6500
 local MAX_CONTEXT = 40000
 local MAX_HISTORY = 50
-local MAX_TREE_NODES = 1200
-local TREE_DEPTH = 7
+local MAX_TREE_NODES = 1400
+local TREE_DEPTH = 8
+local MAX_SELECTION_DETAILS = 12
+local MAX_ASSET_REFS = 24
 local TREE_ROOTS = {"Workspace", "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterPlayer", "StarterGui", "Lighting", "SoundService", "ReplicatedFirst", "Teams"}
 
 local C = {
@@ -194,20 +196,130 @@ local function collectScripts(seen, files, sourceParts)
 		end
 	end
 end
+local function safeGetProp(inst, prop)
+	local ok, v = pcall(function() return inst[prop] end)
+	if not ok then return nil end
+	return v
+end
+local function selectionDetailsList(selected)
+	local out = {}
+	for i = 1, math.min(#selected, MAX_SELECTION_DETAILS) do
+		local inst = selected[i]
+		local entry = { path = pathOf(inst), className = inst.ClassName, name = inst.Name, parent = inst.Parent and inst.Parent.Name or "nil", childCount = #inst:GetChildren() }
+		local pos = safeGetProp(inst, "Position")
+		if typeof(pos) == "Vector3" then entry.position = string.format("Vector3.new(%.2f, %.2f, %.2f)", pos.X, pos.Y, pos.Z) end
+		local size = safeGetProp(inst, "Size")
+		if typeof(size) == "Vector3" then entry.size = string.format("Vector3.new(%.2f, %.2f, %.2f)", size.X, size.Y, size.Z) end
+		local cf = safeGetProp(inst, "CFrame")
+		if typeof(cf) == "CFrame" then local p = cf.Position; entry.cframe = string.format("CFrame.new(%.2f, %.2f, %.2f)", p.X, p.Y, p.Z) end
+		local anchored = safeGetProp(inst, "Anchored")
+		if type(anchored) == "boolean" then entry.anchored = anchored end
+		local mat = safeGetProp(inst, "Material")
+		if mat then entry.material = tostring(mat) end
+		local color = safeGetProp(inst, "Color")
+		if typeof(color) == "Color3" then entry.color = string.format("Color3.fromRGB(%d,%d,%d)", math.floor(color.R*255), math.floor(color.G*255), math.floor(color.B*255)) end
+		local trans = safeGetProp(inst, "Transparency")
+		if type(trans) == "number" then entry.transparency = trans end
+		-- Luau service tags
+		local attrs = safeGetProp(inst, "GetAttributes")
+		if type(attrs) == "function" then
+			local ok2, a = pcall(function() return inst:GetAttributes() end)
+			if ok2 and type(a) == "table" then
+				local count = 0; for _ in pairs(a) do count+=1 end
+				if count>0 then entry.hasAttributes = true end
+			end
+		end
+		table.insert(out, entry)
+	end
+	return out
+end
+local function collectInstanceCounts()
+	local counts = {}
+	for _, root in ipairs(TREE_ROOTS) do
+		local svc = game:FindService(root)
+		if svc then
+			local n = #svc:GetDescendants()
+			counts[root] = n
+		end
+	end
+	local ok, placeCount = pcall(function() return #game:GetDescendants() end)
+	if ok then counts["_total"] = placeCount end
+	return counts
+end
+local function collectAssetRefs()
+	local refs, seen = {}, {}
+	local function checkAssetProps(inst, path)
+		if #refs >= MAX_ASSET_REFS then return end
+		local probes = {"SoundId","Texture","TextureId","MeshId","AnimationId","Image","AssetId"}
+		for _, prop in ipairs(probes) do
+			local v = safeGetProp(inst, prop)
+			if type(v) == "string" and v:find("rbxasset") then
+				local key = path .. "." .. prop
+				if not seen[key] then seen[key]=true; table.insert(refs, {path=path, property=prop, value=trim(v,120)}) end
+				if #refs >= MAX_ASSET_REFS then return end
+			end
+		end
+	end
+	for _, root in ipairs(TREE_ROOTS) do
+		if #refs >= MAX_ASSET_REFS then break end
+		local svc = game:FindService(root)
+		if svc then
+			for _, desc in ipairs(svc:GetDescendants()) do
+				if #refs >= MAX_ASSET_REFS then break end
+				checkAssetProps(desc, pathOf(desc))
+			end
+		end
+	end
+	return refs
+end
+local function getLightingSummary()
+	local lighting = game:FindService("Lighting")
+	if not lighting then return nil end
+	local summary = {}
+	local clock = safeGetProp(lighting, "ClockTime")
+	if type(clock)=="number" then summary.clockTime = clock end
+	local brightness = safeGetProp(lighting, "Brightness")
+	if type(brightness)=="number" then summary.brightness = brightness end
+	local tech = safeGetProp(lighting, "Technology")
+	if tech then summary.technology = tostring(tech) end
+	return summary
+end
 local function refreshContext()
 	local selected = Selection:Get()
 	local instances, files, sourceParts, seen = {}, {}, {}, {}
 	for _, item in ipairs(selected) do table.insert(instances, pathOf(item) .. " [" .. item.ClassName .. "]") end
 	collectScripts(seen, files, sourceParts)
 	local tree = compactTree()
+	local selDetails = selectionDetailsList(selected)
+	local counts = collectInstanceCounts()
+	local assets = collectAssetRefs()
+	local lighting = getLightingSummary()
 	currentContext = {
 		place = { name = tostring(game.Name), placeId = tostring(game.PlaceId), services = TREE_ROOTS },
 		selection = instances,
+		selectionDetails = selDetails,
 		workspaceTree = tree,
 		scripts = files,
 		architecture = trim(table.concat(sourceParts, "\n\n"), MAX_CONTEXT),
-		constraints = {"Use the current Roblox Studio selection as context.", "workspaceTree is the live Studio explorer — you can see the whole place.", "scripts lists every Lua source LUA-X could read; architecture holds their full source.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence."},
+		instanceCounts = counts,
+		assetReferences = assets,
+		lighting = lighting,
+		screenCaptureAvailable = false,
+		constraints = {"Use the current Roblox Studio selection as context.", "workspaceTree is the live Studio explorer — you can see the whole place.", "scripts lists every Lua source LUA-X could read; architecture holds their full source.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence.", "selectionDetails holds live properties for selected instances; instanceCounts is per-service descendent counts; assetReferences lists rbxasset fields."},
 	}
+	-- Adaptive trim to stay under server CONTEXT_MAX_BYTES 60000
+	local okJson, jsonStr = pcall(function() return HttpService:JSONEncode(currentContext) end)
+	if okJson and #jsonStr > 55000 then
+		local over = #jsonStr - 55000
+		local arch = currentContext.architecture or ""
+		if #arch > over + 1000 then
+			currentContext.architecture = trim(arch, math.max(4000, #arch - over - 1000))
+		else
+			-- fallback trim workspaceTree
+			local t = currentContext.workspaceTree or ""
+			if #t > over + 2000 then currentContext.workspaceTree = trim(t, math.max(2000, #t - over - 1000)) end
+		end
+	end
 	if contextBox then contextBox.Text = table.concat({"SELECTIONS  " .. #selected, "SCRIPTS     " .. #files, "TREE        " .. select(2, tree:gsub("\n", "\n")) + 1 .. " nodes", "", "TREE", #tree > 0 and trim(tree, 1500) or "(empty)", #files > 0 and ("\nSCRIPTS\n" .. table.concat(files, "\n")) or ""}, "\n") end
 	if selectionLabel then selectionLabel.Text = tostring(#selected) .. " selected" end
 	contextDirty = true
@@ -591,7 +703,16 @@ local function generatePlan()
 	local prompt = tostring(promptBox.Text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if #prompt < 2 then setStatus("Describe the change first.", "bad"); return end
 	busy = true; applyArmed = false; applyButton.Text = "Apply Changes"; refreshContext(); setStatus("LUA-X is generating a structured plan…", "warn")
-	local ok, response = safe("POST", saveEndpoint(), {prompt=prompt, projectId=tostring(game.PlaceId), mode="build", context=currentContext}, 3)
+	local history = {}
+	for i = math.max(1, #chatHistory - 10), #chatHistory do
+		local entry = chatHistory[i]
+		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and type(entry.text) == "string" then
+			table.insert(history, {role = entry.role, content = entry.text})
+		end
+	end
+	local payload = {prompt=prompt, projectId=tostring(game.PlaceId), mode="build", context=currentContext, history=history}
+	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
+	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
 	if not ok then
 		if response and response.StatusCode == 401 then
@@ -629,6 +750,18 @@ local function applyPlan()
 	for _, proposal in ipairs(changes) do local ok, result=applyProposal(proposal); if ok then success+=1; table.insert(results,"OK   "..result) else failed+=1; table.insert(results,"FAIL "..result) end end
 	ChangeHistoryService:SetWaypoint("LUA-X · After Apply"); busy=false; applyButton.Text="Apply Changes"; planBox.Text=table.concat(results,"\n")
 	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed==0 and "good" or "bad")
+	if not disconnected then
+		local summary = type(currentPlan) == "table" and type(currentPlan.summary) == "string" and currentPlan.summary or "Plan"
+		pcall(function()
+			safe("POST", rootUrl() .. "/api/studio/apply", {
+				sessionId = sessionId,
+				planSummary = summary,
+				success = success,
+				failed = failed,
+				results = results,
+			}, 1)
+		end)
+	end
 end
 
 local function codeSegments(text)

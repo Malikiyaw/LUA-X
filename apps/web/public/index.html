@@ -49,6 +49,38 @@
           </div>
           <div class="composer-note" id="composer-note">LUA-X answers with plain text and Luau code. Nothing is pushed to Studio automatically.</div>
         </div>
+        <div class="plugin-card studio-vision hidden" id="studio-vision">
+          <div class="plugin-card-head">
+            <div class="plugin-logo small">👁</div>
+            <div class="plugin-title"><strong>Studio Vision</strong><span id="vision-subtitle">Live — Explorer + Selection + Assets</span></div>
+            <span class="plugin-status" id="vision-status">Offline</span>
+          </div>
+          <div class="vision-grid">
+            <div class="vision-col">
+              <b>Explorer (preview)</b>
+              <pre class="vision-tree" id="vision-tree">— waiting for Studio…</pre>
+              <small id="vision-tree-meta">—</small>
+            </div>
+            <div class="vision-col">
+              <b>Selection</b>
+              <div id="vision-selection">— none</div>
+              <b style="margin-top:10px;display:block">Instance Counts</b>
+              <div id="vision-counts">—</div>
+              <b style="margin-top:10px;display:block">Asset References</b>
+              <div id="vision-assets">— none</div>
+            </div>
+          </div>
+          <div class="vision-query">
+            <input id="vision-query-input" type="text" placeholder="Query workspace (e.g. Shop, ReplicatedStorage)…" />
+            <button class="ghost-button" id="vision-query-btn" type="button">Search</button>
+            <div id="vision-query-results"></div>
+          </div>
+          <div class="vision-forge">
+            <b>ForgeGUI Parity</b>
+            <small>LUA-X UI Studio vs ForgeGUI — validation + theme + responsive.</small>
+            <div id="vision-forge">Connect Studio and ask LUA-X to build a UI — score appears here.</div>
+          </div>
+        </div>
       </section>
 
       <section class="view hidden" id="view-plugins">

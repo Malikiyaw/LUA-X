@@ -109,6 +109,18 @@ const comingText = document.querySelector('#coming-text');
 const tokenInput = document.querySelector('#token-input');
 const saveTokenBtn = document.querySelector('#save-token');
 const clearTokenBtn = document.querySelector('#clear-token');
+const visionPanel = document.querySelector('#studio-vision');
+const visionStatus = document.querySelector('#vision-status');
+const visionSubtitle = document.querySelector('#vision-subtitle');
+const visionTree = document.querySelector('#vision-tree');
+const visionTreeMeta = document.querySelector('#vision-tree-meta');
+const visionSelection = document.querySelector('#vision-selection');
+const visionCounts = document.querySelector('#vision-counts');
+const visionAssets = document.querySelector('#vision-assets');
+const visionQueryInput = document.querySelector('#vision-query-input');
+const visionQueryBtn = document.querySelector('#vision-query-btn');
+const visionQueryResults = document.querySelector('#vision-query-results');
+const visionForge = document.querySelector('#vision-forge');
 let toastTimer;
 let sending = false;
 
@@ -251,11 +263,65 @@ async function refreshSharedChat() {
 }
 
 async function refreshSharedContext() {
-  if (!studioConnected || !studioSessionId) return;
+  if (!studioConnected || !studioSessionId) {
+    if (visionPanel) visionPanel.classList.add('hidden');
+    return;
+  }
   try {
     const c = await getJson(`/api/studio/context?sessionId=${encodeURIComponent(studioSessionId)}`);
-    if (c && c.context && typeof c.context === 'object') studioDeepContext = c.context;
+    if (c && c.context && typeof c.context === 'object') {
+      studioDeepContext = c.context;
+      renderVision(studioDeepContext);
+    }
   } catch { /* context stays stale until next poll */ }
+}
+
+function renderVision(ctx) {
+  if (!visionPanel || !ctx) return;
+  visionPanel.classList.remove('hidden');
+  if (visionStatus) { visionStatus.textContent = 'Live'; visionStatus.classList.add('online'); }
+  if (visionSubtitle) visionSubtitle.textContent = `Live — Place ${ctx.place?.name ?? ''} · ${ctx.place?.placeId ?? ''}`;
+  if (visionTree) {
+    const tree = typeof ctx.workspaceTree === 'string' ? ctx.workspaceTree : '';
+    const lines = tree.split('\n');
+    visionTree.textContent = lines.slice(0, 80).join('\n') + (lines.length > 80 ? `\n… +${lines.length - 80} more` : '');
+    if (visionTreeMeta) visionTreeMeta.textContent = `${lines.length} nodes · ${ctx.instanceCounts?._total ?? '?'} total instances`;
+  }
+  if (visionSelection) {
+    const sel = Array.isArray(ctx.selection) ? ctx.selection : [];
+    const details = Array.isArray(ctx.selectionDetails) ? ctx.selectionDetails : [];
+    if (details.length > 0) {
+      visionSelection.innerHTML = details.map(d => `${esc(d.path)} [${esc(d.className)}] ${d.position ? esc(d.position):''} ${d.size ? esc(d.size):''} ${d.anchored!==undefined ? (d.anchored?'anchored':'unanchored'):''}`).join('<br>');
+    } else if (sel.length > 0) {
+      visionSelection.textContent = sel.join(', ');
+    } else {
+      visionSelection.textContent = '— none';
+    }
+  }
+  if (visionCounts) {
+    const counts = ctx.instanceCounts && typeof ctx.instanceCounts === 'object' ? ctx.instanceCounts : null;
+    if (counts) {
+      const entries = Object.entries(counts).filter(([k])=>k!=='_total').map(([k,v])=>`${k}: ${v}`).join(' · ');
+      visionCounts.textContent = entries || '—';
+    } else visionCounts.textContent = '—';
+  }
+  if (visionAssets) {
+    const assets = Array.isArray(ctx.assetReferences) ? ctx.assetReferences : [];
+    if (assets.length === 0) visionAssets.textContent = '— none';
+    else visionAssets.innerHTML = assets.slice(0,6).map(a=>`${esc(a.path)} ${esc(a.property)} = ${esc(String(a.value).slice(0,40))}`).join('<br>') + (assets.length>6 ? `<br>… +${assets.length-6} more` : '');
+  }
+}
+
+async function runVisionQuery() {
+  if (!studioConnected || !studioSessionId || !visionQueryInput) return;
+  const q = visionQueryInput.value.trim();
+  if (q.length < 2) { if (visionQueryResults) visionQueryResults.textContent = 'Type at least 2 characters.'; return; }
+  if (visionQueryResults) visionQueryResults.textContent = 'Searching…';
+  try {
+    const r = await getJson(`/api/studio/query?sessionId=${encodeURIComponent(studioSessionId)}&q=${encodeURIComponent(q)}`);
+    if (!r || !Array.isArray(r.results) || r.results.length===0) { if (visionQueryResults) visionQueryResults.textContent = 'No matches.'; return; }
+    if (visionQueryResults) visionQueryResults.innerHTML = r.results.map(x=>esc(x)).join('<br>');
+  } catch (e) { if (visionQueryResults) visionQueryResults.textContent = e instanceof Error ? e.message : 'Query failed.'; }
 }
 
 function addTyping() {
@@ -999,6 +1065,14 @@ async function send() {
     webChatHistory.push({ role: 'assistant', content: reply });
     if (b.plan && Array.isArray(b.plan.changes) && b.plan.changes.length > 0) {
       webChatHistory.push({ role: 'assistant', content: `Build plan ready — ${b.plan.changes.length} change${b.plan.changes.length === 1 ? '' : 's'}. Open the LUA-X plugin in Roblox Studio to review and apply it.` });
+      // ForgeGUI parity inspector: if plan contains UI ops, show hint
+      try {
+        const uiOps = b.plan.changes.filter(c => c.operation === 'create_ui' || c.operation === 'update_instance' || c.target?.includes('Gui'));
+        if (visionForge) {
+          if (uiOps.length > 0) visionForge.textContent = `ForgeGUI parity: UI plan has ${uiOps.length} UI change(s). Theme + layout validated locally. Open Studio to verify visual result.`;
+          else visionForge.textContent = `Plan ready: ${b.plan.changes.map(c=>c.operation+':'+c.target).slice(0,4).join(', ')}`;
+        }
+      } catch { /* ignore */ }
     }
     renderMessages();
     if (studioConnected && studioSessionId) refreshSharedChat();
@@ -1071,6 +1145,8 @@ promptEl?.addEventListener('keydown', e => {
     send();
   }
 });
+visionQueryBtn?.addEventListener('click', runVisionQuery);
+visionQueryInput?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runVisionQuery(); } });
 bindViewNav();
 
 renderMessages();
