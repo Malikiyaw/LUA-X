@@ -36,9 +36,24 @@ local C = {
 	accent = Color3.fromRGB(96, 132, 186), good = Color3.fromRGB(102, 179, 124), warn = Color3.fromRGB(190, 150, 90), bad = Color3.fromRGB(201, 111, 111),
 }
 
-local toolbar = plugin:CreateToolbar("LUA-X")
-local toolbarButton = toolbar:CreateButton("LUA-X", "Open connected LUA-X Studio", "rbxassetid://14978048121")
-toolbarButton.ClickableWhenViewportHidden = true
+-- Robust toolbar creation: Studio silently hides plugins that error at load. Wrap every step in pcall.
+local toolbar, toolbarButton
+do
+	local ok, t = pcall(function() return plugin:CreateToolbar("LUA-X") end)
+	if ok and t then toolbar = t else warn("[LUA-X] CreateToolbar failed: " .. tostring(t)); toolbar = nil end
+	if toolbar then
+		local ok2, btn = pcall(function() return toolbar:CreateButton("LUA-X", "Open connected LUA-X Studio", "rbxassetid://14978048121") end)
+		if ok2 and btn then toolbarButton = btn else warn("[LUA-X] CreateButton with icon failed: " .. tostring(btn)) end
+		if not toolbarButton then
+			-- Fallback: text-only button without icon (icon asset may be blocked)
+			local ok3, btn2 = pcall(function() return toolbar:CreateButton("LUA-X", "Open connected LUA-X Studio", "") end)
+			if ok3 and btn2 then toolbarButton = btn2; warn("[LUA-X] Created fallback text button") end
+		end
+		if toolbarButton then pcall(function() toolbarButton.ClickableWhenViewportHidden = true end) end
+	end
+	if not toolbarButton then warn("[LUA-X] FATAL: toolbar button could not be created — check Output and Manage Plugins") end
+	print("[LUA-X] Plugin v" .. PLUGIN_VERSION .. " toolbar init: " .. (toolbarButton and "OK" or "FAILED"))
+end
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
 local endpointBox, tokenBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
@@ -1014,18 +1029,22 @@ local function showErrorWidget(message)
 	return errWidget
 end
 
-toolbarButton.Click:Connect(function()
-	local ok, err = pcall(function()
-		if buildWidget() then
-			widget.Enabled = not widget.Enabled
-			if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good"); task.defer(pollConversation) end
+if toolbarButton then
+	toolbarButton.Click:Connect(function()
+		local ok, err = pcall(function()
+			if buildWidget() then
+				widget.Enabled = not widget.Enabled
+				if widget.Enabled then refreshContext(); setStatus("LUA-X Studio ready.","good"); task.defer(pollConversation) end
+			end
+		end)
+		if not ok then
+			pcall(showErrorWidget, err)
+			warn("[LUA-X] startup failed: " .. tostring(err))
 		end
 	end)
-	if not ok then
-		pcall(showErrorWidget, err)
-		warn("[LUA-X] startup failed: " .. tostring(err))
-	end
-end)
+else
+	warn("[LUA-X] No toolbar button — open via Plugins → Manage Plugins → LUA-X (check Output for toolbar error)")
+end
 
 task.delay(2.5, function()
 	local ok, err = pcall(function()
