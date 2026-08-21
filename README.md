@@ -45,7 +45,7 @@ On Windows, the one-click installer locates the correct folder for you:
 .\install-plugin.ps1
 ```
 
-Manual install (Studio only loads local plugins from this exact folder with the `.plugin.lua` suffix):
+Manual install (Studio automatically loads any file ending in `.lua` placed in the Plugins folder — LUA-X installs as `LUA-X.lua`; keep the `.lua` extension, never `.lua.txt`):
 
 1. In Studio, open **Plugins** → **Manage Plugins** → **Open Plugins Folder** (opens `%USERPROFILE%\Documents\Roblox\Plugins`).
 2. Copy `LUA-X.lua` into that folder.
@@ -53,6 +53,8 @@ Manual install (Studio only loads local plugins from this exact folder with the 
 4. Open the **Plugins** tab and launch **LUA-X**.
 5. Select relevant scripts/models and describe the change in the LUA-X dock.
 6. Generate the structured plan, review it, then explicitly apply the supported script changes.
+
+**You should see a floating “LUA-X Studio” window auto-open about a second after Studio starts** — you do not even need to click the toolbar button. If nothing appears: confirm the file is named exactly `LUA-X.lua` (Windows often hides the extension and saves `LUA-X.lua.txt`, which Studio ignores), fully restart Studio, and open the **Output** window to look for `[LUA-X]` messages. You can also reopen it from the **Plugins** tab → **LUA-X** → **Open LUA-X**.
 
 Full installation and troubleshooting notes are in [`studio-plugin/README.md`](studio-plugin/README.md).
 

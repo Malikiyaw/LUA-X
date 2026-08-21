@@ -103,3 +103,10 @@ The plugin is the Studio-side adapter. The backend (`apps/api/src/studio-handler
 shared by the Vercel functions and the local API server) owns the session
 registry and command queue; the website polls status and can queue commands.
 AI orchestration happens on the backend through the NVIDIA key pool.
+## If the plugin does not appear
+
+- **Confirm the file name.** Studio only loads files whose name ends in `.lua`. If your browser saved it as `LUA-X.lua.txt` (Windows hides known extensions), rename it to `LUA-X.lua`. The installer writes the correct name for you.
+- **Use the exact folder Studio opened.** Plugins → Manage Plugins → Open Plugins Folder, then drop `LUA-X.lua` there. Then **fully close and reopen** Roblox Studio (check Task Manager for a lingering `RobloxStudioBeta.exe`).
+- **A window should auto-open.** About a second after Studio starts, a floating **LUA-X Studio** window appears. If you closed it, reopen it from the Plugins tab → LUA-X → **Open LUA-X** (the plugin also registers a modern Plugin Action).
+- **Check the Output window.** The plugin prints `[LUA-X]` diagnostics on load and on error. If you see a `[LUA-X]` error, it points at the exact cause (missing toolbar API, widget creation failure, etc.).
+- **Enable HTTP Requests** if the backend shows offline: Game Settings → Security → Allow HTTP Requests must be ON for heartbeats to reach the LUA-X API.

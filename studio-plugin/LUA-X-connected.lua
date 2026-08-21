@@ -52,8 +52,34 @@ do
 		if toolbarButton then pcall(function() toolbarButton.ClickableWhenViewportHidden = true end) end
 	end
 	if not toolbarButton then warn("[LUA-X] FATAL: toolbar button could not be created — check Output and Manage Plugins") end
-	print("[LUA-X] Plugin v" .. PLUGIN_VERSION .. " toolbar init: " .. (toolbarButton and "OK" or "FAILED"))
+	print("[LUA-X] Plugin v" .. PLUGIN_VERSION .. " loaded (toolbar: " .. (toolbarButton and "OK" or "FAILED") .. "). A LUA-X Studio window auto-opens; if you do not see it, open the Plugins tab and click LUA-X / Open LUA-X, or check this Output for [LUA-X] errors.")
 end
+-- Modern, reliable ribbon entry point. Guarantees a clickable LUA-X action in the
+-- Plugins tab even on Studio versions where the legacy toolbar button is suppressed.
+local openAction
+do
+	local okA, a = pcall(function() return plugin:CreatePluginAction("LUAX.OpenStudio", "Open LUA-X", "Open the LUA-X Studio dock", "") end)
+	if okA and a then openAction = a else warn("[LUA-X] CreatePluginAction unavailable - falling back to legacy toolbar / auto-open window") end
+end
+if openAction then
+	plugin.ActionTriggered:Connect(function(action)
+		if action == openAction then
+			local ok, err = pcall(function()
+				if buildWidget() then
+					widget.Enabled = true
+					refreshContext(); setStatus("LUA-X Studio ready.", "good"); task.defer(pollConversation)
+				end
+			end)
+			if not ok then warn("[LUA-X] open action failed: " .. tostring(err)) end
+		end
+	end)
+end
+pcall(function()
+	plugin.Activation:Connect(function()
+		if buildWidget() then widget.Enabled = true; refreshContext(); setStatus("LUA-X Studio ready.", "good") end
+	end)
+end)
+
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
 local endpointBox, tokenBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
@@ -1054,7 +1080,7 @@ else
 	warn("[LUA-X] No toolbar button — open via Plugins → Manage Plugins → LUA-X (check Output for toolbar error)")
 end
 
-task.delay(2.5, function()
+task.delay(1, function()
 	local ok, err = pcall(function()
 		if buildWidget() then
 			widget.Enabled = true
