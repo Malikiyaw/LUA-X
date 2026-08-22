@@ -19,9 +19,22 @@ import { handleGenerate } from './ai/generate-handler';
 const VERSION = '2.1.0';
 const PLUGIN_DOWNLOAD_URL = 'https://raw.githubusercontent.com/Malikiyaw/LUA-X/main/studio-plugin/LUA-X-connected.lua';
 const RATE_LIMIT_WINDOW_MS = 60_000;
-const RATE_LIMIT_MAX = 60;
+const RATE_LIMIT_MAX_GENERATE = 60;
+const RATE_LIMIT_MAX_POLL = 300;
+const RATE_LIMIT_MAX_HEALTH = 300;
 
-const rateState = new Map<string, { count: number; resetAt: number }>();
+const rateStateGenerate = new Map<string, { count: number; resetAt: number }>();
+const rateStatePoll = new Map<string, { count: number; resetAt: number }>();
+
+const POLL_PREFIXES = ['/api/studio/', '/studio/'];
+const HEALTH_PATHS = new Set(['', '/api', '/api/health', '/health', '/api/ready', '/ready', '/api/ai/status', '/ai/status', '/api/plugin/download', '/plugin/download']);
+
+function rateLimitTier(pathname: string): 'generate' | 'poll' | 'health' {
+  if (pathname === '/api/ai/generate' || pathname === '/ai/generate') return 'generate';
+  if (HEALTH_PATHS.has(pathname)) return 'health';
+  for (const prefix of POLL_PREFIXES) if (pathname.startsWith(prefix)) return 'poll';
+  return 'poll';
+}
 
 function json(status: number, body: unknown, extraHeaders: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -34,13 +47,15 @@ function getClientKey(request: Request): string {
   return rateLimitKey(request.headers, 'anonymous');
 }
 
-function consumeRateLimit(key: string) {
+function consumeRateLimit(key: string, tier: 'generate' | 'poll' | 'health') {
+  const limit = tier === 'generate' ? RATE_LIMIT_MAX_GENERATE : tier === 'poll' ? RATE_LIMIT_MAX_POLL : RATE_LIMIT_MAX_HEALTH;
+  const store = tier === 'generate' ? rateStateGenerate : tier === 'poll' ? rateStatePoll : rateStatePoll;
   const now = Date.now();
-  const existing = rateState.get(key);
+  const existing = store.get(key);
   const state = !existing || existing.resetAt <= now ? { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS } : existing;
   state.count += 1;
-  rateState.set(key, state);
-  return { allowed: state.count <= RATE_LIMIT_MAX, remaining: Math.max(0, RATE_LIMIT_MAX - state.count), resetAt: state.resetAt };
+  store.set(key, state);
+  return { allowed: state.count <= limit, remaining: Math.max(0, limit - state.count), resetAt: state.resetAt, limit };
 }
 
 function getCorsOrigin(request: Request): string {
@@ -85,22 +100,22 @@ async function handler(request: Request): Promise<Response> {
       });
     }
 
-    const rate = consumeRateLimit(getClientKey(request));
+    const url = new URL(request.url);
+    const pathname = url.pathname.replace(/\/$/, '');
+    const tier = rateLimitTier(pathname);
+    const rate = consumeRateLimit(getClientKey(request), tier);
     const rateHeaders = {
-      'x-ratelimit-limit': String(RATE_LIMIT_MAX),
+      'x-ratelimit-limit': String(rate.limit),
       'x-ratelimit-remaining': String(rate.remaining),
       'x-ratelimit-reset': String(Math.ceil(rate.resetAt / 1000)),
     };
     if (!rate.allowed) {
-      return json(429, { error: 'Rate limit exceeded.', requestId: id }, {
+      return json(429, { error: 'Rate limit exceeded.', requestId: id, tier }, {
         ...common,
         ...rateHeaders,
         'retry-after': String(Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000))),
       });
     }
-
-    const url = new URL(request.url);
-    const pathname = url.pathname.replace(/\/$/, '');
 
     if (request.method === 'GET' && (pathname === '' || pathname === '/api' || pathname === '/api/health' || pathname === '/health')) {
       return json(200, { service: 'lua-x-api', status: 'ok', version: VERSION }, { ...common, ...rateHeaders });
