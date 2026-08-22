@@ -1373,17 +1373,19 @@ local function localSuggestions()
 end
 
 function renderChat()
-	if not chatList then return end
+	if not chatScroller or not chatList then return end
 	suggestionRows = {}
 	suggestionIndex = 0
-	for _, child in ipairs(chatList:GetChildren()) do child:Destroy() end
+	for _, child in ipairs(chatScroller:GetChildren()) do
+		if child ~= chatList and child:IsA("GuiObject") then child:Destroy() end
+	end
 	local lastAssistantAt = 0
 	for index, entry in ipairs(chatHistory) do
 		if entry.role == "assistant" and not entry.system then lastAssistantAt = index end
 	end
 	for index, entry in ipairs(chatHistory) do
 		if entry.role == "user" then
-			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
+			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatScroller)
 			local bubble = round(ui("Frame", {Position = UDim2.new(0.10, 0, 0, 0), Size = UDim2.new(0.90, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.userBubble, BorderSizePixel = 0}, row), 9)
 			stroke(bubble)
 			ui("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)}, bubble)
@@ -1392,10 +1394,10 @@ function renderChat()
 		elseif entry.system then
 			local lineText = tostring(entry.text)
 			local isFail = string.sub(lineText, 1, 4) == "FAIL"
-			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "· " .. trim(lineText, 170), Font = Enum.Font.Code, TextSize = 9, TextColor3 = isFail and C.bad or C.good, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = index}, chatList)
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "· " .. trim(lineText, 170), Font = Enum.Font.Code, TextSize = 9, TextColor3 = isFail and C.bad or C.good, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = index}, chatScroller)
 		else
 			local bodyText = tostring(entry.text)
-			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
+			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatScroller)
 			local section = round(ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, BorderSizePixel = 0}, row), 9)
 			stroke(section)
 			local headerBtn = ui("TextButton", {Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, Text = "", AutoButtonColor = false}, section)
@@ -1473,7 +1475,7 @@ function renderChat()
 			end
 		end
 		if index == lastAssistantAt and #lastSuggestions > 0 then
-			local srow = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index + 0.5}, chatList)
+			local srow = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index + 0.5}, chatScroller)
 			ui("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, srow)
 			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 13), BackgroundTransparency = 1, Text = "SUGGESTED NEXT  (Tab fills · Enter picks)", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, srow)
 			for si, s in ipairs(lastSuggestions) do

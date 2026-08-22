@@ -16,14 +16,15 @@ import {
 } from '../studio-handler';
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
-const ARCHITECT_MODELS = [
+const CHAT_MODELS = [
+  'meta/llama-3.1-8b-instruct',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'meta/llama-3.1-8b-instruct',
 ];
+const ARCHITECT_MODELS = CHAT_MODELS;
 const BUILDER_MODELS = [
-  'nvidia/llama-3.3-nemotron-super-49b-v1',
   'meta/llama-3.1-8b-instruct',
+  'nvidia/llama-3.3-nemotron-super-49b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
 ];
 const DEFAULT_VISION_MODEL = 'meta/llama-3.2-90b-vision-instruct';
@@ -1065,8 +1066,8 @@ export async function handleGenerate(request: Request): Promise<Response> {
       const content = await callModelResilient({
         baseUrl,
         models: (process.env.NVIDIA_MODEL?.trim()
-          ? [process.env.NVIDIA_MODEL.trim(), ...ARCHITECT_MODELS.filter(m => m !== process.env.NVIDIA_MODEL!.trim())]
-          : ARCHITECT_MODELS),
+          ? [process.env.NVIDIA_MODEL.trim(), ...CHAT_MODELS.filter(m => m !== process.env.NVIDIA_MODEL!.trim())]
+          : CHAT_MODELS),
         apiKeys,
         messages: [
           { role: 'system', content: CHAT_SYSTEM_PROMPT },
