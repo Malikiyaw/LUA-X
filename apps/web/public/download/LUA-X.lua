@@ -1400,7 +1400,7 @@ function renderChat()
 			stroke(section)
 			local headerBtn = ui("TextButton", {Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, Text = "", AutoButtonColor = false}, section)
 			local chevron = ui("TextLabel", {Position = UDim2.new(1, -20, 0, 6), Size = UDim2.new(0, 14, 0, 12), BackgroundTransparency = 1, Text = "▾", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.muted}, headerBtn)
-			ui("TextLabel", {Position = UDim2.new(0, 11, 0, 6), Size = UDim2.new(1, -58, 0, 13), BackgroundTransparency = 1, Text = "LUA-X · " .. trim((bodyText:gsub("\n.*", "")), 46) .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, headerBtn)
+			ui("TextLabel", {Position = UDim2.new(0, 11, 0, 6), Size = UDim2.new(1, -58, 0, 13), BackgroundTransparency = 1, Text = "LUA-X · " .. trim((bodyText:gsub("\n.*", "")), 46) .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, headerBtn)
 			local bodyHolder = ui("Frame", {Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1}, section)
 			ui("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, bodyHolder)
 			ui("UIPadding", {PaddingLeft = UDim.new(0, 0), PaddingBottom = UDim.new(0, 9)}, bodyHolder)
@@ -1442,13 +1442,13 @@ function renderChat()
 				local card = round(ui("Frame", {Size = UDim2.new(1, -20, 0, cardH), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = C.planCard, BorderSizePixel = 0, LayoutOrder = 900}, bodyHolder), 8)
 				stroke(card)
 				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 8), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.good, TextXAlignment = Enum.TextXAlignment.Left, Text = string.format("BUILD PLAN · %d change%s", #plan.changes, #plan.changes == 1 and "" or "s")}, card)
-				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 24), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd, Text = tostring(plan.summary or "")}, card)
+				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 24), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = tostring(plan.summary or "")}, card)
 				for ci = 1, shown do
 					local ch = plan.changes[ci]
 					if type(ch) == "table" then
 						local cy = 42 + (ci - 1) * 16
 						ui("TextLabel", {Position = UDim2.new(0, 11, 0, cy), Size = UDim2.new(0, 24, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 9, TextColor3 = RISK_COLORS[ch.risk] or C.muted, TextXAlignment = Enum.TextXAlignment.Left, Text = OP_GLYPHS[ch.operation] or "?"}, card)
-						ui("TextLabel", {Position = UDim2.new(0, 37, 0, cy), Size = UDim2.new(1, -48, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd, Text = tostring(ch.target)}, card)
+						ui("TextLabel", {Position = UDim2.new(0, 37, 0, cy), Size = UDim2.new(1, -48, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = tostring(ch.target)}, card)
 					end
 				end
 				if #plan.changes > shown then
@@ -1612,7 +1612,7 @@ function renderChips()
 	for ci, chip in ipairs(contextChips) do
 		local chipFrame = round(ui("Frame", {Size = UDim2.new(0, math.min(240, 40 + #tostring(chip.label) * 5), 0, 20), BackgroundColor3 = C.chip, BorderSizePixel = 0, LayoutOrder = ci}, chipsRow), 10)
 		stroke(chipFrame)
-		ui("TextLabel", {Position = UDim2.new(0, 9, 0, 3), Size = UDim2.new(1, -26, 0, 14), BackgroundTransparency = 1, Text = tostring(chip.label), Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, chipFrame)
+		ui("TextLabel", {Position = UDim2.new(0, 9, 0, 3), Size = UDim2.new(1, -26, 0, 14), BackgroundTransparency = 1, Text = tostring(chip.label), Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, chipFrame)
 		local removeBtn = ui("TextButton", {Position = UDim2.new(1, -18, 0, 3), Size = UDim2.new(0, 14, 0, 14), BackgroundTransparency = 1, Text = "×", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C.muted}, chipFrame)
 		removeBtn.MouseButton1Click:Connect(function()
 			table.remove(contextChips, ci)
@@ -1716,7 +1716,7 @@ local function buildWidget()
 
 	-- ===== composer =====
 	pulseDot = round(ui("Frame", {Position = UDim2.new(0, 12, 1, -128), Size = UDim2.new(0, 7, 0, 7), BackgroundColor3 = C.accent, BorderSizePixel = 0}, root), 4)
-	statusLabel = ui("TextLabel", {Position = UDim2.new(0, 26, 1, -134), Size = UDim2.new(1, -38, 0, 20), BackgroundTransparency = 1, Text = "Connected bridge starting…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, root)
+	statusLabel = ui("TextLabel", {Position = UDim2.new(0, 26, 1, -134), Size = UDim2.new(1, -38, 0, 20), BackgroundTransparency = 1, Text = "Connected bridge starting…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, root)
 	chipsRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -112), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1}, root)
 	ui("UIListLayout", {Padding = UDim.new(0, 6), FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder}, chipsRow)
 	chipsHint = ui("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "Tip: Quote a reply or press FOCUS SEL to steer the agents' context.", Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, chipsRow)
