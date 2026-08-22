@@ -1,10 +1,10 @@
--- LUA-X Studio Plugin 2.0.0
--- Twin-AI connected bridge: ARCHITECT + BUILDER agents, heartbeat, website commands,
--- chat pane, shared web<->plugin conversations, full workspace vision (explorer tree +
--- script source + remote map), real screenshot vision (StudioCaptureService), AI planning,
--- safe apply of scripts AND real Roblox instances (UI trees, animation keyframes, sound,
--- VFX, lighting, terrain, constraints, attributes, tags), connection card, disconnect/
--- reconnect, live agent activity, and startup diagnostics.
+-- LUA-X Studio Plugin 2.1.0
+-- Unified twin-AI chat bridge (reference-style single-surface UI):
+-- header bar with quick actions, toast stack, collapsible assistant sections,
+-- rich-text highlights, plan cards with in-chat two-step Apply, AI follow-up
+-- suggestions with keyboard navigation, context chips composer, model pill,
+-- manual vision capture, live ARCHITECT/BUILDER status line, and full v2.0
+-- systems (vision loop, heartbeat, shared conversations, safe appliers).
 --
 -- Reliability rules for this file:
 --   * NEVER call game:GetService on a service that may not exist at top level without a guard.
@@ -33,7 +33,7 @@ if not HttpService then
 	return
 end
 
-local PLUGIN_VERSION = "2.0.0"
+local PLUGIN_VERSION = "2.1.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -53,9 +53,12 @@ local MAX_ASSET_REFS = 24
 local TREE_ROOTS = {"Workspace", "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterPlayer", "StarterGui", "Lighting", "SoundService", "ReplicatedFirst", "Teams"}
 
 local C = {
-	bg = Color3.fromRGB(9, 11, 17), panel = Color3.fromRGB(17, 20, 29), field = Color3.fromRGB(26, 30, 41),
-	stroke = Color3.fromRGB(45, 51, 68), text = Color3.fromRGB(245, 247, 255), muted = Color3.fromRGB(153, 162, 181),
-	accent = Color3.fromRGB(96, 132, 186), good = Color3.fromRGB(102, 179, 124), warn = Color3.fromRGB(190, 150, 90), bad = Color3.fromRGB(201, 111, 111),
+	bg = Color3.fromRGB(16, 17, 22), panel = Color3.fromRGB(26, 28, 36), field = Color3.fromRGB(34, 37, 47),
+	hover = Color3.fromRGB(42, 46, 58), stroke = Color3.fromRGB(52, 56, 70),
+	text = Color3.fromRGB(240, 242, 248), muted = Color3.fromRGB(148, 155, 172), faint = Color3.fromRGB(104, 111, 128),
+	accent = Color3.fromRGB(59, 130, 246), accentSoft = Color3.fromRGB(38, 84, 168),
+	good = Color3.fromRGB(88, 190, 125), warn = Color3.fromRGB(214, 164, 86), bad = Color3.fromRGB(224, 106, 106),
+	userBubble = Color3.fromRGB(31, 40, 62), planCard = Color3.fromRGB(24, 34, 30), chip = Color3.fromRGB(44, 48, 60),
 }
 
 -- Robust toolbar creation: Studio silently hides plugins that error at load. Wrap every step in pcall.
@@ -89,14 +92,19 @@ end
 
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
-local endpointBox, tokenBox, promptBox, contextBox, planBox, applyButton, selectionLabel, activityLabel
+local endpointBox, tokenBox, contextBox
 local websiteChip, aiChip, errorLabel
 local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton
-local chatModeButton, buildModeButton, chatPanel, buildPanel, chatScroller, chatList, chatInput, chatSend, chatSyncLabel, typingLabel
+local chatScroller, chatList, chatInput, chatSend, chatSyncLabel
 local currentPlan, currentContext = nil, {}
 local chatHistory = {}
-local currentMode = "chat"
 local busy, applyArmed, disconnected = false, false, false
+-- v2.1 unified-chat state
+local autoContext = true
+local lastSuggestions = {}
+local contextChips = {}
+local sendChat -- forward-declared; assigned below (web build commands + suggestion clicks use it)
+local showToast, chatArea, toastHost, renderChat -- forward-declared v2.1 UI helpers
 local lastClaimedRequest = nil
 local sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
@@ -641,19 +649,10 @@ local function startupDiagnostics()
 	return regOk
 end
 
-local function setMode(mode)
-	currentMode = mode
-	if chatPanel then chatPanel.Visible = mode == "chat" end
-	if buildPanel then buildPanel.Visible = mode == "build" end
-	if chatModeButton then chatModeButton.BackgroundColor3 = mode == "chat" and C.accent or C.field end
-	if buildModeButton then buildModeButton.BackgroundColor3 = mode == "build" and C.accent or C.field end
-	if chatModeButton then chatModeButton.TextColor3 = mode == "chat" and C.text or C.muted end
-	if buildModeButton then buildModeButton.TextColor3 = mode == "build" and C.text or C.muted end
-end
-
 local function verifyLocal()
-	local count = #Selection:Get(); local scripts = #selectedScripts(); local ops = type(currentPlan)=="table" and type(currentPlan.changes)=="table" and #currentPlan.changes or 0
-	planBox.Text = table.concat({"LUA-X VERIFICATION","","Plugin:    LUA-X " .. PLUGIN_VERSION,"Endpoint: " .. endpoint(),"Session:  " .. sessionId,"Place:    " .. tostring(game.PlaceId),"Selected: " .. count,"Scripts:  " .. scripts,"Plan ops: " .. ops,"","Plugin health verified. Runtime playtest not claimed."},"\n")
+	local count = #Selection:Get()
+	local scripts = #selectedScripts()
+	showToast("Verified · " .. count .. " selected · " .. scripts .. " scripts readable", "good")
 	setStatus("Studio-side verification complete.", "good")
 end
 
@@ -669,10 +668,9 @@ local function pollCommands()
 	elseif command.type == "verify" then verifyLocal(); setStatus("Verify requested by website · done.", "good")
 	elseif command.type == "stop" then setStatus("Stop requested by website · idle.", "warn")
 	elseif command.type == "build" and type(command.prompt) == "string" then
-		setMode("build")
-		promptBox.Text = command.prompt
-		setStatus("Build request received from LUA-X web.", "good")
-		task.defer(function() if promptBox and promptBox.Parent then promptBox:CaptureFocus() end end)
+		showToast("Build request from LUA-X web", "warn")
+		setStatus("Build request received from LUA-X web — running twin agents…", "good")
+		if sendChat then task.defer(function() pcall(sendChat, "/build " .. tostring(command.prompt)) end) end
 	end
 end
 
@@ -1201,60 +1199,39 @@ local function applyProposal(proposal)
 	return false, "unsupported operation: " .. tostring(op)
 end
 
-local function generatePlan()
+-- Two-step armed apply bound to an individual plan card inside the chat.
+local function applyPlanCard(plan, button)
 	if busy then return end
-	local prompt = tostring(promptBox.Text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-	if #prompt < 2 then setStatus("Describe the change first.", "bad"); return end
-	busy = true; applyArmed = false; applyButton.Text = "Apply Changes"; refreshContext(); setStatus("LUA-X is generating a structured plan…", "warn")
-	local history = {}
-	for i = math.max(1, #chatHistory - 10), #chatHistory do
-		local entry = chatHistory[i]
-		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and type(entry.text) == "string" then
-			table.insert(history, {role = entry.role, content = entry.text})
-		end
+	if type(plan) ~= "table" or type(plan.changes) ~= "table" then setStatus("No plan on this card.", "bad"); return end
+	local changes = {}
+	for _, proposal in ipairs(plan.changes) do
+		if type(proposal) == "table" and proposal.operation ~= "note" then table.insert(changes, proposal) end
 	end
-	local payload = {prompt=prompt, projectId=tostring(game.PlaceId), mode="build", context=currentContext, history=history}
-	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
-	local ok, response = safe("POST", saveEndpoint(), payload, 3)
-	busy = false
-	if not ok then
-		if response and response.StatusCode == 401 then
-			setStatus("Authorization rejected — add your LUA-X API token and Save Token.", "bad")
-		else
-			setStatus("Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable"), "bad")
-		end
-		warn("[LUA-X] " .. (response and bodyError(response) or "request failed")); return
-	end
-	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
-	if not dOk or type(data) ~= "table" then setStatus("Backend returned invalid JSON.", "bad"); return end
-	if data.error then setStatus("LUA-X: " .. tostring(data.error), "bad"); return end
-	if type(data.plan) ~= "table" or type(data.plan.changes) ~= "table" then
-		if type(data.rawText) == "string" and data.rawText ~= "" then
-			planBox.Text = "LUA-X returned a non-plan response:\n\n" .. trim(data.rawText, 2600)
-			setStatus("AI response was not a valid plan — review raw text.", "warn")
-		else
-			setStatus("No valid change plan returned.", "bad")
-		end
+	if #changes == 0 then setStatus("No automatically applicable changes.", "warn"); return end
+	if not button.Armed then
+		button.Armed = true
+		button.Text = "Confirm Apply  ·  " .. #changes
+		setStatus("Review the change set, then confirm.", "warn")
 		return
 	end
-	currentPlan = data.plan
-	planBox.Text = HttpService:JSONEncode(data.plan)
-	setStatus("Plan ready · review before applying.", "good")
-end
-local function applyPlan()
-	if busy then return end
-	if type(currentPlan) ~= "table" or type(currentPlan.changes) ~= "table" then setStatus("Generate a plan first.", "bad"); return end
-	local changes = {}
-	for _, proposal in ipairs(currentPlan.changes) do if type(proposal)=="table" and proposal.operation ~= "note" then table.insert(changes, proposal) end end
-	if #changes == 0 then setStatus("No automatically applicable changes.", "warn"); return end
-	if not applyArmed then applyArmed=true; applyButton.Text="Confirm Apply  ·  " .. #changes; setStatus("Review the change set, then confirm.", "warn"); return end
-	busy=true; applyArmed=false; applyButton.Text="Applying…"; ChangeHistoryService:SetWaypoint("LUA-X · Before Apply")
+	busy = true; button.Armed = false; button.Text = "Applying…"
+	pcall(function() ChangeHistoryService:SetWaypoint("LUA-X · Before Apply") end)
 	local success, failed, results = 0, 0, {}
-	for _, proposal in ipairs(changes) do local ok, result=applyProposal(proposal); if ok then success = success + 1; table.insert(results,"OK   "..result) else failed = failed + 1; table.insert(results,"FAIL "..result) end end
-	ChangeHistoryService:SetWaypoint("LUA-X · After Apply"); busy=false; applyButton.Text="Apply Changes"; planBox.Text=table.concat(results,"\n")
-	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed==0 and "good" or "bad")
+	for _, proposal in ipairs(changes) do
+		local ok, result = applyProposal(proposal)
+		if ok then success = success + 1; table.insert(results, "OK   " .. tostring(result))
+		else failed = failed + 1; table.insert(results, "FAIL " .. tostring(result)) end
+	end
+	pcall(function() ChangeHistoryService:SetWaypoint("LUA-X · After Apply") end)
+	busy = false; button.Text = "Apply Changes"
+	for _, line in ipairs(results) do
+		table.insert(chatHistory, {role = "assistant", text = line, system = true})
+	end
+	renderChat()
+	showToast(string.format("Applied %d · failed %d", success, failed), failed == 0 and "good" or "bad")
+	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed == 0 and "good" or "bad")
 	if not disconnected then
-		local summary = type(currentPlan) == "table" and type(currentPlan.summary) == "string" and currentPlan.summary or "Plan"
+		local summary = type(plan.summary) == "string" and plan.summary or "Plan"
 		pcall(function()
 			safe("POST", rootUrl() .. "/api/studio/apply", {
 				sessionId = sessionId,
@@ -1265,6 +1242,34 @@ local function applyPlan()
 			}, 1)
 		end)
 	end
+end
+
+-- ===== v2.1 unified-chat helpers =====
+local function escRich(s)
+	local out = tostring(s)
+	out = out:gsub("&", "&amp;")
+	out = (out:gsub("<", "&lt;"))
+	out = (out:gsub(">", "&gt;"))
+	return out
+end
+
+-- Tint game paths and `code spans` accent-blue for RichText labels.
+local function richHighlight(text)
+	local out = escRich(text)
+	out = (out:gsub("`(.-)`", "<font color=\"#7fb0ff\">%1</font>"))
+	out = (out:gsub("(game%.[%w%.]+)", "<font color=\"#7fb0ff\"><u>%1</u></font>"))
+	return out
+end
+
+function showToast(text, kind)
+	if not toastHost then return end
+	local color = kind == "good" and C.good or kind == "bad" and C.bad or kind == "warn" and C.warn or C.accent
+	local card = round(ui("Frame", {Size = UDim2.new(0, 250, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, BorderSizePixel = 0}, toastHost), 10)
+	stroke(card)
+	ui("TextLabel", {Position = UDim2.new(0, 12, 0, 9), Size = UDim2.new(1, -24, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = tostring(text), Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = color, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left}, card)
+	task.delay(4.5, function()
+		pcall(function() card:Destroy() end)
+	end)
 end
 
 local function codeSegments(text)
@@ -1293,7 +1298,7 @@ local copyOverlay, copyBoxText
 local function showCopyOverlay(text)
 	if not widget then return end
 	if not copyOverlay then
-		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false}, chatScroller and chatPanel or widget), 6)
+		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false}, chatArea or widget), 6)
 		ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -16, 0, 16), BackgroundTransparency = 1, Text = "CODE — press Ctrl+C to copy, then close", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, copyOverlay)
 		copyBoxText = ui("TextBox", {Position = UDim2.new(0, 8, 0, 22), Size = UDim2.new(1, -16, 1, -30), BackgroundColor3 = Color3.fromRGB(8, 10, 16), BorderSizePixel = 0, TextColor3 = Color3.fromRGB(205, 217, 240), Font = Enum.Font.Code, TextSize = 10, ClearTextOnFocus = false, TextWrapped = true, MultiLine = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = ""}, copyOverlay)
 		round(copyBoxText, 5)
@@ -1318,51 +1323,185 @@ local function stripLangTag(text)
 	if first and #first <= 16 and first:match("^%a+$") then return rest end
 	return text
 end
-local function renderChat()
+-- ===== v2.1 unified chat renderer =====
+local suggestionRows = {}
+local suggestionIndex = 0
+local chipsRow, chipsHint
+local renderChips
+local pulseDot, modelPill
+local settingsDrawer
+
+local OP_GLYPHS = {
+	create_script = "+s", update_script = "~s", delete_script = "-",
+	create_instance = "+i", update_instance = "~i",
+	create_animation = "A", create_sound = "S", create_vfx = "V", create_ui = "U",
+	configure_lighting = "L", create_terrain_region = "T", create_constraint = "C",
+	set_attributes = "@", add_tags = "#+", remove_tags = "#-",
+	reparent_instance = ">r", rename_instance = ">n", clone_instance = ">c",
+	create_keyframes = "K", note = "i",
+}
+local RISK_COLORS = { low = C.good, medium = C.warn, high = Color3.fromRGB(232, 140, 120), critical = C.bad }
+
+local function timeBadge(entry)
+	if type(entry.at) == "number" then
+		local ok, stamp = pcall(os.date, "%H:%M", entry.at / 1000)
+		if ok and type(stamp) == "string" then return " · " .. stamp end
+	end
+	return ""
+end
+
+local function highlightSuggestions()
+	for i, row in ipairs(suggestionRows) do
+		pcall(function() row.BackgroundColor3 = (i == suggestionIndex) and C.hover or C.panel end)
+	end
+end
+
+local function localSuggestions()
+	local out = {}
+	if type(currentPlan) == "table" and type(currentPlan.summary) == "string" then
+		out[#out + 1] = "Explain this plan step by step"
+		out[#out + 1] = "Make it exploit-safe"
+	end
+	local sel = Selection:Get()
+	if #sel > 0 and sel[1] ~= nil then
+		out[#out + 1] = "Improve the selected " .. sel[1].ClassName
+	else
+		out[#out + 1] = "What can you build in my game right now?"
+	end
+	while #out > 3 do table.remove(out, #out) end
+	return out
+end
+
+function renderChat()
 	if not chatList then return end
+	suggestionRows = {}
+	suggestionIndex = 0
 	for _, child in ipairs(chatList:GetChildren()) do child:Destroy() end
+	local lastAssistantAt = 0
 	for index, entry in ipairs(chatHistory) do
-		local isUser = entry.role == "user"
-		local when = type(entry.at) == "number" and os.date("%H:%M", entry.at / 1000) or nil
-		local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
-		ui("TextLabel", {Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, Text = (isUser and "YOU" or "LUA-X") .. (when and (" · " .. when) or ""), Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = isUser and C.accent or C.muted, TextXAlignment = isUser and Enum.TextXAlignment.Right or Enum.TextXAlignment.Left}, row)
-		for _, segment in ipairs(codeSegments(entry.text)) do
-			local bubble
-			if segment.code then
-				local codeText = stripLangTag(segment.text)
-				bubble = round(ui("Frame", {Position = isUser and UDim2.new(0.18, 0, 0, 0) or UDim2.new(0, 0, 0, 0), Size = isUser and UDim2.new(0.82, 0, 0, 0) or UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = Color3.fromRGB(10, 13, 20), BorderSizePixel = 0}, row), 7)
-				stroke(bubble)
-				local bar = ui("Frame", {Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = Color3.fromRGB(15, 19, 28), BorderSizePixel = 0}, bubble)
-				ui("UICorner", {CornerRadius = UDim.new(0, 7)}, bar)
-				ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -60, 0, 14), BackgroundTransparency = 1, Text = "lua · code", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, bar)
-				local copy = round(ui("TextButton", {Position = UDim2.new(1, -52, 0, 2), Size = UDim2.new(0, 46, 0, 18), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy", Font = Enum.Font.GothamMedium, TextSize = 8, TextColor3 = C.text}, bar), 4)
-				local codeScroll = round(ui("ScrollingFrame", {Position = UDim2.new(0, 8, 0, 26), Size = UDim2.new(1, -16, 0, 150), BackgroundColor3 = Color3.fromRGB(8, 10, 16), BorderSizePixel = 0, ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y}, bubble), 4)
-				ui("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, codeScroll)
-				ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 10, TextColor3 = Color3.fromRGB(205, 217, 240), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = codeText}, codeScroll)
-				copy.MouseButton1Click:Connect(function() copyCode(codeText) end)
-				task.defer(function()
-					pcall(function()
-						if codeScroll then codeScroll.CanvasPosition = Vector2.new(0, 0) end
-					end)
-				end)
-			else
-				local cleaned = segment.text:gsub("^%s+", ""):gsub("%s+$", "")
-				if cleaned ~= "" then
-					bubble = round(ui("TextLabel", {Position = isUser and UDim2.new(0.18, 0, 0, 0) or UDim2.new(0, 0, 0, 0), Size = isUser and UDim2.new(0.82, 0, 0, 0) or UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = isUser and Color3.fromRGB(24, 32, 48) or C.panel, BorderSizePixel = 0, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = cleaned}, row), 7)
-					stroke(bubble)
+		if entry.role == "assistant" and not entry.system then lastAssistantAt = index end
+	end
+	for index, entry in ipairs(chatHistory) do
+		if entry.role == "user" then
+			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
+			local bubble = round(ui("Frame", {Position = UDim2.new(0.10, 0, 0, 0), Size = UDim2.new(0.90, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.userBubble, BorderSizePixel = 0}, row), 9)
+			stroke(bubble)
+			ui("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)}, bubble)
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, Text = "YOU" .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, bubble)
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = tostring(entry.text), Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top}, bubble)
+		elseif entry.system then
+			local lineText = tostring(entry.text)
+			local isFail = string.sub(lineText, 1, 4) == "FAIL"
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "· " .. trim(lineText, 170), Font = Enum.Font.Code, TextSize = 9, TextColor3 = isFail and C.bad or C.good, TextXAlignment = Enum.TextXAlignment.Left, LayoutOrder = index}, chatList)
+		else
+			local bodyText = tostring(entry.text)
+			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatList)
+			local section = round(ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, BorderSizePixel = 0}, row), 9)
+			stroke(section)
+			local headerBtn = ui("TextButton", {Size = UDim2.new(1, 0, 0, 24), BackgroundTransparency = 1, Text = "", AutoButtonColor = false}, section)
+			local chevron = ui("TextLabel", {Position = UDim2.new(1, -20, 0, 6), Size = UDim2.new(0, 14, 0, 12), BackgroundTransparency = 1, Text = "▾", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.muted}, headerBtn)
+			ui("TextLabel", {Position = UDim2.new(0, 11, 0, 6), Size = UDim2.new(1, -58, 0, 13), BackgroundTransparency = 1, Text = "LUA-X · " .. trim((bodyText:gsub("\n.*", "")), 46) .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, headerBtn)
+			local bodyHolder = ui("Frame", {Position = UDim2.new(0, 0, 0, 24), Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1}, section)
+			ui("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, bodyHolder)
+			ui("UIPadding", {PaddingLeft = UDim.new(0, 0), PaddingBottom = UDim.new(0, 9)}, bodyHolder)
+
+			if entry.open == nil then entry.open = (#bodyText <= 520) end
+			local function setBodyVisible(visible)
+				bodyHolder.Visible = visible
+				chevron.Text = visible and "▾" or "▸"
+			end
+			setBodyVisible(entry.open ~= false)
+			headerBtn.MouseButton1Click:Connect(function()
+				entry.open = not bodyHolder.Visible
+				setBodyVisible(entry.open)
+			end)
+
+			for segIndex, segment in ipairs(codeSegments(bodyText)) do
+				if segment.code then
+					local codeText = stripLangTag(segment.text)
+					local codeCard = round(ui("Frame", {Size = UDim2.new(1, -20, 0, 150), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = Color3.fromRGB(12, 14, 19), BorderSizePixel = 0, LayoutOrder = segIndex}, bodyHolder), 7)
+					stroke(codeCard)
+					local bar = ui("Frame", {Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.hover, BorderSizePixel = 0}, codeCard)
+					ui("UICorner", {CornerRadius = UDim.new(0, 7)}, bar)
+					ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -110, 0, 14), BackgroundTransparency = 1, Text = "lua · code", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, bar)
+					local copyBtn = round(ui("TextButton", {Position = UDim2.new(1, -52, 0, 2), Size = UDim2.new(0, 44, 0, 18), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy", Font = Enum.Font.GothamMedium, TextSize = 8, TextColor3 = C.text}, bar), 4)
+					copyBtn.MouseButton1Click:Connect(function() copyCode(codeText) end)
+					local codeScroll = round(ui("ScrollingFrame", {Position = UDim2.new(0, 8, 0, 26), Size = UDim2.new(1, -16, 1, -34), BackgroundColor3 = Color3.fromRGB(10, 12, 17), BorderSizePixel = 0, ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y}, codeCard), 4)
+					ui("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8)}, codeScroll)
+					ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 10, TextColor3 = Color3.fromRGB(205, 217, 240), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = codeText}, codeScroll)
+				elseif segment.text:gsub("%s+", "") ~= "" then
+					ui("TextLabel", {Position = UDim2.new(0, 11, 0, 0), Size = UDim2.new(1, -22, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, RichText = true, Text = richHighlight(segment.text:gsub("^%s+", ""):gsub("%s+$", "")), Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = segIndex}, bodyHolder)
 				end
+			end
+
+			if type(entry.plan) == "table" and type(entry.plan.changes) == "table" and #entry.plan.changes > 0 then
+				local plan = entry.plan
+				currentPlan = plan
+				local shown = math.min(#plan.changes, 6)
+				local cardH = 42 + shown * 16 + (#plan.changes > shown and 13 or 0) + 44
+				local card = round(ui("Frame", {Size = UDim2.new(1, -20, 0, cardH), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = C.planCard, BorderSizePixel = 0, LayoutOrder = 900}, bodyHolder), 8)
+				stroke(card)
+				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 8), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.good, TextXAlignment = Enum.TextXAlignment.Left, Text = string.format("BUILD PLAN · %d change%s", #plan.changes, #plan.changes == 1 and "" or "s")}, card)
+				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 24), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd, Text = tostring(plan.summary or "")}, card)
+				for ci = 1, shown do
+					local ch = plan.changes[ci]
+					if type(ch) == "table" then
+						local cy = 42 + (ci - 1) * 16
+						ui("TextLabel", {Position = UDim2.new(0, 11, 0, cy), Size = UDim2.new(0, 24, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Code, TextSize = 9, TextColor3 = RISK_COLORS[ch.risk] or C.muted, TextXAlignment = Enum.TextXAlignment.Left, Text = OP_GLYPHS[ch.operation] or "?"}, card)
+						ui("TextLabel", {Position = UDim2.new(0, 37, 0, cy), Size = UDim2.new(1, -48, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd, Text = tostring(ch.target)}, card)
+					end
+				end
+				if #plan.changes > shown then
+					ui("TextLabel", {Position = UDim2.new(0, 37, 0, 42 + shown * 16), Size = UDim2.new(1, -48, 0, 12), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left, Text = "+" .. (#plan.changes - shown) .. " more…"}, card)
+				end
+				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 36), Size = UDim2.new(1, -22, 0, 28), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Apply Changes", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(10, 24, 16)}, card), 7)
+				applyBtn.MouseButton1Click:Connect(function() pcall(applyPlanCard, plan, applyBtn) end)
+			end
+
+			do
+				local actions = round(ui("Frame", {Position = UDim2.new(1, -104, 0, 3), Size = UDim2.new(0, 96, 0, 18), BackgroundColor3 = C.hover, BorderSizePixel = 0, Visible = false}, section), 5)
+				local quoteBtn = ui("TextButton", {Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Text = "Quote", Font = Enum.Font.GothamMedium, TextSize = 8, TextColor3 = C.accent}, actions)
+				local copyAllBtn = ui("TextButton", {Position = UDim2.new(0.5, 0, 0, 0), Size = UDim2.new(0.5, 0, 1, 0), BackgroundTransparency = 1, Text = "Copy", Font = Enum.Font.GothamMedium, TextSize = 8, TextColor3 = C.text}, actions)
+				section.MouseEnter:Connect(function() actions.Visible = true end)
+				section.MouseLeave:Connect(function() actions.Visible = false end)
+				quoteBtn.MouseButton1Click:Connect(function()
+					table.insert(contextChips, {label = "Quote · " .. trim(bodyText, 18), value = trim(bodyText, 300)})
+					showToast("Quoted reply added as focus context", "good")
+					renderChips()
+				end)
+				copyAllBtn.MouseButton1Click:Connect(function() copyCode(bodyText) end)
+			end
+		end
+		if index == lastAssistantAt and #lastSuggestions > 0 then
+			local srow = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index + 0.5}, chatList)
+			ui("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, srow)
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 13), BackgroundTransparency = 1, Text = "SUGGESTED NEXT  (Tab fills · Enter picks)", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, srow)
+			for si, s in ipairs(lastSuggestions) do
+				local btn = round(ui("TextButton", {Size = UDim2.new(1, 0, 0, 25), BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "▸   " .. tostring(s), TextXAlignment = Enum.TextXAlignment.Left, RichText = false, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = si}, srow), 7)
+				btn.MouseEnter:Connect(function() btn.BackgroundColor3 = C.hover end)
+				btn.MouseLeave:Connect(function() btn.BackgroundColor3 = (si == suggestionIndex) and C.hover or C.panel end)
+				btn.MouseButton1Click:Connect(function()
+					if sendChat then pcall(sendChat, tostring(s)) end
+				end)
+				table.insert(suggestionRows, btn)
 			end
 		end
 	end
+	highlightSuggestions()
 	pcall(function() if chatScroller then chatScroller.CanvasPosition = Vector2.new(0, chatScroller.AbsoluteCanvasSize.Y) end end)
 end
+
 local function syncFromServer()
 	if disconnected then return end
 	local ok, response = safe("GET", rootUrl() .. "/api/studio/chat?sessionId=" .. HttpService:UrlEncode(sessionId), nil, 1)
 	if not ok or not response then return end
 	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 	if not dOk or type(data) ~= "table" or type(data.messages) ~= "table" then return end
-	if #data.messages < #chatHistory then return end
+	local serverCount = 0
+	for _, m in ipairs(data.messages) do
+		if type(m) == "table" and (m.role == "user" or m.role == "assistant") then serverCount = serverCount + 1 end
+	end
+	if serverCount < #chatHistory then return end
 	local merged = {}
 	for _, message in ipairs(data.messages) do
 		if type(message) == "table" and (message.role == "user" or message.role == "assistant") and type(message.content) == "string" then
@@ -1373,53 +1512,78 @@ local function syncFromServer()
 	chatHistory = merged
 	renderChat()
 end
+
 local function pollConversation()
-	if currentMode ~= "chat" then return end
 	if widget and widget.Enabled and not disconnected then
 		local ok = pcall(syncFromServer)
 		if not ok then warn("[LUA-X] conversation sync failed") end
 	end
 end
-local function sendChat()
-	if busy then return end
-	local text = tostring(chatInput.Text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+function sendChat(textOverride)
+	if busy or not chatInput then return end
+	local raw = type(textOverride) == "string" and textOverride or tostring(chatInput.Text or "")
+	local text = raw:gsub("^%s+", ""):gsub("%s+$", "")
+	lastSuggestions = {}
+	local mode = "chat"
+	if string.sub(text, 1, 6) == "/build" then
+		mode = "build"
+		text = (string.sub(text, 7):gsub("^%s+", ""))
+	end
 	if #text < 2 then return end
 	table.insert(chatHistory, {role = "user", text = text})
-	chatInput.Text = ""
+	if type(textOverride) ~= "string" then chatInput.Text = "" end
 	renderChat()
 	refreshContext()
 	busy = true
-	if typingLabel then typingLabel.Visible = true end
-	setStatus("LUA-X is answering…", "warn")
+	setStatus(mode == "build" and "Twin agents building — ARCHITECT planning…" or "LUA-X is answering…", "warn")
 	local history = {}
 	for i = math.max(1, #chatHistory - 10), #chatHistory - 1 do
 		local entry = chatHistory[i]
-		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") then
+		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and not entry.system then
 			table.insert(history, {role = entry.role, content = entry.text})
 		end
 	end
-	local payload = {prompt=text, projectId=tostring(game.PlaceId), mode="chat", context=currentContext, history=history}
+	local payloadContext = currentContext
+	if not autoContext then
+		payloadContext = {
+			selection = type(currentContext.selection) == "table" and currentContext.selection or {},
+			selectionDetails = type(currentContext.selectionDetails) == "table" and currentContext.selectionDetails or {},
+		}
+	end
+	if #contextChips > 0 then
+		local quotes = {}
+		for _, chip in ipairs(contextChips) do table.insert(quotes, chip.value) end
+		local merged = {}
+		for k, v in pairs(payloadContext) do merged[k] = v end
+		merged.focusQuotes = quotes
+		payloadContext = merged
+	end
+	local payload = {prompt = text, projectId = tostring(game.PlaceId), mode = mode, context = payloadContext, history = history}
 	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
 	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
-	if typingLabel then typingLabel.Visible = false end
 	if not ok then
 		if response and response.StatusCode == 401 then
-			table.insert(chatHistory, {role = "assistant", text = "Authorization rejected — add your LUA-X API token in the Backend Connection card and Save Token."})
+			table.insert(chatHistory, {role = "assistant", text = "Authorization rejected — open ⋯ Settings, paste your LUA-X API token and Save Token."})
 		else
 			table.insert(chatHistory, {role = "assistant", text = "Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable")})
 		end
-		task.defer(syncFromServer)
 	else
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		if dOk and type(data) == "table" and type(data.response) == "string" and data.response ~= "" then
-			table.insert(chatHistory, {role = "assistant", text = data.response})
+			local entry = {role = "assistant", text = data.response}
 			if type(data.plan) == "table" and type(data.plan.changes) == "table" and #data.plan.changes > 0 then
+				entry.plan = data.plan
 				currentPlan = data.plan
-				setMode("build")
-				planBox.Text = HttpService:JSONEncode(data.plan)
+				showToast("Build plan ready · review & apply", "good")
 				setStatus("Plan ready · review before applying.", "good")
-				table.insert(chatHistory, {role = "assistant", text = "Build plan ready — switch to Build · Plan to review and apply it."})
+			end
+			table.insert(chatHistory, entry)
+			if type(data.suggestions) == "table" then
+				for _, s in ipairs(data.suggestions) do
+					if type(s) == "string" and #s > 0 then table.insert(lastSuggestions, string.sub(s, 1, 120)) end
+				end
 			end
 			task.defer(syncFromServer)
 		elseif dOk and type(data) == "table" and data.error then
@@ -1428,102 +1592,242 @@ local function sendChat()
 			table.insert(chatHistory, {role = "assistant", text = "Backend returned an unexpected response."})
 		end
 	end
+	if #lastSuggestions == 0 then lastSuggestions = localSuggestions() end
 	renderChat()
-	setStatus("Chat answered.", "good")
+	if mode ~= "build" then setStatus("Chat answered.", "good") end
+end
+
+local settingsDrawer
+
+function renderChips()
+	if not chipsRow then return end
+	for _, child in ipairs(chipsRow:GetChildren()) do
+		if child:IsA("Frame") then child:Destroy() end
+	end
+	if #contextChips == 0 then
+		chipsHint.Visible = true
+		return
+	end
+	chipsHint.Visible = false
+	for ci, chip in ipairs(contextChips) do
+		local chipFrame = round(ui("Frame", {Size = UDim2.new(0, math.min(240, 40 + #tostring(chip.label) * 5), 0, 20), BackgroundColor3 = C.chip, BorderSizePixel = 0, LayoutOrder = ci}, chipsRow), 10)
+		stroke(chipFrame)
+		ui("TextLabel", {Position = UDim2.new(0, 9, 0, 3), Size = UDim2.new(1, -26, 0, 14), BackgroundTransparency = 1, Text = tostring(chip.label), Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, chipFrame)
+		local removeBtn = ui("TextButton", {Position = UDim2.new(1, -18, 0, 3), Size = UDim2.new(0, 14, 0, 14), BackgroundTransparency = 1, Text = "×", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C.muted}, chipFrame)
+		removeBtn.MouseButton1Click:Connect(function()
+			table.remove(contextChips, ci)
+			renderChips()
+		end)
+	end
 end
 
 local function buildWidget()
 	if widget then return true end
-	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 620, 900, 460, 700)
+	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 620, 900, 480, 620)
 	local ok, result = pcall(function() return plugin:CreateDockWidgetPluginGuiAsync("LUAXStudio", info) end)
-	if ok then widget=result else local legacyOk, legacy=pcall(function() return plugin:CreateDockWidgetPluginGui("LUAXStudio", info) end); if not legacyOk then warn("[LUA-X] widget error", result, legacy); return false end; widget=legacy end
-	widget.Title = "LUA-X Studio"
-	local scroll = ui("ScrollingFrame", {Size=UDim2.fromScale(1,1),CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,ScrollBarThickness=5,BackgroundColor3=C.bg,BorderSizePixel=0}, widget)
-	ui("UIPadding", {PaddingTop=UDim.new(0,14),PaddingBottom=UDim.new(0,14),PaddingLeft=UDim.new(0,14),PaddingRight=UDim.new(0,14)}, scroll)
-	ui("UIListLayout", {Padding=UDim.new(0,10),SortOrder=Enum.SortOrder.LayoutOrder}, scroll)
-	local hero=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,94),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=1},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,16,0,13),Size=UDim2.new(1,-200,0,28),BackgroundTransparency=1,Text="LUA-X",Font=Enum.Font.GothamBold,TextSize=22,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},hero)
-	ui("TextLabel",{Position=UDim2.new(0,16,0,47),Size=UDim2.new(1,-200,0,20),BackgroundTransparency=1,Text="AI-native Roblox engineering · chat + build · v" .. PLUGIN_VERSION,Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},hero)
-	local conn=round(ui("Frame",{Position=UDim2.new(1,-188,0,14),Size=UDim2.new(0,172,0,56),BackgroundColor3=C.field,BorderSizePixel=0},hero),12)
-	connectionDot=round(ui("Frame",{Position=UDim2.new(0,12,0.5,-5),Size=UDim2.new(0,10,0,10),BackgroundColor3=C.bad,BorderSizePixel=0},conn),5)
-	connectionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,4),Size=UDim2.new(1,-35,0,14),BackgroundTransparency=1,Text="Studio offline",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},conn)
-	sessionLabel=ui("TextLabel",{Position=UDim2.new(0,30,0,22),Size=UDim2.new(1,-35,0,14),BackgroundTransparency=1,Text="Session "..string.sub(sessionId,1,9).."…",Font=Enum.Font.Code,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},conn)
-	local card=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,196),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=2},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="STUDIO CONNECTION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},card)
-	local rowY = 32
-	local function connRow(y, title, box)
-		ui("TextLabel",{Position=UDim2.new(0,13,0,y),Size=UDim2.new(0,120,0,18),BackgroundTransparency=1,Text=title,Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},card)
-		return ui("TextLabel",{Position=UDim2.new(0,138,0,y),Size=UDim2.new(1,-152,0,18),BackgroundTransparency=1,Text=box,Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},card)
+	if ok then
+		widget = result
+	else
+		local legacyOk, legacy = pcall(function() return plugin:CreateDockWidgetPluginGui("LUAXStudio", info) end)
+		if not legacyOk then warn("[LUA-X] widget error", result, legacy); return false end
+		widget = legacy
 	end
-	connCardStatus=connRow(rowY,"Status","Offline"); rowY=rowY+19
-	connCardProject=connRow(rowY,"Project",tostring(game.Name)); rowY=rowY+19
-	connCardPlace=connRow(rowY,"Place ID",tostring(game.PlaceId)); rowY=rowY+19
-	connCardSession=connRow(rowY,"Session",string.sub(sessionId,1,8).."…"); rowY=rowY+19
-	connCardWebsite=connRow(rowY,"Website","—"); rowY=rowY+24
-	connButton=round(ui("TextButton",{Position=UDim2.new(0,13,0,rowY),Size=UDim2.new(.5,-17,0,26),BackgroundColor3=C.field,BorderSizePixel=0,Text="Disconnect",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},card),7)
-	connDiagLabel=ui("TextLabel",{Position=UDim2.new(0,13,0,rowY+32),Size=UDim2.new(1,-26,0,60),BackgroundTransparency=1,Text="Run diagnostics to check API health, permissions, and session registration.",Font=Enum.Font.Code,TextSize=9,TextColor3=C.muted,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top},card)
-	local metrics=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,60),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=3},scroll)))
-	local p1=ui("Frame",{Position=UDim2.new(0,0,0,0),Size=UDim2.new(.34,-1,1,0),BackgroundTransparency=1},metrics); local p2=ui("Frame",{Position=UDim2.new(.34,0,0,0),Size=UDim2.new(.33,-1,1,0),BackgroundTransparency=1},metrics); local p3=ui("Frame",{Position=UDim2.new(.67,0,0,0),Size=UDim2.new(.33,0,1,0),BackgroundTransparency=1},metrics)
-	for _,f in ipairs({p1,p2,p3}) do ui("TextLabel",{Position=UDim2.new(0,13,0,8),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},f); ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Font=Enum.Font.GothamBold,TextSize=12,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},f) end
-	p1:FindFirstChildOfClass("TextLabel").Text="PROJECT"; p1:GetChildren()[2].Text=tostring(game.PlaceId); p2:FindFirstChildOfClass("TextLabel").Text="SELECTION"; selectionLabel=p2:GetChildren()[2]; selectionLabel.Text="0 selected"; p3:FindFirstChildOfClass("TextLabel").Text="ACTIVITY"; activityLabel=p3:GetChildren()[2]; activityLabel.Text="Ready"
-	local net=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,182),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=4},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="BACKEND CONNECTION",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},net)
-	endpointBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,34),Size=UDim2.new(1,-26,0,32),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left,Text=type(plugin:GetSetting(ENDPOINT_KEY))=="string" and plugin:GetSetting(ENDPOINT_KEY) or DEFAULT_ENDPOINT},net),7)
-	tokenBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,138),Size=UDim2.new(1,-96,0,28),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left,PlaceholderText="LUA-X API token (optional)",Text=token()},net),7)
-	local saveToken=round(ui("TextButton",{Position=UDim2.new(1,-78,0,138),Size=UDim2.new(0,65,0,28),BackgroundColor3=C.field,BorderSizePixel=0,Text="Save Token",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
-	websiteChip=round(ui("TextLabel",{Position=UDim2.new(0,13,0,73),Size=UDim2.new(.5,-17,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="Website: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
-	aiChip=round(ui("TextLabel",{Position=UDim2.new(.5,3,0,73),Size=UDim2.new(.5,-16,0,24),BackgroundColor3=C.field,BorderSizePixel=0,Text="AI: —",Font=Enum.Font.GothamMedium,TextSize=9,TextColor3=C.muted},net),7)
-	local test=round(ui("TextButton",{Position=UDim2.new(0,13,0,105),Size=UDim2.new(.5,-17,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Run Diagnostics",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
-	local save=round(ui("TextButton",{Position=UDim2.new(.5,3,0,105),Size=UDim2.new(.5,-16,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Save Endpoint",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},net),7)
-	local modebar=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,42),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=5},scroll)))
-	chatModeButton=round(ui("TextButton",{Position=UDim2.new(0,12,0,8),Size=UDim2.new(.5,-16,0,26),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Chat",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=C.text},modebar),6)
-	buildModeButton=round(ui("TextButton",{Position=UDim2.new(.5,4,0,8),Size=UDim2.new(.5,-16,0,26),BackgroundColor3=C.field,BorderSizePixel=0,Text="Build · Plan",Font=Enum.Font.GothamBold,TextSize=10,TextColor3=C.muted},modebar),6)
-	chatPanel=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,440),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=6},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="CHAT",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},chatPanel)
-	chatSyncLabel=ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="· local only",Font=Enum.Font.GothamMedium,TextSize=8,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Right},chatPanel)
-	chatScroller=round(ui("ScrollingFrame",{Position=UDim2.new(0,13,0,32),Size=UDim2.new(1,-26,0,278),BackgroundColor3=C.bg,BorderSizePixel=0,ScrollBarThickness=4,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y},chatPanel),6)
-	chatList=ui("UIListLayout",{Padding=UDim.new(0,8),SortOrder=Enum.SortOrder.LayoutOrder},chatScroller)
-	ui("UIPadding",{PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),PaddingLeft=UDim.new(0,10),PaddingRight=UDim.new(0,10)},chatScroller)
-	typingLabel=ui("TextLabel",{Position=UDim2.new(0,13,0,314),Size=UDim2.new(1,-26,0,16),BackgroundTransparency=1,Text="LUA-X is thinking…",Font=Enum.Font.Code,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left,Visible=false},chatPanel)
-	chatInput=round(ui("TextBox",{Position=UDim2.new(0,13,0,336),Size=UDim2.new(1,-86,0,56),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Gotham,TextSize=12,TextColor3=C.text,PlaceholderText="Ask LUA-X anything… (Enter to send, Shift+Enter for new line)",TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,MultiLine=true},chatPanel),6)
-	chatSend=round(ui("TextButton",{Position=UDim2.new(1,-70,0,336),Size=UDim2.new(0,58,0,56),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Send",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=C.text},chatPanel),6)
-	buildPanel=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,432),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=7},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="LUA-X ARCHITECT — BUILD · PLAN",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},buildPanel)
-	ui("TextLabel",{Position=UDim2.new(0,13,0,28),Size=UDim2.new(1,-26,0,20),BackgroundTransparency=1,Text="Describe the system. LUA-X returns a reviewable change set — scripts, UI, animation, VFX, sound, geometry.",Font=Enum.Font.Gotham,TextSize=11,TextColor3=C.text,TextXAlignment=Enum.TextXAlignment.Left},buildPanel)
-	promptBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,52),Size=UDim2.new(1,-26,0,62),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Gotham,TextSize=12,TextColor3=C.text,PlaceholderText="Example: Add a secure sprint system with speed lines VFX to the selected controller…",TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,MultiLine=true},buildPanel),8)
-	local gen=round(ui("TextButton",{Position=UDim2.new(0,13,0,122),Size=UDim2.new(1,-26,0,34),BackgroundColor3=C.accent,BorderSizePixel=0,Text="Generate Plan",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=C.text},buildPanel),7)
-	planBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,164),Size=UDim2.new(1,-26,0,210),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.text,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,MultiLine=true,Text="No plan yet."},buildPanel),8)
-	applyButton=round(ui("TextButton",{Position=UDim2.new(0,13,0,386),Size=UDim2.new(1,-26,0,36),BackgroundColor3=C.good,BorderSizePixel=0,Text="Apply Changes",Font=Enum.Font.GothamBold,TextSize=11,TextColor3=C.text},buildPanel),7)
-	local ctx=round(stroke(ui("Frame",{Size=UDim2.new(1,0,0,205),BackgroundColor3=C.panel,BorderSizePixel=0,LayoutOrder=8},scroll)))
-	ui("TextLabel",{Position=UDim2.new(0,13,0,9),Size=UDim2.new(1,-26,0,18),BackgroundTransparency=1,Text="PROJECT CONTEXT",Font=Enum.Font.GothamBold,TextSize=9,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left},ctx)
-	contextBox=round(ui("TextBox",{Position=UDim2.new(0,13,0,34),Size=UDim2.new(1,-26,0,130),BackgroundColor3=C.field,BorderSizePixel=0,ClearTextOnFocus=false,Font=Enum.Font.Code,TextSize=10,TextColor3=C.muted,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,TextYAlignment=Enum.TextYAlignment.Top,MultiLine=true,Text="No context yet."},ctx),8)
-	local refresh=round(ui("TextButton",{Position=UDim2.new(0,13,1,-37),Size=UDim2.new(.5,-17,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Refresh Context",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},ctx),7)
-	local verify=round(ui("TextButton",{Position=UDim2.new(.5,3,1,-37),Size=UDim2.new(.5,-16,0,25),BackgroundColor3=C.field,BorderSizePixel=0,Text="Verify State",Font=Enum.Font.GothamMedium,TextSize=10,TextColor3=C.text},ctx),7)
-	statusLabel=ui("TextLabel",{Size=UDim2.new(1,0,0,42),BackgroundTransparency=1,Text="Connected bridge starting…",Font=Enum.Font.GothamMedium,TextSize=10,TextWrapped=true,TextColor3=C.muted,TextXAlignment=Enum.TextXAlignment.Left,LayoutOrder=9},scroll)
-	statusDot=round(ui("Frame",{Size=UDim2.new(0,8,0,8),BackgroundColor3=C.muted,BorderSizePixel=0,Visible=false},scroll),4)
+	widget.Title = "LUA-X Studio"
 
-	setMode("chat")
-	connButton.MouseButton1Click:Connect(function() if disconnected then reconnectNow() else disconnectNow() end end)
-	test.MouseButton1Click:Connect(function() setStatus("Running diagnostics…", "warn"); task.defer(function() local ok = startupDiagnostics(); setStatus(ok and "Diagnostics complete · all checks passed." or "Diagnostics complete · see last error.", ok and "good" or "bad") end); refreshRemoteStatus() end)
-	save.MouseButton1Click:Connect(function() saveEndpoint(); setStatus("Endpoint saved.","good") end)
-	saveToken.MouseButton1Click:Connect(function() plugin:SetSetting(TOKEN_KEY, tostring(tokenBox.Text or "")); setStatus("Token saved · requests send it as Bearer authorization.","good") end)
-	refresh.MouseButton1Click:Connect(function() refreshContext(); setStatus("Context synced.","good") end); verify.MouseButton1Click:Connect(verifyLocal); gen.MouseButton1Click:Connect(generatePlan); applyButton.MouseButton1Click:Connect(applyPlan)
-	chatModeButton.MouseButton1Click:Connect(function() setMode("chat"); setStatus("Chat mode.","good") end)
-	buildModeButton.MouseButton1Click:Connect(function() setMode("build"); setStatus("Build · Plan mode.","good") end)
-	chatSend.MouseButton1Click:Connect(sendChat)
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		if input.KeyCode == Enum.KeyCode.Enter and chatInput and chatInput:IsFocused() then
-			local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-			if not shiftDown then sendChat() end
+	local root = ui("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.bg, BorderSizePixel = 0}, widget)
+
+	-- ===== header bar =====
+	local header = ui("Frame", {Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.panel, BorderSizePixel = 0}, root)
+	ui("Frame", {Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.stroke, BorderSizePixel = 0}, header)
+	ui("TextLabel", {Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(0, 130, 0, 18), BackgroundTransparency = 1, Text = "LUA-X Chat", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	sessionLabel = ui("TextLabel", {Position = UDim2.new(0, 14, 0, 26), Size = UDim2.new(0, 230, 0, 12), BackgroundTransparency = 1, Text = "Session " .. string.sub(sessionId, 1, 6) .. "… · v" .. PLUGIN_VERSION, Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	connectionDot = round(ui("Frame", {Position = UDim2.new(0, 152, 0, 9), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.bad, BorderSizePixel = 0}, header), 4)
+	connectionLabel = ui("TextLabel", {Position = UDim2.new(0, 166, 0, 5), Size = UDim2.new(0, 170, 0, 16), BackgroundTransparency = 1, Text = "Studio offline", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, header)
+
+	local function mkHeaderBtn(rightOffset, width, label, color)
+		local b = round(ui("TextButton", {Position = UDim2.new(1, rightOffset, 0, 10), Size = UDim2.new(width, 0, 0, 26), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = label, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = color or C.text}, header), 7)
+		return b
+	end
+	local closeBtn = mkHeaderBtn(-36, 28, "×")
+	local newChatBtn = mkHeaderBtn(-66, 28, "+")
+	local refreshBtn = mkHeaderBtn(-116, 42, "SYNC")
+	local moreBtn = mkHeaderBtn(-160, 36, "SET")
+	local autoPill = mkHeaderBtn(-238, 70, autoContext and "CTX FULL" or "CTX MIN", C.accent)
+
+	-- ===== toast stack (top-right under header) =====
+	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 52), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10}, root)
+	ui("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right}, toastHost)
+
+	-- ===== chat area =====
+	chatArea = ui("Frame", {Position = UDim2.new(0, 0, 0, 47), Size = UDim2.new(1, 0, 1, -47 - 134), BackgroundTransparency = 1}, root)
+	chatScroller = ui("ScrollingFrame", {Size = UDim2.fromScale(1, 1), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 4, BackgroundTransparency = 1, BorderSizePixel = 0}, chatArea)
+	chatList = ui("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder}, chatScroller)
+	ui("UIPadding", {PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatScroller)
+
+	-- ===== settings drawer (overlays chat area) =====
+	settingsDrawer = ui("ScrollingFrame", {Position = UDim2.new(0, 8, 1, -206), Size = UDim2.new(1, -16, 0, 300), Visible = false, ZIndex = 6, ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, BorderSizePixel = 0}, root)
+	round(settingsDrawer, 10)
+	stroke(settingsDrawer)
+	do
+		local drawerPad = ui("Frame", {Size = UDim2.new(1, -24, 0, 430), Position = UDim2.new(0, 12, 0, 10), BackgroundTransparency = 1}, settingsDrawer)
+		ui("TextLabel", {Size = UDim2.new(1, -60, 0, 16), BackgroundTransparency = 1, Text = "SETTINGS · CONNECTION · CONTEXT", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, drawerPad)
+		local drawerClose = round(ui("TextButton", {Position = UDim2.new(1, -50, 0, 0), Size = UDim2.new(0, 50, 0, 18), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "CLOSE", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, drawerPad), 5)
+		drawerClose.MouseButton1Click:Connect(function() settingsDrawer.Visible = false end)
+
+		connCardStatus = ui("TextLabel", {Position = UDim2.new(0, 0, 0, 26), Size = UDim2.new(0.5, -6, 0, 15), BackgroundTransparency = 1, Text = "Status: Offline", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted}, drawerPad)
+		connCardProject = ui("TextLabel", {Position = UDim2.new(0.5, 6, 0, 26), Size = UDim2.new(0.5, -6, 0, 15), BackgroundTransparency = 1, Text = "Project: " .. tostring(game.Name), Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted}, drawerPad)
+		connCardPlace = ui("TextLabel", {Position = UDim2.new(0, 0, 0, 41), Size = UDim2.new(0.5, -6, 0, 15), BackgroundTransparency = 1, Text = "Place: " .. tostring(game.PlaceId), Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted}, drawerPad)
+		connCardSession = ui("TextLabel", {Position = UDim2.new(0.5, 6, 0, 41), Size = UDim2.new(0.5, -6, 0, 15), BackgroundTransparency = 1, Text = "Session: " .. string.sub(sessionId, 1, 8) .. "…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted}, drawerPad)
+		connCardWebsite = ui("TextLabel", {Position = UDim2.new(0, 0, 0, 56), Size = UDim2.new(0.5, -6, 0, 15), BackgroundTransparency = 1, Text = "Website: —", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted}, drawerPad)
+
+		connButton = round(ui("TextButton", {Position = UDim2.new(0, 0, 0, 76), Size = UDim2.new(0.48, -6, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Disconnect", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.text}, drawerPad), 6)
+		connDiagLabel = ui("TextLabel", {Position = UDim2.new(0, 0, 0, 104), Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, Text = "Run diagnostics to check API health, permissions, and session registration.", Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.muted, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top}, drawerPad)
+
+		websiteChip = round(ui("TextLabel", {Position = UDim2.new(0.5, 6, 0, 76), Size = UDim2.new(0.26, -8, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Web —", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted}, drawerPad), 6)
+		aiChip = round(ui("TextLabel", {Position = UDim2.new(0.76, 2, 0, 76), Size = UDim2.new(0.24, -2, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "AI —", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted}, drawerPad), 6)
+		local test = round(ui("TextButton", {Position = UDim2.new(0, 0, 0, 152), Size = UDim2.new(0.48, -6, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "RUN DIAGNOSTICS", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, drawerPad), 6)
+
+		ui("TextLabel", {Position = UDim2.new(0, 0, 0, 184), Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "BACKEND ENDPOINT", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, drawerPad)
+		endpointBox = round(ui("TextBox", {Position = UDim2.new(0, 0, 0, 198), Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, Text = type(plugin:GetSetting(ENDPOINT_KEY)) == "string" and plugin:GetSetting(ENDPOINT_KEY) or DEFAULT_ENDPOINT}, drawerPad), 6)
+		local save = round(ui("TextButton", {Position = UDim2.new(0, 0, 0, 228), Size = UDim2.new(0.48, -6, 0, 22), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "SAVE ENDPOINT", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, drawerPad), 6)
+		save.MouseButton1Click:Connect(function() saveEndpoint(); setStatus("Endpoint saved.", "good") end)
+
+		tokenBox = round(ui("TextBox", {Position = UDim2.new(0, 0, 0, 254), Size = UDim2.new(1, -80, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, PlaceholderText = "LUA-X API token (optional)", Text = token()}, drawerPad), 6)
+		local saveToken = round(ui("TextButton", {Position = UDim2.new(1, -74, 0, 254), Size = UDim2.new(0, 74, 0, 24), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "SAVE TOKEN", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, drawerPad), 6)
+		saveToken.MouseButton1Click:Connect(function()
+			plugin:SetSetting(TOKEN_KEY, tostring(tokenBox.Text or ""))
+			setStatus("Token saved · requests send it as Bearer authorization.", "good")
+		end)
+
+		ui("TextLabel", {Position = UDim2.new(0, 0, 0, 286), Size = UDim2.new(1, 0, 0, 14), BackgroundTransparency = 1, Text = "PROJECT CONTEXT PREVIEW", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, drawerPad)
+		contextBox = round(ui("TextBox", {Position = UDim2.new(0, 0, 0, 300), Size = UDim2.new(1, 0, 0, 110), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.muted, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true, Text = "No context yet."}, drawerPad), 6)
+		local verify = round(ui("TextButton", {Position = UDim2.new(0, 0, 0, 414), Size = UDim2.new(1, 0, 0, 22), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "VERIFY STATE", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, drawerPad), 6)
+		verify.MouseButton1Click:Connect(verifyLocal)
+
+		test.MouseButton1Click:Connect(function()
+			setStatus("Running diagnostics…", "warn")
+			task.defer(function()
+				local regOk = startupDiagnostics()
+				setStatus(regOk and "Diagnostics complete · all checks passed." or "Diagnostics complete · see last error.", regOk and "good" or "bad")
+			end)
+			refreshRemoteStatus()
+		end)
+	end
+
+	-- ===== composer =====
+	pulseDot = round(ui("Frame", {Position = UDim2.new(0, 12, 1, -128), Size = UDim2.new(0, 7, 0, 7), BackgroundColor3 = C.accent, BorderSizePixel = 0}, root), 4)
+	statusLabel = ui("TextLabel", {Position = UDim2.new(0, 26, 1, -134), Size = UDim2.new(1, -38, 0, 20), BackgroundTransparency = 1, Text = "Connected bridge starting…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, Truncate = Enum.Truncate.AtEnd}, root)
+	chipsRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -112), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1}, root)
+	ui("UIListLayout", {Padding = UDim.new(0, 6), FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder}, chipsRow)
+	chipsHint = ui("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "Tip: Quote a reply or press FOCUS SEL to steer the agents' context.", Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, chipsRow)
+
+	local inputRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -86), Size = UDim2.new(1, -24, 0, 44), BackgroundTransparency = 1}, root)
+	chatInput = round(ui("TextBox", {Size = UDim2.new(1, -50, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, PlaceholderText = "Ask AI anything…  (/build forces the strict twin-agent pipeline)", TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true}, inputRow), 9)
+	stroke(chatInput)
+	ui("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, chatInput)
+	local sendBtn = round(ui("TextButton", {Position = UDim2.new(1, -44, 0.5, -19), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "↑", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(255, 255, 255)}, inputRow), 19)
+	sendBtn.MouseButton1Click:Connect(function() pcall(sendChat) end)
+
+	local toolbarRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -38), Size = UDim2.new(1, -24, 0, 26), BackgroundTransparency = 1}, root)
+	local attachBtn = round(ui("TextButton", {Size = UDim2.new(0, 84, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "FOCUS SEL", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, toolbarRow), 6)
+	attachBtn.MouseButton1Click:Connect(function()
+		local sel = Selection:Get()
+		if #sel == 0 or sel[1] == nil then showToast("Nothing selected", "warn"); return end
+		table.insert(contextChips, {label = "Focus · " .. pathOf(sel[1]), value = "Focus on " .. pathOf(sel[1]) .. " (" .. sel[1].ClassName .. ")"})
+		renderChips()
+		showToast("Selection attached as focus", "good")
+	end)
+	local visionLabel = StudioCaptureService and "VISION NOW" or "NO VISION API"
+	local visionBtn = round(ui("TextButton", {Position = UDim2.new(0, 90, 0, 0), Size = UDim2.new(0, 92, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = visionLabel, Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = StudioCaptureService and C.text or C.faint}, toolbarRow), 6)
+	visionBtn.MouseButton1Click:Connect(function()
+		if not StudioCaptureService then showToast("StudioCaptureService unavailable", "warn"); return end
+		captureAndPostVision(true)
+		showToast("Capturing viewport for the agents…", "warn")
+	end)
+	modelPill = round(ui("TextLabel", {Position = UDim2.new(0, 190, 0, 0), Size = UDim2.new(0, 210, 1, 0), BackgroundColor3 = C.chip, BorderSizePixel = 0, Text = "AI · loading model…", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted}, toolbarRow), 6)
+	chatSyncLabel = ui("TextLabel", {Position = UDim2.new(1, -110, 0, 0), Size = UDim2.new(0, 110, 1, 0), BackgroundTransparency = 1, Text = "· local only", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Right}, toolbarRow)
+
+	-- ===== wiring =====
+	closeBtn.MouseButton1Click:Connect(function() widget.Enabled = false end)
+	newChatBtn.MouseButton1Click:Connect(function()
+		chatHistory = {}
+		lastSuggestions = {}
+		currentPlan = nil
+		renderChat()
+		showToast("New chat view — server thread preserved", "good")
+	end)
+	refreshBtn.MouseButton1Click:Connect(function()
+		refreshContext()
+		pushContext()
+		showToast("Context refreshed & pushed", "good")
+	end)
+	moreBtn.MouseButton1Click:Connect(function() settingsDrawer.Visible = not settingsDrawer.Visible end)
+	autoPill.MouseButton1Click:Connect(function()
+		autoContext = not autoContext
+		autoPill.Text = autoContext and "CTX FULL" or "CTX MIN"
+		autoPill.TextColor3 = autoContext and C.accent or C.muted
+		showToast(autoContext and "Full workspace context enabled" or "Selection-only context enabled", "warn")
+	end)
+
+	UserInputService.InputBegan:Connect(function(input)
+		local kc = input.KeyCode
+		if chatInput and chatInput:IsFocused() then
+			if kc == Enum.KeyCode.Return or kc == Enum.KeyCode.Enter then
+				local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+				if not shiftDown then task.defer(function() pcall(sendChat) end) end
+			elseif #suggestionRows > 0 then
+				if kc == Enum.KeyCode.Down then
+					suggestionIndex = math.min(suggestionIndex + 1, #suggestionRows)
+					highlightSuggestions()
+				elseif kc == Enum.KeyCode.Up then
+					suggestionIndex = math.max(suggestionIndex - 1, 1)
+					highlightSuggestions()
+				elseif kc == Enum.KeyCode.Tab and suggestionIndex >= 1 then
+					chatInput.Text = tostring(lastSuggestions[suggestionIndex] or "")
+				end
+			end
+		end
+		if kc == Enum.KeyCode.Escape and #suggestionRows > 0 then
+			lastSuggestions = {}
+			renderChat()
 		end
 	end)
-	chatInput.FocusLost:Connect(function() if typingLabel then typingLabel.Visible = false end end)
 	Selection.SelectionChanged:Connect(function() if widget and widget.Enabled then refreshContext() end end)
+
 	refreshContext()
 	refreshRemoteStatus()
+	renderChips()
 	renderChat()
-	task.spawn(function() local ok = pcall(startupDiagnostics); if not ok then warn("[LUA-X] startup diagnostics failed") end end)
+
+	task.spawn(function()
+		local regOk = pcall(startupDiagnostics)
+		if not regOk then warn("[LUA-X] startup diagnostics failed") end
+	end)
+	task.spawn(function()
+		while true do
+			pcall(function()
+				local statusOk, statusResponse = safe("GET", rootUrl() .. "/api/ai/status", nil, 1)
+				if statusOk and statusResponse then
+					local dOk, d = pcall(function() return HttpService:JSONDecode(statusResponse.Body) end)
+					if dOk and type(d) == "table" and type(d.model) == "string" then
+						modelPill.Text = "AI · " .. tostring(d.model):gsub("^.-/", "") .. (d.agents == nil and "" or "")
+						modelPill.TextColor3 = d.configured and C.good or C.warn
+					end
+				end
+			end)
+			task.wait(90)
+		end
+	end)
+	task.spawn(function()
+		while true do
+			pcall(function()
+				if pulseDot then pulseDot.BackgroundTransparency = 0.35 end
+				task.wait(0.45)
+				if pulseDot then pulseDot.BackgroundTransparency = 0.85 end
+				task.wait(0.45)
+			end)
+		end
+	end)
 	return true
 end
 

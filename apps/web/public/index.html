@@ -3,299 +3,81 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0b0e13">
+  <meta name="theme-color" content="#0a0b10">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="LUA-X — AI-native Roblox engineering studio.">
-  <title>LUA-X — Roblox AI Engineering Studio</title>
+  <meta name="description" content="LUA-X — twin-AI engineering studio for Roblox. Chat inside Studio; the website is mission control.">
+  <title>LUA-X — Twin-AI Studio for Roblox</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="shell">
-    <aside class="sidebar" aria-label="Primary navigation">
-      <div class="brand"><div class="brand-mark">LX</div><div><strong>LUA-X</strong><span>Roblox engineering</span></div></div>
-      <nav>
-        <a class="nav-item active" data-view="chat" href="#chat">Chat</a>
-        <a class="nav-item" data-view="dashboard" href="#dashboard">Dashboard</a>
-        <a class="nav-item" data-view="plugins" href="#plugins">Plugins</a>
-        <a class="nav-item" data-view="sync" href="#sync">Sync</a>
-        <a class="nav-item" data-view="assets" href="#assets">Assets</a>
-        <a class="nav-item" data-view="ui-studio" href="#ui-studio">UI Studio</a>
-        <a class="nav-item" data-view="playtest" href="#playtest">Playtest</a>
-        <a class="nav-item" data-view="projects" href="#projects">Projects</a>
-        <a class="nav-item" data-view="history" href="#history">History</a>
-        <a class="nav-item" data-view="settings" href="#settings">Settings</a>
-      </nav>
-      <div class="sidebar-bottom">
-        <div class="connection-card studio-card" id="studio-card">
-          <div class="connection-line"><span class="pulse" id="studio-pulse"></span><span id="studio-label">Studio offline</span></div>
-          <small id="studio-detail">Open the LUA-X plugin in Roblox Studio to connect</small>
-          <button class="ping-button" id="ping-studio" type="button" disabled>Ping Studio</button>
+  <header class="topbar">
+    <a class="brand" href="#home"><span class="brand-mark">⬡</span><b>LUA-X</b></a>
+    <nav class="topnav">
+      <a class="nav-link active" data-view="home" href="#home">Home</a>
+      <a class="nav-link" data-view="agents" href="#agents">Live Agents</a>
+      <a class="nav-link" data-view="settings" href="#settings">Settings</a>
+    </nav>
+    <div class="top-actions">
+      <span class="status-pill" id="backend-status">Checking…</span>
+      <span class="status-pill" id="ai-status">AI —</span>
+      <span class="model-label" id="model-label"></span>
+      <a class="cta-button" href="/LUA-X.lua" download="LUA-X.lua" id="download-plugin">Get the Plugin</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- ============ HOME ============ -->
+    <section class="view" id="view-home">
+      <div class="hero">
+        <h1>Build Roblox experiences by chatting with <em>two AI agents</em> inside Studio</h1>
+        <p>LUA-X ARCHITECT plans your game. LUA-X BUILDER ships scripts, UI, VFX, animation, terrain and lighting — reviewed, applied and undo-safe inside Roblox Studio. This site is mission control.</p>
+        <div class="feature-chips">
+          <span class="chip">🤖 Twin-AI Agent</span>
+          <span class="chip">👁 Studio Vision</span>
+          <span class="chip">🧩 One-click Apply</span>
+          <span class="chip">🎬 Keyframe Animations</span>
+          <span class="chip">🛡 Undo-safe Apply</span>
         </div>
-        <div class="sidebar-links"><a href="#settings">Settings</a><a href="#docs">Docs</a><a class="download-link" id="download-plugin" href="/LUA-X.lua" download="LUA-X.lua">Download Studio plugin</a></div>
       </div>
-    </aside>
 
-    <main class="main">
-      <header class="topbar">
-        <div class="breadcrumbs"><span>LUA-X</span><b>/</b><strong id="view-title">Chat</strong></div>
-        <div class="top-actions">
-          <span class="status-pill" id="backend-status">Checking…</span>
-          <span class="status-pill" id="ai-status">AI —</span>
-          <span class="model-label" id="model-label">NVIDIA · not configured</span>
+      <div class="console-card" id="studio-console">
+        <div class="console-status">
+          <span class="status-ring offline" id="studio-pulse"></span>
+          <div class="console-id">
+            <strong id="studio-label">Studio offline</strong>
+            <small id="studio-detail">Open the LUA-X plugin in Roblox Studio to connect</small>
+          </div>
+          <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
         </div>
-      </header>
 
-      <section class="view" id="view-chat">
-        <div class="chat-panel">
-          <div class="messages" id="messages" aria-live="polite"></div>
-          <div class="composer">
-            <textarea id="prompt" rows="2" placeholder="Ask LUA-X to write Luau, design a system, or build UI, animation, VFX, sound, or 3D geometry…" aria-label="Message LUA-X"></textarea>
-            <button class="send-button" id="send-button" type="button"><span>Send</span></button>
-          </div>
-          <div class="composer-note" id="composer-note">LUA-X answers with plain text and Luau code. Nothing is pushed to Studio automatically.</div>
-        </div>
-        <div class="plugin-card hidden" id="agent-activity">
-          <div class="plugin-card-head">
-            <div class="plugin-logo small">🤖</div>
-            <div class="plugin-title"><strong>Twin-AI Activity</strong><span id="agent-activity-sub">ARCHITECT plans · BUILDER builds</span></div>
-            <span class="plugin-status" id="agent-activity-state">idle</span>
-          </div>
-          <div id="agent-feed" style="max-height:220px;overflow:auto;font-size:11px;line-height:1.7;color:var(--muted)">
-            Connect Studio and run a Build request — live ARCHITECT / BUILDER activity appears here.
-          </div>
-        </div>
-        <div class="plugin-card studio-vision hidden" id="studio-vision">
-          <div class="plugin-card-head">
-            <div class="plugin-logo small">👁</div>
-            <div class="plugin-title"><strong>Studio Vision</strong><span id="vision-subtitle">Live — Explorer + Selection + Assets</span></div>
-            <span class="plugin-status" id="vision-status">Offline</span>
-          </div>
-          <div class="vision-grid">
-            <div class="vision-col">
-              <b>Explorer (preview)</b>
-              <pre class="vision-tree" id="vision-tree">— waiting for Studio…</pre>
-              <small id="vision-tree-meta">—</small>
+        <div class="console-grid">
+          <div class="console-main">
+            <div class="download-row">
+              <a class="primary-button big" id="download-plugin-2" href="/LUA-X.lua" download="LUA-X.lua">Download LUA-X.lua</a>
+              <a class="ghost-button" id="download-fix" href="/Fix-LUA-X.bat" download="Fix-LUA-X.bat">One-click Fix (.bat)</a>
             </div>
-            <div class="vision-col">
-              <b>Selection</b>
-              <div id="vision-selection">— none</div>
-              <b style="margin-top:10px;display:block">Instance Counts</b>
-              <div id="vision-counts">—</div>
-              <b style="margin-top:10px;display:block">Asset References</b>
-              <div id="vision-assets">— none</div>
-            </div>
-          </div>
-          <div class="vision-query">
-            <input id="vision-query-input" type="text" placeholder="Query workspace (e.g. Shop, ReplicatedStorage)…" />
-            <button class="ghost-button" id="vision-query-btn" type="button">Search</button>
-            <div id="vision-query-results"></div>
-          </div>
-          <div class="vision-forge">
-            <b>ForgeGUI Parity</b>
-            <small>LUA-X UI Studio vs ForgeGUI — validation + theme + responsive.</small>
-            <div id="vision-forge">Connect Studio and ask LUA-X to build a UI — score appears here.</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-dashboard">
-        <div class="plugins-grid">
-          <div class="plugin-card">
-            <div class="plugin-card-head"><div class="plugin-logo small">📊</div><div class="plugin-title"><strong>Dashboard — Overview</strong><span>Live WEPPY-style topology + LUA-X hardening</span></div><span class="plugin-status" id="dash-status">—</span></div>
-            <div class="service-pills"><span class="status-pill" id="dash-backend">Backend —</span><span class="status-pill" id="dash-bridge">Bridge —</span><span class="status-pill" id="dash-studio">Studio —</span><span class="status-pill" id="dash-ai">AI —</span></div>
-            <div class="meta-rows"><div class="meta-row"><span>Studio Targets (max 5)</span><b id="dash-targets">—</b></div><div class="meta-row"><span>Active Sync Places</span><b id="dash-sync">—</b></div><div class="meta-row"><span>Last Change</span><b id="dash-change">—</b></div><div class="meta-row"><span>Verification</span><b id="dash-verify">—</b></div></div>
-            <div id="dash-targets-list" style="margin-top:8px;font-size:11px;color:var(--muted)"></div>
-            <div class="plugin-actions"><button class="ghost-button" id="dash-refresh" type="button">Refresh</button><button class="ghost-button" id="dash-open-sync" type="button">Open Sync</button></div>
-          </div>
-          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Changelog — Before & After</strong><span>Like WEPPY dashboard_changelog</span></div></div><div id="dash-changelog" style="font-size:11.5px;color:var(--muted);line-height:1.6">No changes yet. Apply a plan in Studio to see diff here.</div></div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-sync">
-        <div class="plugins-grid">
-          <div class="plugin-card">
-            <div class="plugin-card-head"><div class="plugin-logo small">🔄</div><div class="plugin-title"><strong>Sync — File Mirror</strong><span>WEPPY-style snapshot scanner + multi-Place</span></div><span class="plugin-status" id="sync-status">—</span></div>
-            <div style="font-size:11px;color:var(--muted)">Root: <code>lua-x-sync/place_&lt;id&gt;/explorer/</code> — snapshot scanner, not OS watcher — <code>_tree.json</code> + <code>.server.luau</code>/<code>.props.json</code> per service. Like <code>weppy-project-sync</code>.</div>
-            <div class="meta-rows"><div class="meta-row"><span>Active Place</span><b id="sync-active">—</b></div><div class="meta-row"><span>Direction (scripts)</span><b id="sync-dir">forward / manual</b></div><div class="meta-row"><span>Sourcemap</span><b id="sync-sourcemap">—</b></div></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="primary-button" id="sync-start" type="button">Start Full Sync (Edit mode)</button><button class="ghost-button" id="sync-query-test" type="button">Test Query</button></div>
-            <div id="sync-places" style="margin-top:10px;font-size:11px;color:var(--muted)"></div>
-            <div id="sync-history" style="margin-top:8px;font-size:10.5px;color:var(--faint);max-height:120px;overflow:auto"></div>
-          </div>
-          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Per-Category Gates</strong><span>Forward/reverse/bidirectional + manual/auto (WEPPY safe defaults)</span></div></div><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:6px;font-size:11px"><div>scripts: <code>forward</code> <code>manual</code></div><div>values: <code>forward</code> <code>manual</code></div><div>data: <code>forward</code> <code>manual</code></div><div>containers: <code>forward</code> <code>manual</code></div><div>services: <code>forward</code> <code>manual</code></div><div>autoApplyDeletes: <code>false</code> (uses <code>Parent=nil</code> for Undo)</div></div><small style="color:var(--faint)">Deletes always manual even if auto — matches WEPPY <code>conflicts.md</code>.</small></div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-assets">
-        <div class="plugins-grid">
-          <div class="plugin-card">
-            <div class="plugin-card-head"><div class="plugin-logo small">🖼️</div><div class="plugin-title"><strong>Assets — Library + Open Cloud</strong><span>Generate → Library → Upload → Apply</span></div><span class="plugin-status" id="assets-status">—</span></div>
-            <div style="font-size:11px;color:var(--muted)">Local: <code>lua-x-sync/assets/{place,shared}/</code> — <code>export_selection_rbxm</code> → <code>Asset Library</code> → <code>Open Cloud upload</code> → apply URI to <code>ImageLabel/Decal</code>. WEPPY parity.</div>
-            <div class="meta-rows"><div class="meta-row"><span>Place Assets</span><b id="assets-count">0</b></div><div class="meta-row"><span>Shared</span><b id="assets-shared">0</b></div></div>
-            <div style="display:flex;gap:8px;margin-top:8px"><input id="assets-name" type="text" placeholder="Asset name (e.g. gem_icon)" style="flex:1;background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"/><select id="assets-type" style="background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"><option value="image">image</option><option value="rbxm">rbxm</option><option value="decal">decal</option></select><button class="primary-button" id="assets-add" type="button">Add to Library</button></div>
-            <div id="assets-list" style="margin-top:10px;font-size:11px;color:var(--muted)">No assets yet. Generate an image then upload — never invent IDs.</div>
-          </div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-ui-studio">
-        <div class="plugins-grid">
-          <div class="plugin-card">
-            <div class="plugin-card-head"><div class="plugin-logo small">🎨</div><div class="plugin-title"><strong>UI Studio — ForgeGUI-beating</strong><span>Guided spec → tree → preview → check</span></div><span class="plugin-status" id="ui-status">—</span></div>
-            <div style="font-size:11px;color:var(--muted)">ForgeGUI: instant tree + drag. WEPPY: <code>design_brief → create_tree → preview → check (recompose|refine|approved)</code>. LUA-X: both — <code>UIScreenSpec</code> validation + live preview. Roots: <code>StarterGui</code>, tokens, responsive, <code>ScreenInsets</code>/safe-area.</div>
-            <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><input id="ui-brief" type="text" placeholder="Describe UI: e.g. shop with 3 tabs, dark, 48px targets" style="flex:1;min-width:200px;background:var(--field);border:1px solid var(--hairline);border-radius:4px;padding:7px;color:var(--text)"/><button class="primary-button" id="ui-generate" type="button">Generate UI Plan</button><button class="ghost-button" id="ui-preview" type="button">Preview</button><button class="ghost-button" id="ui-check" type="button">Check</button></div>
-            <div id="ui-result" style="margin-top:10px;font-size:11.5px;color:var(--muted)">No UI yet. Ask for a shop/menu/HUD — LUA-X returns <code>UIScreenSpec</code> with theme + <code>forgeGuiParityScore</code>.</div>
-            <div id="ui-history" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"></div>
-          </div>
-          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Quality Gates (better than ForgeGUI)</strong><span>Readable text · 48px touch · safe-area · one family</span></div></div><div style="font-size:11px;color:var(--muted);line-height:1.8"><code>THEME_TOKENS_EMPTY</code> · <code>RESPONSIVE_RULES_MISSING</code> · <code>DEPTH_EXCEEDED</code> · <code>LAYOUT_GROUPING</code> · <code>BUTTON_DISABLED_STATE</code> — ForgeGUI has none.</div></div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-playtest">
-        <div class="plugins-grid">
-          <div class="plugin-card">
-            <div class="plugin-card-head"><div class="plugin-logo small">▶️</div><div class="plugin-title"><strong>Playtest — Automated</strong><span>play/run + run_test + logs + reports</span></div><span class="plugin-status" id="playtest-status">—</span></div>
-            <div style="font-size:11px;color:var(--muted)"><code>play_status</code> → <code>play_start(play|run)</code> → <code>run_test(script, timeout)</code> → <code>manage_logs</code> → report at <code>lua-x-sync/place_&lt;id&gt;/tests/</code>. Sync suppressed during play, reconciles after.</div>
-            <div style="display:flex;gap:8px;margin-top:8px"><button class="primary-button" id="playtest-start-play" type="button">Start Play (F5)</button><button class="secondary-button" id="playtest-start-run" type="button">Start Run (F8)</button><button class="ghost-button" id="playtest-run-test" type="button">Run Test</button><button class="ghost-button" id="playtest-stop" type="button">Stop</button></div>
-            <div id="playtest-list" style="margin-top:10px;font-size:11px;color:var(--muted)">No tests yet.</div>
-          </div>
-          <div class="plugin-card"><div class="plugin-card-head"><div class="plugin-title"><strong>Luau Validation</strong><span>WASM parser — Dashboard enforced</span></div><span class="plugin-status" id="luau-status">Enforced: Off</span></div><div style="font-size:11px;color:var(--muted)">Like WEPPY <code>luau-parser-v1.0.0</code> — source stays local, never sent remote. Toggle at <code>Controls → Luau Syntax Validation</code> — tool cannot override.</div><button class="ghost-button" id="luau-toggle" type="button" style="margin-top:8px">Toggle Validation</button></div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-plugins">
-        <div class="plugins-grid">
-
-          <div class="plugin-card">
-            <div class="plugin-card-head">
-              <div class="plugin-logo">LX</div>
-              <div class="plugin-title">
-                <strong>LUA-X Studio Plugin</strong>
-                <span>Official LUA-X Studio bridge</span>
-              </div>
-              <span class="plugin-status" id="plugin-status">Not detected</span>
-            </div>
-            <div class="meta-rows">
-              <div class="meta-row"><span>Version</span><b id="plugin-version">1.4.1</b></div>
-              <div class="meta-row"><span>Installation</span><b id="install-state">Download available</b></div>
-            </div>
-            <div class="plugin-actions">
-              <a class="primary-button download-button" id="download-plugin-2" href="/LUA-X.lua" download="LUA-X.lua">Download LUA-X</a>
-              <a class="ghost-button download-button" id="download-fix" href="/Fix-LUA-X.bat" download="Fix-LUA-X.bat">Download Fix (One-Click)</a>
-              <span class="plugin-meta" id="plugin-meta">SHA-256 …</span>
-            </div>
-            <div class="install-note" style="margin-top:8px;font-size:11px;color:var(--warn)">Plugin not showing? Download <b>Fix-LUA-X.bat</b> → double-click → it kills Studio, installs to BOTH folders, unblocks, verifies — then reopen Studio.</div>
-            <div class="install-panel hidden" id="install-panel">
-              <div class="install-head">
-                <b>Plugin installation</b>
-                <span id="install-status">Waiting for Studio…</span>
-              </div>
-              <div class="install-step done" id="step-1"><span>1</span><div><b>Download LUA-X</b><em id="step-1-state">Downloaded</em></div></div>
-              <div class="install-step"><span>2</span><div><b>Open Roblox Studio</b><em>Plugins → Manage Plugins → Open Plugins Folder. It opens %LOCALAPPDATA%\Roblox\Plugins.</em></div></div>
-              <div class="install-step"><span>3</span><div><b>Put the downloaded file into that exact folder</b><em>Must be a single file named LUA-X.lua — not a folder, not LUA-X.lua.txt. If Windows hides extensions, enable them first.</em></div></div>
-              <div class="install-step"><span>4</span><div><b>Restart Roblox Studio</b><em>Fully close and reopen Studio</em></div></div>
-              <div class="install-step"><span>5</span><div><b>Open the Plugins tab → LUA-X</b><em>The dock appears and connects automatically</em></div></div>
-              <div class="install-note" id="install-note">Downloaded = confirmed by your browser. Installed = confirmed only when the plugin connects to Studio.</div>
-              <div class="install-faq">
-                <b>Not showing? Check the three most common causes</b>
-                <span>1. The file must be exactly <b>LUA-X.lua</b>. A saved copy often ends up as <b>LUA-X.lua.txt</b> (or LUA-X (1).lua) — Studio ignores those. Enable <em>View → File name extensions</em> in File Explorer and rename it.</span>
-                <span>2. It must be directly inside the Plugins folder, not inside a subfolder or ZIP. Paste the path <b>%LOCALAPPDATA%\Roblox\Plugins</b> into File Explorer to verify.</span>
-                <span>3. If it still doesn't appear after a full Studio restart, delete the file, download again, and try once more.</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="plugin-card" id="studio-panel">
-            <div class="plugin-card-head">
-              <div class="plugin-logo small">ST</div>
-              <div class="plugin-title">
-                <strong>Roblox Studio</strong>
-                <span id="studio-subtitle">LUA-X Studio plugin has not connected.</span>
-              </div>
-              <span class="plugin-status" id="studio-big-status">Offline</span>
-            </div>
+            <span class="plugin-meta" id="plugin-meta">SHA-256 …</span>
+            <ol class="install-steps">
+              <li><b>Download</b> LUA-X.lua above</li>
+              <li>Drop it into <code>%LOCALAPPDATA%\Roblox\Plugins</code> (or Plugins → Manage Plugins → Open Plugins Folder)</li>
+              <li>Fully restart Roblox Studio → the LUA-X window opens by itself</li>
+            </ol>
             <div class="version-warning hidden" id="version-warning">
-              <span>Plugin update required — installed <b id="version-installed">—</b>, required <b id="version-required">1.4.1</b></span>
-              <a class="ghost-button" id="version-download" href="/LUA-X.lua" download="LUA-X.lua">Download Latest Plugin</a>
+              Update required — installed <b id="version-installed">—</b>, required <b id="version-required">2.1.0</b>
+              <a class="ghost-button" id="version-download" href="/LUA-X.lua" download="LUA-X.lua">Get latest</a>
             </div>
-            <div class="service-pills">
-              <span class="status-pill" id="svc-backend">Backend —</span>
-              <span class="status-pill" id="svc-ai">NVIDIA —</span>
-              <span class="status-pill" id="svc-bridge">Studio Bridge —</span>
-              <span class="status-pill" id="svc-studio">Studio —</span>
-            </div>
-            <div class="studio-actions">
+            <div class="install-note">Not showing in the Plugins tab? Run the one-click Fix — it installs to every known folder and clears blocked copies (LUA-X.lua.txt).</div>
+          </div>
+
+          <div class="console-side">
+            <div class="console-actions">
               <button class="primary-button" id="connect-now" type="button">Connect to Studio</button>
               <button class="ghost-button hidden" id="cancel-connect" type="button">Cancel</button>
               <button class="secondary-button hidden" id="ping-studio-2" type="button">Ping Studio</button>
+              <button class="secondary-button hidden" id="ping-studio" type="button">Ping Studio</button>
               <button class="ghost-button hidden" id="disconnect-studio" type="button">Disconnect</button>
               <button class="ghost-button" id="run-diagnostics" type="button">Run Connection Test</button>
               <button class="ghost-button" id="test-bridge" type="button">Test Studio Bridge</button>
-            </div>
-            <div class="waiting-box hidden" id="waiting-box">
-              <div class="waiting-title" id="waiting-title">Connecting to Roblox Studio…</div>
-              <div class="waiting-steps" id="waiting-steps">LUA-X is waiting for the Studio plugin to complete the connection handshake.</div>
-            </div>
-            <div class="troubleshoot-box hidden" id="connect-error-box">
-              <div class="waiting-title" id="connect-error-title">Studio connection request failed</div>
-              <ul class="checklist">
-                <li id="connect-error-endpoint">Endpoint —</li>
-                <li id="connect-error-http">HTTP —</li>
-                <li id="connect-error-response">Response —</li>
-                <li id="connect-error-request">Request ID —</li>
-                <li id="connect-error-timing">Timing —</li>
-              </ul>
-              <div class="waiting-steps" id="connect-error-hint">The website could not reach the LUA-X API.</div>
-            </div>
-            <div class="troubleshoot-box hidden" id="troubleshoot-box">
-              <div class="waiting-title" id="troubleshoot-title">Connection timed out</div>
-              <ul class="checklist" id="checklist">
-                <li id="check-download">… LUA-X download</li>
-                <li id="check-backend">… Backend online</li>
-                <li id="check-ai">… NVIDIA AI available</li>
-                <li id="check-session">… Studio session</li>
-              </ul>
-              <div class="waiting-steps" id="troubleshoot-steps">
-                Open Roblox Studio and:<br>
-                1. Open Plugins<br>
-                2. Launch LUA-X<br>
-                3. Press Connect<br>
-                4. Enable Game Settings → Security → Allow HTTP Requests
-              </div>
-            </div>
-            <div class="troubleshoot-box hidden" id="bridge-test-box">
-              <div class="waiting-title">Studio Bridge Test</div>
-              <ul class="checklist" id="bridge-test-list">
-                <li id="bridge-test-api">… API reachable</li>
-                <li id="bridge-test-status">… Studio bridge reachable</li>
-                <li id="bridge-test-connect">… Connect endpoint reachable</li>
-                <li id="bridge-test-request">… Connection request created</li>
-              </ul>
-              <div class="waiting-steps" id="bridge-test-wait">Waiting for the plugin to claim the request…</div>
-            </div>
-            <div class="troubleshoot-box hidden" id="diagnostics-box">
-              <div class="waiting-title">LUA-X Diagnostics</div>
-              <ul class="checklist" id="diagnostics-list">
-                <li id="diag-website">… Website</li>
-                <li id="diag-api">… API</li>
-                <li id="diag-bridge">… Studio bridge</li>
-                <li id="diag-connect">… Connect endpoint</li>
-                <li id="diag-pending">… Plugin pending-poll</li>
-                <li id="diag-session">… Session registration</li>
-                <li id="diag-heartbeat">… Heartbeat</li>
-                <li id="diag-command">… Command channel</li>
-                <li id="diag-ping">… Ping response</li>
-              </ul>
-              <div class="waiting-steps" id="diag-summary">Running checks…</div>
-            </div>
-          </div>
-
-          <div class="plugin-card" id="connection-panel">
-            <div class="plugin-card-head">
-              <div class="plugin-logo small">CT</div>
-              <div class="plugin-title">
-                <strong>Connection</strong>
-                <span>Live Studio bridge status</span>
-              </div>
             </div>
             <div class="meta-rows">
               <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting for Studio…</b></div>
@@ -305,45 +87,87 @@
               <div class="meta-row"><span>Heartbeat</span><b id="row-heartbeat">—</b></div>
               <div class="meta-row"><span>Session</span><b id="row-session">—</b></div>
             </div>
-          </div>
-
-          <div class="plugin-card help-row">
-            <span>Need help?</span>
-            <a href="#" id="open-guide">Open installation guide →</a>
-          </div>
-        </div>
-      </section>
-
-      <section class="view hidden" id="view-settings">
-        <div class="settings-panel">
-          <div class="plugin-card">
-            <div class="plugin-card-head">
-              <div class="plugin-title">
-                <strong>API access</strong>
-                <span>LUA-X API token for authenticated requests</span>
-              </div>
+            <div class="waiting-box hidden" id="waiting-box">
+              <div class="waiting-title" id="waiting-title">Connecting to Roblox Studio…</div>
+              <div class="waiting-steps" id="waiting-steps">Waiting for the plugin to complete the handshake.</div>
             </div>
-            <div class="meta-rows">
-              <div class="meta-row"><span>Token</span><input id="token-input" type="password" placeholder="LUA-X API token (optional)" autocomplete="off" spellcheck="false"></div>
-            </div>
-            <div class="plugin-actions">
-              <button class="primary-button" id="save-token" type="button">Save Token</button>
-              <button class="ghost-button" id="clear-token" type="button">Clear Token</button>
-            </div>
-            <div class="install-note" id="token-note">If the LUA-X API requires a token, the website sends it automatically with every request. Tokens are stored only in this browser.</div>
+            <ul class="checklist" id="checklist">
+              <li id="check-download">… Plugin downloaded</li>
+              <li id="check-backend">… Backend online</li>
+              <li id="check-ai">… NVIDIA AI available</li>
+              <li id="check-session">… Studio session</li>
+            </ul>
           </div>
         </div>
-      </section>
 
-      <section class="view hidden" id="view-coming">
-        <div class="coming-panel">
-          <div class="coming-mark">[ — ]</div>
-          <h2 id="coming-title">Coming soon</h2>
-          <p id="coming-text">This section is on the LUA-X roadmap.</p>
+        <div class="troubleshoot-box hidden" id="connect-error-box">
+          <div class="waiting-title" id="connect-error-title">Connection failed</div>
+          <ul class="checklist">
+            <li id="connect-error-endpoint">Endpoint —</li>
+            <li id="connect-error-http">HTTP —</li>
+            <li id="connect-error-request">Request ID —</li>
+            <li id="connect-error-hint">The website could not reach the LUA-X API.</li>
+          </ul>
         </div>
-      </section>
-    </main>
-  </div>
+        <div class="troubleshoot-box hidden" id="bridge-test-box">
+          <div class="waiting-title">Studio Bridge Test</div>
+          <ul class="checklist">
+            <li id="bridge-test-api">… API reachable</li>
+            <li id="bridge-test-status">… Studio bridge reachable</li>
+            <li id="bridge-test-connect">… Connect endpoint reachable</li>
+            <li id="bridge-test-request">… Connection request created</li>
+          </ul>
+          <div class="waiting-steps" id="bridge-test-wait">Waiting for the plugin to claim the request…</div>
+        </div>
+        <div class="troubleshoot-box hidden" id="diagnostics-box">
+          <div class="waiting-title">LUA-X Diagnostics</div>
+          <ul class="checklist">
+            <li id="diag-website">… Website</li>
+            <li id="diag-api">… API</li>
+            <li id="diag-bridge">… Studio bridge</li>
+            <li id="diag-connect">… Connect endpoint</li>
+            <li id="diag-pending">… Plugin pending-poll</li>
+            <li id="diag-session">… Session registration</li>
+            <li id="diag-heartbeat">… Heartbeat</li>
+            <li id="diag-command">… Command channel</li>
+            <li id="diag-ping">… Ping response</li>
+          </ul>
+          <div class="waiting-steps" id="diag-summary">Running checks…</div>
+        </div>
+      </div>
+
+      <p class="footnote">Chat happens inside Roblox Studio — this website mirrors the twin agents live. Nothing is executed on the website.</p>
+    </section>
+
+    <!-- ============ LIVE AGENTS ============ -->
+    <section class="view hidden" id="view-agents">
+      <div class="agents-grid">
+        <div class="panel">
+          <div class="panel-head"><strong>Twin-AI Activity</strong><span id="agent-activity-state">idle</span></div>
+          <div id="agent-feed" class="agent-feed">Connect Studio and run a build — ARCHITECT / BUILDER / VISION events stream here live.</div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><strong>Shared Thread</strong><span id="thread-state">read-only mirror of the Studio chat</span></div>
+          <div id="thread-feed" class="thread-feed">The conversation you have with LUA-X inside Roblox Studio appears here in real time.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ SETTINGS ============ -->
+    <section class="view hidden" id="view-settings">
+      <div class="panel narrow">
+        <div class="panel-head"><strong>API access</strong><span>token stored only in this browser</span></div>
+        <input id="token-input" type="password" placeholder="LUA-X API token (optional)" autocomplete="off" spellcheck="false">
+        <div class="plugin-actions">
+          <button class="primary-button" id="save-token" type="button">Save Token</button>
+          <button class="ghost-button" id="clear-token" type="button">Clear Token</button>
+        </div>
+        <div class="install-note" id="token-note">If the backend requires a token it is sent automatically with every request.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">LUA-X v2.1.0 · chat lives inside Roblox Studio · this page watches the agents work</footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>

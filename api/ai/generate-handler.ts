@@ -1,4 +1,6 @@
-export const config = { runtime: 'nodejs', maxDuration: 300 };
+// Twin-AI generation handler module. Deployed through the consolidated
+// api/index.ts router so every surface shares one function instance
+// (single-instance memory state without requiring Redis).
 
 import { randomUUID } from 'node:crypto';
 import { authorized } from '../auth';
@@ -959,7 +961,30 @@ async function runTwinAgent(
   return { plan, model: BUILDER_MODELS[0]! };
 }
 
-export async function POST(request: Request): Promise<Response> {
+/**
+ * Strips a trailing fenced {"suggestions":[...]} block from a chat reply so the
+ * creator never sees raw JSON, and returns the follow-up prompts separately.
+ */
+export function extractSuggestions(text: string): { content: string; suggestions?: string[] } {
+  const match = /```json\s*([\s\S]*?)```\s*$/i.exec(text);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]!) as unknown;
+      if (isRecord(parsed) && Array.isArray(parsed.suggestions)) {
+        const suggestions = parsed.suggestions
+          .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+          .map(v => v.trim().slice(0, 120))
+          .slice(0, 3);
+        if (suggestions.length > 0) {
+          return { content: text.slice(0, match.index).trim(), suggestions };
+        }
+      }
+    } catch { /* not a suggestion block — keep full text */ }
+  }
+  return { content: text.trim() };
+}
+
+export async function handleGenerate(request: Request): Promise<Response> {
   const id = requestId(request);
 
   try {
@@ -1063,6 +1088,7 @@ export async function POST(request: Request): Promise<Response> {
       } catch {
         // chat responses are free-form; a plan is optional
       }
+      const { content: replyText, suggestions } = extractSuggestions(content);
       const sessionId = sessionIdOf(body);
       if (sessionId) {
         await appendConversationMessage(sessionId, {
@@ -1073,7 +1099,7 @@ export async function POST(request: Request): Promise<Response> {
         });
         await appendConversationMessage(sessionId, {
           role: 'assistant',
-          content: content.slice(0, 12000),
+          content: replyText.slice(0, 12000),
           surface: 'server',
           at: Date.now(),
         });
@@ -1084,7 +1110,8 @@ export async function POST(request: Request): Promise<Response> {
       return json(200, {
         requestId: id,
         provider: 'nvidia',
-        response: content,
+        response: replyText,
+        ...(suggestions ? { suggestions } : {}),
         ...(plan ? { plan } : {}),
       }, { 'x-request-id': id });
     } catch (error) {
@@ -1117,11 +1144,4 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return json(400, { error: error instanceof Error ? error.message : 'Invalid request.', requestId: id }, { 'x-request-id': id });
   }
-}
-
-export function OPTIONS(): Response {
-  return new Response(null, {
-    status: 204,
-    headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST,OPTIONS', 'access-control-allow-headers': 'content-type,authorization,x-request-id' },
-  });
 }
