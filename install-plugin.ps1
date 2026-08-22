@@ -67,13 +67,18 @@ function Install-ToDir([string]$dir) {
     $nameOk = $target.EndsWith('LUA-X.lua', [System.StringComparison]::OrdinalIgnoreCase)
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $target).Hash.Substring(0,12)
 
+    # Content sanity: a plugin without the canonical first-line marker will not be a real LUA-X build.
+    $head = [System.Text.Encoding]::UTF8.GetString($bytes[0..([Math]::Min(80, $bytes.Length - 1))])
+    $markerOk = $head -match 'LUA-X Studio Plugin \d+\.\d+\.\d+'
+
     Write-Host ''
     Write-Host 'LUA-X plugin installed.' -ForegroundColor Green
     Write-Host "  File:      $target"
     Write-Host "  Size:      $($bytes.Length) bytes  SHA256:$hash"
     Write-Host "  Encoding:  $($(if ($bomOk) { 'UTF-8 (no BOM) - OK' } else { 'UTF-8 BOM - BAD' }))"
     Write-Host "  Filename:  $($(if ($nameOk) { 'LUA-X.lua - OK' } else { 'LUA-X.lua - BAD' }))"
-    if (-not $bomOk -or -not $nameOk) { Write-Host '  Validation: FAILED' -ForegroundColor Red } else { Write-Host '  Validation: OK' -ForegroundColor Green }
+    Write-Host "  Marker:    $($(if ($markerOk) { 'LUA-X Studio Plugin header - OK' } else { 'MISSING version marker - BAD' }))"
+    if (-not $bomOk -or -not $nameOk -or -not $markerOk) { Write-Host '  Validation: FAILED' -ForegroundColor Red } else { Write-Host '  Validation: OK' -ForegroundColor Green }
 
     return $target
 }

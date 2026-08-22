@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { deflateSync } from 'node:zlib';
 
 type Presence = {
   projectId: string;
@@ -47,7 +48,7 @@ const CONVERSATION_TTL = 3600;
 const CONVERSATION_MAX_MESSAGES = 100;
 const CONVERSATION_MAX_CONTENT = 12000;
 const CONTEXT_MAX_BYTES = 60000;
-const REQUIRED_PLUGIN_VERSION = '1.4.0';
+const REQUIRED_PLUGIN_VERSION = '2.0.0';
 const SUPPORTED_COMMANDS = ['ping', 'refresh_context', 'build', 'analyze', 'apply', 'verify', 'stop'];
 const memoryPresence = new Map<string, Presence>();
 const memoryCommands = new Map<string, Command>();
@@ -64,6 +65,111 @@ const memoryAssets = new Map<string, { id: string; placeId: string; name: string
 const memoryPlaytests = new Map<string, { id: string; placeId: string; mode: 'play' | 'run'; status: 'running' | 'passed' | 'failed'; logs: string[]; at: number }[]>();
 const memorySourcemaps = new Map<string, { placeId: string; filePaths: string[]; generatedAt: string }>();
 let memoryLatestRequestId: string | null = null;
+
+// ===== Twin-agent activity trace =====
+export type AgentEvent = { at: number; stage: string; role: string; model?: string; message: string };
+const AGENT_EVENT_TTL_SECONDS = 900;
+const memoryAgentEvents = new Map<string, AgentEvent[]>();
+
+export async function recordAgentEvents(sessionId: string, events: AgentEvent[]): Promise<void> {
+  if (!sessionId || !Array.isArray(events) || events.length === 0) return;
+  const list = memoryAgentEvents.get(sessionId) ?? [];
+  for (const event of events) {
+    if (event && typeof event.at === 'number' && typeof event.message === 'string') list.push(event);
+  }
+  while (list.length > 80) list.shift();
+  memoryAgentEvents.set(sessionId, list);
+  try {
+    await redisCommand(['RPUSH', `studio:agent:${sessionId}`, ...events.map((event) => JSON.stringify(event))]);
+    await redisCommand(['EXPIRE', `studio:agent:${sessionId}`, String(AGENT_EVENT_TTL_SECONDS)]);
+    await redisCommand(['LTRIM', `studio:agent:${sessionId}`, '-80', '-1']);
+  } catch { /* best-effort */ }
+}
+
+export async function loadAgentEvents(sessionId: string, since = 0): Promise<AgentEvent[]> {
+  if (!sessionId) return [];
+  let events: AgentEvent[] = [];
+  const remote = await redisCommand(['LRANGE', `studio:agent:${sessionId}`, '0', '-1']);
+  if (Array.isArray(remote)) {
+    for (const item of remote) {
+      if (typeof item !== 'string') continue;
+      try {
+        const parsed = JSON.parse(item) as AgentEvent;
+        if (parsed && typeof parsed.at === 'number' && typeof parsed.message === 'string') events.push(parsed);
+      } catch { /* skip malformed */ }
+    }
+  } else {
+    events = [...(memoryAgentEvents.get(sessionId) ?? [])];
+  }
+  return events.filter((event) => event.at > since).sort((a, b) => a.at - b.at).slice(-50);
+}
+
+// ===== Vision frames (real Studio screenshots, PNG-encoded server-side) =====
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const lengthPrefix = Buffer.alloc(4);
+  lengthPrefix.writeUInt32BE(data.length, 0);
+  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  let crc = 0xffffffff;
+  for (const byte of body) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  const crcSuffix = Buffer.alloc(4);
+  crcSuffix.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 0);
+  return Buffer.concat([lengthPrefix, body, crcSuffix]);
+}
+
+function encodePngRgb(width: number, height: number, rgb: Buffer): Buffer {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // color type: truecolor RGB
+  const stride = width * 3;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    raw[y * (stride + 1)] = 0; // filter: none
+    rgb.copy(raw, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
+  }
+  return Buffer.concat([
+    PNG_SIGNATURE,
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw, { level: 6 })),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+export type StoredVisionFrame = { dataUri: string; width: number; height: number; format: string; at: number };
+const VISION_TTL_MS = 5 * 60 * 1000;
+const VISION_MAX_B64 = 1_500_000;
+const memoryVision = new Map<string, StoredVisionFrame>();
+
+async function storeVisionFrame(sessionId: string, frame: StoredVisionFrame): Promise<void> {
+  memoryVision.set(sessionId, frame);
+  try { await redisCommand(['SET', `studio:vision:${sessionId}`, JSON.stringify(frame), 'EX', '300']); } catch { /* best-effort */ }
+}
+
+export async function loadVisionFrame(sessionId: string): Promise<StoredVisionFrame | null> {
+  if (!sessionId) return null;
+  const remote = await redisCommand(['GET', `studio:vision:${sessionId}`]);
+  if (typeof remote === 'string') {
+    try {
+      const parsed = JSON.parse(remote) as StoredVisionFrame;
+      if (parsed && typeof parsed.dataUri === 'string') return parsed;
+    } catch { /* fall through */ }
+  }
+  const mem = memoryVision.get(sessionId);
+  if (mem && Date.now() - mem.at <= VISION_TTL_MS) return mem;
+  return null;
+}
 
 let redisWarned = false;
 
@@ -927,6 +1033,51 @@ async function handleStudioRequest(request: Request, url: URL, pathname: string)
       if (hay.includes(lower) && results.length < 50) results.push(`asset: ${a.path} -> ${a.value}`);
     }
     return json(200, { q, results: results.slice(0, 50) });
+  }
+
+  if (request.method === 'POST' && pathname === 'vision') {
+    try {
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > VISION_MAX_B64) return json(413, { error: 'Vision payload is too large.' });
+      const body = JSON.parse(text) as Record<string, unknown>;
+      const sessionId = cleanString(body.sessionId, 100);
+      const image = typeof body.image === 'string' ? body.image : '';
+      const width = cleanCount(body.width) ?? 0;
+      const height = cleanCount(body.height) ?? 0;
+      if (!sessionId || !image || width < 8 || height < 8 || width > 2048 || height > 2048) {
+        return json(400, { error: 'sessionId, image, width and height are required.' });
+      }
+      let raw: Buffer;
+      try { raw = Buffer.from(image, 'base64'); } catch { return json(400, { error: 'image must be valid base64.' }); }
+      const needed = width * height * 3;
+      if (raw.length < needed) {
+        return json(400, { error: 'image buffer smaller than declared dimensions.', detail: `${raw.length} bytes < ${needed} expected.` });
+      }
+      const png = encodePngRgb(width, height, raw.subarray(0, needed));
+      const frame: StoredVisionFrame = { dataUri: `data:image/png;base64,${png.toString('base64')}`, width, height, format: 'png', at: Date.now() };
+      await storeVisionFrame(sessionId, frame);
+      return json(200, { ok: true, stored: true, width, height, pngBytes: png.length, at: frame.at });
+    } catch {
+      return json(400, { error: 'Invalid vision payload.' });
+    }
+  }
+
+  if (request.method === 'GET' && pathname === 'vision/status') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const frame = await loadVisionFrame(sessionId);
+    return json(200, frame
+      ? { available: true, at: frame.at, width: frame.width, height: frame.height }
+      : { available: false });
+  }
+
+  if (request.method === 'GET' && pathname === 'agent-events') {
+    const sessionId = cleanString(url.searchParams.get('sessionId'), 100);
+    if (!sessionId) return json(400, { error: 'sessionId is required.' });
+    const sinceRaw = Number(url.searchParams.get('since') || '0');
+    const since = Number.isFinite(sinceRaw) && sinceRaw >= 0 ? Math.floor(sinceRaw) : 0;
+    const events = await loadAgentEvents(sessionId, since);
+    return json(200, { events });
   }
 
   return json(404, { error: 'Studio route not found.' });

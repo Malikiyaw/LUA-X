@@ -54,6 +54,16 @@
           </div>
           <div class="composer-note" id="composer-note">LUA-X answers with plain text and Luau code. Nothing is pushed to Studio automatically.</div>
         </div>
+        <div class="plugin-card hidden" id="agent-activity">
+          <div class="plugin-card-head">
+            <div class="plugin-logo small">🤖</div>
+            <div class="plugin-title"><strong>Twin-AI Activity</strong><span id="agent-activity-sub">ARCHITECT plans · BUILDER builds</span></div>
+            <span class="plugin-status" id="agent-activity-state">idle</span>
+          </div>
+          <div id="agent-feed" style="max-height:220px;overflow:auto;font-size:11px;line-height:1.7;color:var(--muted)">
+            Connect Studio and run a Build request — live ARCHITECT / BUILDER activity appears here.
+          </div>
+        </div>
         <div class="plugin-card studio-vision hidden" id="studio-vision">
           <div class="plugin-card-head">
             <div class="plugin-logo small">👁</div>

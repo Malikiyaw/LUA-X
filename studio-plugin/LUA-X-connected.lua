@@ -1,17 +1,39 @@
--- LUA-X Studio Plugin 1.4.0
--- Chat-first connected bridge: heartbeat, website commands, forgeGUI-style chat pane,
--- web<->plugin shared conversations, full workspace vision (explorer tree + all script source),
--- AI planning, safe apply of scripts AND real Roblox instances (UI, animation, sound, VFX,
--- geometry), connection card, disconnect/reconnect, and startup diagnostics.
+-- LUA-X Studio Plugin 2.0.0
+-- Twin-AI connected bridge: ARCHITECT + BUILDER agents, heartbeat, website commands,
+-- chat pane, shared web<->plugin conversations, full workspace vision (explorer tree +
+-- script source + remote map), real screenshot vision (StudioCaptureService), AI planning,
+-- safe apply of scripts AND real Roblox instances (UI trees, animation keyframes, sound,
+-- VFX, lighting, terrain, constraints, attributes, tags), connection card, disconnect/
+-- reconnect, live agent activity, and startup diagnostics.
+--
+-- Reliability rules for this file:
+--   * NEVER call game:GetService on a service that may not exist at top level without a guard.
+--     A single throw here silently kills the whole plugin (it will not appear in Plugins).
+--   * Never reference a local function before it is declared: Lua binds those names as
+--     nil globals inside earlier closures (this broke the ribbon button before).
 
-local HttpService = game:GetService("HttpService")
-local Selection = game:GetService("Selection")
-local ChangeHistoryService = game:GetService("ChangeHistoryService")
-local ScriptEditorService = game:GetService("ScriptEditorService")
-local ClipboardService = game:GetService("ClipboardService")
-local UserInputService = game:GetService("UserInputService")
+-- Safe service acquisition: a missing service must never kill plugin loading.
+local function safeGetService(name)
+	local ok, service = pcall(function() return game:GetService(name) end)
+	if ok and service then return service end
+	warn("[LUA-X] Service unavailable (continuing without it): " .. tostring(name))
+	return nil
+end
 
-local PLUGIN_VERSION = "1.4.1"
+local HttpService = safeGetService("HttpService")
+local Selection = safeGetService("Selection")
+local ChangeHistoryService = safeGetService("ChangeHistoryService")
+local ScriptEditorService = safeGetService("ScriptEditorService")
+local UserInputService = safeGetService("UserInputService")
+local CollectionService = safeGetService("CollectionService")
+local StudioCaptureService = safeGetService("StudioCaptureService")
+
+if not HttpService then
+	warn("[LUA-X] FATAL: HttpService unavailable - plugin cannot start.")
+	return
+end
+
+local PLUGIN_VERSION = "2.0.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -56,29 +78,14 @@ do
 end
 -- Modern, reliable ribbon entry point. Guarantees a clickable LUA-X action in the
 -- Plugins tab even on Studio versions where the legacy toolbar button is suppressed.
+-- NOTE: the ActionTriggered/Activation connections are wired at the BOTTOM of this
+-- file (after buildWidget and friends exist as locals). Wiring them here would bind
+-- those names as nil globals and break the ribbon button.
 local openAction
 do
 	local okA, a = pcall(function() return plugin:CreatePluginAction("LUAX.OpenStudio", "Open LUA-X", "Open the LUA-X Studio dock", "") end)
 	if okA and a then openAction = a else warn("[LUA-X] CreatePluginAction unavailable - falling back to legacy toolbar / auto-open window") end
 end
-if openAction then
-	plugin.ActionTriggered:Connect(function(action)
-		if action == openAction then
-			local ok, err = pcall(function()
-				if buildWidget() then
-					widget.Enabled = true
-					refreshContext(); setStatus("LUA-X Studio ready.", "good"); task.defer(pollConversation)
-				end
-			end)
-			if not ok then warn("[LUA-X] open action failed: " .. tostring(err)) end
-		end
-	end)
-end
-pcall(function()
-	plugin.Activation:Connect(function()
-		if buildWidget() then widget.Enabled = true; refreshContext(); setStatus("LUA-X Studio ready.", "good") end
-	end)
-end)
 
 
 local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
@@ -325,6 +332,25 @@ local function getLightingSummary()
 	if tech then summary.technology = tostring(tech) end
 	return summary
 end
+local contextDirty = false
+local MAX_REMOTES = 24
+local function collectRemotes()
+	local remotes, seen = {}, 0
+	for _, root in ipairs(TREE_ROOTS) do
+		if seen >= MAX_REMOTES then break end
+		local svc = game:FindService(root)
+		if svc then
+			for _, desc in ipairs(svc:GetDescendants()) do
+				if seen >= MAX_REMOTES then break end
+				if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") or desc:IsA("UnreliableRemoteEvent") then
+					remotes[#remotes + 1] = { path = pathOf(desc), class = desc.ClassName }
+					seen = seen + 1
+				end
+			end
+		end
+	end
+	return remotes
+end
 local function refreshContext()
 	local selected = Selection:Get()
 	local instances, files, sourceParts, seen = {}, {}, {}, {}
@@ -335,6 +361,7 @@ local function refreshContext()
 	local counts = collectInstanceCounts()
 	local assets = collectAssetRefs()
 	local lighting = getLightingSummary()
+	local remotes = collectRemotes()
 	currentContext = {
 		place = { name = tostring(game.Name), placeId = tostring(game.PlaceId), services = TREE_ROOTS },
 		selection = instances,
@@ -345,8 +372,9 @@ local function refreshContext()
 		instanceCounts = counts,
 		assetReferences = assets,
 		lighting = lighting,
-		screenCaptureAvailable = false,
-		constraints = {"Use the current Roblox Studio selection as context.", "workspaceTree is the live Studio explorer — you can see the whole place.", "scripts lists every Lua source LUA-X could read; architecture holds their full source.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence.", "selectionDetails holds live properties for selected instances; instanceCounts is per-service descendent counts; assetReferences lists rbxasset fields."},
+		remotes = remotes,
+		screenCaptureAvailable = StudioCaptureService ~= nil,
+		constraints = {"Use the current Roblox Studio selection as context.", "workspaceTree is the live Studio explorer — you can see the whole place.", "scripts lists every Lua source LUA-X could read; architecture holds their full source.", "Never expose provider API keys.", "Prefer minimal reversible changes.", "Never claim runtime verification without evidence.", "selectionDetails holds live properties for selected instances; instanceCounts is per-service descendent counts; assetReferences lists rbxasset fields.", "remotes lists existing RemoteEvents/Functions — reuse them before creating duplicates."},
 	}
 	-- Adaptive trim to stay under server CONTEXT_MAX_BYTES 60000
 	local okJson, jsonStr = pcall(function() return HttpService:JSONEncode(currentContext) end)
@@ -365,12 +393,119 @@ local function refreshContext()
 	if selectionLabel then selectionLabel.Text = tostring(#selected) .. " selected" end
 	contextDirty = true
 end
-local contextDirty = false
 local function pushContext()
 	if disconnected or contextDirty == false then return end
 	contextDirty = false
 	local ok, response = safe("POST", rootUrl() .. "/api/studio/context", {sessionId = sessionId, context = type(currentContext) == "table" and currentContext or {}}, 1)
 	if not ok then contextDirty = true end
+end
+
+-- ===== Real screenshot vision (StudioCaptureService) =====
+local VISION_CAPTURE_SECONDS = 20
+local VISION_MAX_WIDTH = 512
+local visionPermissionAsked = false
+local visionLastPostAt = 0
+
+local function visionEncodeFrame(capture)
+	local resolution = capture.Resolution
+	local width = math.floor(resolution.X)
+	local height = math.floor(resolution.Y)
+	if width < 8 or height < 8 or width > 4096 or height > 4096 then return nil end
+	local okBuffer, pixelBuffer = pcall(function() return capture:GetBuffer() end)
+	if not okBuffer or typeof(pixelBuffer) ~= "buffer" then return nil end
+	local okLen, bufferLen = pcall(function() return buffer.len(pixelBuffer) end)
+	if not okLen or type(bufferLen) ~= "number" or bufferLen < width * height then return nil end
+	local bytesPerPixel = math.floor(bufferLen / (width * height) + 0.5)
+	if bytesPerPixel ~= 3 and bytesPerPixel ~= 4 then return nil end
+	local formatName = ""
+	pcall(function() formatName = tostring(capture.BufferFormat) end)
+	local bgrLayout = string.find(formatName, "BGRA", 1, true) ~= nil or string.find(formatName, "BGR", 1, true) ~= nil
+	local parts = {}
+	local rowParts = {}
+	for y = 0, height - 1 do
+		rowParts = {}
+		for x = 0, width - 1 do
+			local offset = (y * width + x) * bytesPerPixel
+			local r, g, b
+			if bgrLayout then
+				b = buffer.readu8(pixelBuffer, offset)
+				g = buffer.readu8(pixelBuffer, offset + 1)
+				r = buffer.readu8(pixelBuffer, offset + 2)
+			else
+				r = buffer.readu8(pixelBuffer, offset)
+				g = buffer.readu8(pixelBuffer, offset + 1)
+				b = buffer.readu8(pixelBuffer, offset + 2)
+			end
+			rowParts[x + 1] = string.char(r, g, b)
+		end
+		parts[y + 1] = table.concat(rowParts)
+	end
+	return { data = table.concat(parts), width = width, height = height }
+end
+
+local function captureVisionFrame()
+	if not StudioCaptureService then return nil end
+	if not visionPermissionAsked then
+		visionPermissionAsked = true
+		local okPerm, granted = pcall(function() return StudioCaptureService:RequestScreenshotPermissionAsync() end)
+		if not okPerm or not granted then return nil end
+	end
+	local canCapture = false
+	pcall(function() canCapture = StudioCaptureService:CanCaptureScreenshot() end)
+	if not canCapture then return nil end
+	local okCap, capture = pcall(function() return StudioCaptureService:CaptureScreenshot({}) end)
+	if not okCap or not capture then return nil end
+	pcall(function()
+		local res = capture.Resolution
+		if res and res.X > VISION_MAX_WIDTH then
+			local scale = VISION_MAX_WIDTH / res.X
+			capture = capture:ScaleAsync(Enum.ResamplerMode.Linear, Vector2.new(VISION_MAX_WIDTH, math.max(64, math.floor(res.Y * scale))))
+		end
+	end)
+	return capture
+end
+
+local function postVisionFrame(encoded)
+	local payload = {
+		sessionId = sessionId,
+		width = encoded.width,
+		height = encoded.height,
+		format = "RGB",
+		image = HttpService:Base64Encode(encoded.data),
+	}
+	return safe("POST", rootUrl() .. "/api/studio/vision", payload, 1)
+end
+
+local function captureAndPostVision(force)
+	if disconnected or not StudioCaptureService then return end
+	if not force and (os.clock() - visionLastPostAt) < VISION_CAPTURE_SECONDS then return end
+	visionLastPostAt = os.clock()
+	local capture = captureVisionFrame()
+	if not capture then return end
+	local encoded = visionEncodeFrame(capture)
+	if not encoded then return end
+	task.spawn(function() pcall(postVisionFrame, encoded) end)
+end
+
+-- ===== Live twin-agent activity feed =====
+local AGENT_POLL_SECONDS = 3
+local lastAgentEventAt = 0
+local function pollAgentEvents()
+	if disconnected or not widget or not widget.Enabled then return end
+	local url = rootUrl() .. "/api/studio/agent-events?sessionId=" .. HttpService:UrlEncode(sessionId)
+	if lastAgentEventAt > 0 then url = url .. "&since=" .. tostring(lastAgentEventAt) end
+	local ok, response = safe("GET", url, nil, 1)
+	if not ok or not response then return end
+	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
+	if not dOk or type(data) ~= "table" or type(data.events) ~= "table" then return end
+	for _, event in ipairs(data.events) do
+		if type(event) == "table" and type(event.at) == "number" and event.at > lastAgentEventAt then
+			lastAgentEventAt = event.at
+			local role = type(event.role) == "string" and event.role or "AGENT"
+			local message = type(event.message) == "string" and event.message or ""
+			if message ~= "" then setStatus("[" .. string.upper(role) .. "] " .. trim(message, 96), "warn") end
+		end
+	end
 end
 local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
 
@@ -390,7 +525,7 @@ local function heartbeatBody()
 		pluginVersion = PLUGIN_VERSION,
 		clientId = clientId,
 		targetAlias = aliasBase,
-		capabilities = {"chat", "context", "build", "apply", "verify", "instances", "sync", "vision", "multi-studio", "assets", "playtest", "ui-studio"},
+		capabilities = {"chat", "context", "build", "apply", "verify", "instances", "sync", "vision", "multi-studio", "assets", "playtest", "ui-studio", "twin-agent", "lighting", "terrain", "constraints", "attributes", "tags", "keyframes", "remotes-map", "ui-trees"},
 		context = {selection=#Selection:Get(), scripts=#(type(context.scripts)=="table" and context.scripts or {}), tree=select(2, tostring(context.workspaceTree or ""):gsub("\n", "\n")) + 1},
 	}
 end
@@ -658,6 +793,206 @@ local function resolveValue(value)
 	return v
 end
 
+local MAX_SPEC_DEPTH = 8
+
+local function decodeSpec(content)
+	if type(content) ~= "string" or content == "" then return nil end
+	local okJson, specData = pcall(HttpService.JSONDecode, HttpService, content)
+	if not okJson or type(specData) ~= "table" then return nil end
+	return specData
+end
+
+-- Accepts "Vector3.new(x, y, z)" style strings or plain {x,y,z}/{[1],[2],[3]} tables.
+local function vec3OfValue(value)
+	if type(value) == "string" then return resolveValue(value) end
+	if type(value) == "table" then
+		local x = tonumber(value.x ~= nil and value.x or value[1])
+		local y = tonumber(value.y ~= nil and value.y or value[2])
+		local z = tonumber(value.z ~= nil and value.z or value[3])
+		if x and y and z then return Vector3.new(x, y, z) end
+	end
+	return nil
+end
+
+-- SetAttribute only accepts Roblox attribute types; pre-check so we can report skips.
+local function attributeSafe(value)
+	local t = typeof(value)
+	if t == "number" or t == "boolean" or t == "string" or t == "UDim" or t == "UDim2"
+		or t == "BrickColor" or t == "Color3" or t == "Vector2" or t == "Vector3"
+		or t == "CFrame" or t == "NumberSequence" or t == "ColorSequence"
+		or t == "NumberRange" or t == "Rect" or t == "Font" then
+		return true
+	end
+	return false
+end
+
+-- Recursive spec tree: {className, name?, properties?, children?: [spec...]}
+-- Children make full UI trees natural (Frame > UICorner/UIStroke/UIListLayout/TextButton…).
+local function buildInstanceTree(specData, defaultClass, depth)
+	depth = depth or 0
+	if depth > MAX_SPEC_DEPTH then return nil, "spec tree too deep" end
+	local className = type(specData.className) == "string" and specData.className ~= "" and specData.className or defaultClass
+	if not className then return nil, "className required" end
+	local okCreate, object = pcall(Instance.new, className)
+	if not okCreate or not object then return nil, "unknown class: " .. tostring(className) end
+	local properties = type(specData.properties) == "table" and specData.properties or {}
+	for key, rawValue in pairs(properties) do
+		if key ~= "Parent" and key ~= "children" then
+			local okSet, err = pcall(function() object[key] = resolveValue(rawValue) end)
+			if not okSet then
+				pcall(function() object:Destroy() end)
+				return nil, "property " .. tostring(key) .. " failed: " .. tostring(err)
+			end
+		end
+	end
+	if type(specData.name) == "string" and specData.name ~= "" then object.Name = specData.name end
+	for _, childSpec in ipairs(type(specData.children) == "table" and specData.children or {}) do
+		if type(childSpec) == "table" then
+			local childObj, childErr = buildInstanceTree(childSpec, nil, depth + 1)
+			if childObj then
+				childObj.Parent = object
+			else
+				pcall(function() object:Destroy() end)
+				return nil, "child failed: " .. tostring(childErr)
+			end
+		end
+	end
+	return object
+end
+
+local function applyInstanceSpec(spec, parentPath, defaultClass)
+	local specData = decodeSpec(spec)
+	if not specData then return false, "invalid instance spec (expect JSON {className, name?, properties, children?})" end
+	local parent = findPath(parentPath)
+	if not parent then return false, "parent not found: " .. parentPath end
+	local object, err = buildInstanceTree(specData, defaultClass, 0)
+	if not object then return false, tostring(err) end
+	local okParent, parentErr = pcall(function() object.Parent = parent end)
+	if not okParent then
+		pcall(function() object:Destroy() end)
+		return false, "parent failed: " .. tostring(parentErr)
+	end
+	return true, "created " .. object.ClassName .. " " .. object.Name .. " under " .. parentPath
+end
+
+-- configure_lighting: {properties:{ClockTime=14,...}, children:[{className:"Atmosphere", name?, properties:{...}}]}
+local function applyLightingSpec(targetPath, content)
+	local spec = decodeSpec(content)
+	if not spec then return false, "configure_lighting expects JSON {properties?, children?}" end
+	local lighting = findPath(targetPath or "")
+	if not lighting or not lighting:IsA("Lighting") then
+		lighting = game:FindFirstChildOfClass("Lighting")
+	end
+	if not lighting then return false, "Lighting service not found" end
+	local applied = 0
+	for key, rawValue in pairs(type(spec.properties) == "table" and spec.properties or {}) do
+		local okSet, err = pcall(function() lighting[key] = resolveValue(rawValue) end)
+		if okSet then applied = applied + 1 else warn("[LUA-X] Lighting." .. tostring(key) .. ": " .. tostring(err)) end
+	end
+	local childNotes = {}
+	for _, childSpec in ipairs(type(spec.children) == "table" and spec.children or {}) do
+		local cname = type(childSpec.className) == "string" and childSpec.className or ""
+		if cname ~= "" then
+			local wantedName = type(childSpec.name) == "string" and childSpec.name or cname
+			local existing = nil
+			for _, kid in ipairs(lighting:GetChildren()) do
+				if kid.ClassName == cname and kid.Name == wantedName then existing = kid break end
+			end
+			local childObject = existing
+			if not childObject then
+				local okNew, newObj = pcall(Instance.new, cname)
+				if okNew and newObj then childObject = newObj; childObject.Name = wantedName end
+			end
+			if childObject then
+				local propsApplied = 0
+				for k2, v2 in pairs(type(childSpec.properties) == "table" and childSpec.properties or {}) do
+					local ok2, err2 = pcall(function() childObject[k2] = resolveValue(v2) end)
+					if ok2 then propsApplied = propsApplied + 1 else warn("[LUA-X] " .. cname .. "." .. tostring(k2) .. ": " .. tostring(err2)) end
+				end
+				if not existing then pcall(function() childObject.Parent = lighting end) end
+				childNotes[#childNotes + 1] = cname .. "(" .. propsApplied .. ")"
+			end
+		end
+	end
+	local summary = "lighting updated (" .. applied .. " properties"
+	if #childNotes > 0 then summary = summary .. "; +" .. table.concat(childNotes, ", ") end
+	return true, summary .. ")"
+end
+
+-- create_terrain_region: {center:"Vector3.new(...)"|{x,y,z}, size:{x,y,z}|string, material?:name|enum, occupancy?:number}
+local function applyTerrainRegion(content)
+	local spec = decodeSpec(content)
+	if not spec then return false, "create_terrain_region expects JSON {center, size, material?, occupancy?}" end
+	local terrain = workspace:FindFirstChildOfClass("Terrain")
+	if not terrain then return false, "workspace.Terrain not found" end
+	local centerVal = vec3OfValue(spec.center)
+	local sizeVal = vec3OfValue(spec.size)
+	if typeof(centerVal) ~= "Vector3" then return false, "center must be a Vector3 (e.g. \"Vector3.new(0, 20, 0)\")" end
+	if typeof(sizeVal) ~= "Vector3" then return false, "size must be a Vector3" end
+	local materialRaw = spec.material
+	local material = Enum.Material.Grass
+	if type(materialRaw) == "string" then
+		if string.match(materialRaw, "^Enum%.") then
+			local resolvedEnum = resolveEnum(materialRaw)
+			if resolvedEnum then material = resolvedEnum end
+		else
+			local okMat, mat = pcall(function() return Enum.Material[materialRaw] end)
+			if okMat and mat then material = mat end
+		end
+	end
+	local occupancy = tonumber(spec.occupancy) or 1
+	if occupancy < 0 then occupancy = 0 elseif occupancy > 1 then occupancy = 1 end
+	local okFill, fillErr = pcall(function()
+		terrain:FillBlock(CFrame.new(centerVal), sizeVal, material, occupancy)
+	end)
+	if not okFill then return false, "terrain fill failed: " .. tostring(fillErr) end
+	return true, "terrain filled (" .. tostring(material) .. ") at " .. tostring(centerVal) .. " size " .. tostring(sizeVal)
+end
+
+local CONSTRAINT_CLASSES = {
+	WeldConstraint = true, HingeConstraint = true, PrismaticConstraint = true,
+	CylindricalConstraint = true, BallSocketConstraint = true, SpringConstraint = true,
+	RopeConstraint = true, RodConstraint = true,
+}
+-- create_constraint: {className?, part0:"game...", part1:"game...", properties?:{...}}
+local function applyConstraintSpec(targetPath, content)
+	local spec = decodeSpec(content)
+	if not spec then return false, "create_constraint expects JSON {className?, part0, part1, properties?}" end
+	local className = type(spec.className) == "string" and spec.className or "WeldConstraint"
+	if not CONSTRAINT_CLASSES[className] then return false, "unsupported constraint class: " .. className end
+	local part0 = findPath(type(spec.part0) == "string" and spec.part0 or "")
+	local part1 = findPath(type(spec.part1) == "string" and spec.part1 or "")
+	if not part0 or not part1 then return false, "part0/part1 paths not found" end
+	local okNew, constraint = pcall(Instance.new, className)
+	if not okNew or not constraint then return false, "cannot create constraint: " .. className end
+	local needsAttachments = className ~= "WeldConstraint"
+	if needsAttachments then
+		local att0 = Instance.new("Attachment"); att0.Name = "LUA-X_Attachment0"; att0.Parent = part0
+		local att1 = Instance.new("Attachment"); att1.Name = "LUA-X_Attachment1"; att1.Parent = part1
+		constraint.Attachment0 = att0
+		constraint.Attachment1 = att1
+	end
+	local propFailures = {}
+	for key, rawValue in pairs(type(spec.properties) == "table" and spec.properties or {}) do
+		if key ~= "Parent" and key ~= "Attachment0" and key ~= "Attachment1" and key ~= "Part0" and key ~= "Part1" then
+			local okSet, err = pcall(function() constraint[key] = resolveValue(rawValue) end)
+			if not okSet then propFailures[#propFailures + 1] = tostring(key) .. ": " .. tostring(err) end
+		end
+	end
+	if className == "WeldConstraint" then
+		constraint.Part0 = part0
+		constraint.Part1 = part1
+	end
+	local okParent, parentErr = pcall(function() constraint.Parent = part0 end)
+	if not okParent then
+		pcall(function() constraint:Destroy() end)
+		return false, "constraint parent failed: " .. tostring(parentErr)
+	end
+	local note = ""
+	if #propFailures > 0 then note = " (skipped: " .. table.concat(propFailures, "; ") .. ")" end
+	return true, "created " .. className .. " between " .. pathOf(part0) .. " and " .. pathOf(part1) .. note
+end
+
 local INSTANCE_OP_DEFAULTS = {
 	create_animation = "Animation",
 	create_sound = "Sound",
@@ -665,34 +1000,102 @@ local INSTANCE_OP_DEFAULTS = {
 	create_ui = "Frame",
 }
 
-local function applyInstanceSpec(spec, parentPath, defaultClass)
-	local okJson, specData = pcall(HttpService.JSONDecode, HttpService, spec)
-	if not okJson or type(specData) ~= "table" then return false, "invalid instance spec (expect JSON {className, name?, properties})" end
-	local className = type(specData.className) == "string" and specData.className ~= "" and specData.className or defaultClass
-	local properties = type(specData.properties) == "table" and specData.properties or {}
-	local name = type(specData.name) == "string" and specData.name ~= "" and specData.name or nil
-	if not className then return false, "instance className required (e.g. Part, Frame, Sound)" end
-	local parent = findPath(parentPath)
-	if not parent then return false, "parent not found: " .. parentPath end
-	local okCreate, object = pcall(Instance.new, className)
-	if not okCreate then return false, "unknown class: " .. className end
-	local function fail(reason)
-		pcall(function() object:Destroy() end)
-		return false, reason
-	end
-	for key, rawValue in pairs(properties) do
-		if key ~= "Parent" then
-			local okSet, err = pcall(function()
-				local resolved = resolveValue(rawValue)
-				object[key] = resolved
-			end)
-			if not okSet then return fail("property " .. tostring(key) .. " failed: " .. tostring(err)) end
+-- set_attributes: {attributes:{Damage=25, Team="Red", HomePoint="CFrame.new(...)"?}}
+local function applyAttributesSpec(target, content)
+	local spec = decodeSpec(content)
+	if not spec then return false, "set_attributes expects JSON {attributes:{name:value}}" end
+	local object = findPath(target)
+	if not object then return false, "instance not found: " .. target end
+	local applied, skipped = 0, 0
+	for key, rawValue in pairs(type(spec.attributes) == "table" and spec.attributes or {}) do
+		local resolved = resolveValue(rawValue)
+		if resolved ~= nil and type(resolved) ~= "table" and attributeSafe(resolved) then
+			local okSet = pcall(function() object:SetAttribute(key, resolved) end)
+			if okSet then applied = applied + 1 else skipped = skipped + 1 end
+		else
+			skipped = skipped + 1
 		end
 	end
-	if name then object.Name = name end
-	local okParent, parentErr = pcall(function() object.Parent = parent end)
-	if not okParent then return fail("parent failed: " .. tostring(parentErr)) end
-	return true, "created " .. tostring(object.ClassName) .. " " .. (name or object.Name) .. " under " .. parentPath
+	return true, "attributes on " .. target .. ": " .. applied .. " set, " .. skipped .. " skipped"
+end
+
+-- add_tags / remove_tags: {tags:["Enemy","Interactable"]}
+local function applyTagsSpec(target, content, add)
+	local spec = decodeSpec(content)
+	if not spec then return false, (add and "add_tags" or "remove_tags") .. " expects JSON {tags:[\"Tag\"]}" end
+	if not CollectionService then return false, "CollectionService unavailable in this Studio version" end
+	local object = findPath(target)
+	if not object then return false, "instance not found: " .. target end
+	local count = 0
+	for _, tag in ipairs(type(spec.tags) == "table" and spec.tags or {}) do
+		local tagText = tostring(tag)
+		if tagText ~= "" then
+			local okTag
+			if add then
+				okTag = pcall(function() CollectionService:AddTag(object, tagText) end)
+			else
+				okTag = pcall(function() CollectionService:RemoveTag(object, tagText) end)
+			end
+			if okTag then count = count + 1 end
+		end
+	end
+	return true, (add and "added " or "removed ") .. count .. " tags on " .. target
+end
+
+-- create_keyframes: procedural KeyframeSequence — a real, playable animation that needs no uploaded asset id.
+-- Spec: {name?, looped?, priority?, keyframes:[{time:number, joints:{["HumanoidRootPart"]={cframe:"CFrame.new(...)"|[12 numbers], weight?:number}}}]}
+local function applyKeyframesSpec(target, content)
+	local spec = decodeSpec(content)
+	if not spec then return false, "create_keyframes expects JSON {keyframes:[{time, joints:{Joint={cframe}}}]}" end
+	local keyframeList = type(spec.keyframes) == "table" and spec.keyframes or {}
+	if #keyframeList == 0 then return false, "create_keyframes needs at least one keyframe" end
+	local okNew, sequence = pcall(Instance.new, "KeyframeSequence")
+	if not okNew or not sequence then return false, "KeyframeSequence unavailable" end
+	sequence.Name = type(spec.name) == "string" and spec.name ~= "" and spec.name or ("LUA-X Animation " .. os.time())
+	pcall(function() sequence.Loop = spec.looped == true end)
+	if type(spec.priority) == "string" then
+		local okPrio, prio = pcall(function() return Enum.AnimationPriority[spec.priority] end)
+		if okPrio and prio then pcall(function() sequence.Priority = prio end) end
+	end
+	for _, kf in ipairs(keyframeList) do
+		local keyframeTime = tonumber(kf.time) or 0
+		local keyframe = Instance.new("Keyframe")
+		keyframe.Time = keyframeTime
+		for jointName, jointData in pairs(type(kf.joints) == "table" and kf.joints or {}) do
+			local cfRaw = nil
+			if type(jointData) == "table" then cfRaw = jointData.cframe or jointData.cf end
+			local poseCF = nil
+			if type(cfRaw) == "table" and #cfRaw >= 12 then
+				poseCF = CFrame.new(tonumber(cfRaw[1]) or 0, tonumber(cfRaw[2]) or 0, tonumber(cfRaw[3]) or 0,
+					tonumber(cfRaw[4]) or 1, tonumber(cfRaw[5]) or 0, tonumber(cfRaw[6]) or 0,
+					tonumber(cfRaw[7]) or 0, tonumber(cfRaw[8]) or 1, tonumber(cfRaw[9]) or 0,
+					tonumber(cfRaw[10]) or 0, tonumber(cfRaw[11]) or 0, tonumber(cfRaw[12]) or 1)
+			elseif type(cfRaw) == "string" then
+				poseCF = resolveValue(cfRaw)
+			end
+			if poseCF ~= nil and typeof(poseCF) == "CFrame" then
+				local pose = Instance.new("Pose")
+				pose.Name = tostring(jointName)
+				pose.CFrame = poseCF
+				pose.Weight = (type(jointData) == "table" and tonumber(jointData.weight)) or 1
+				pose.Parent = keyframe
+			end
+		end
+		keyframe.Parent = sequence
+	end
+	local parent = findPath(target or "")
+	if not parent then
+		local serverStorage = game:FindFirstChildOfClass("ServerStorage")
+		if not serverStorage then serverStorage = game end
+		parent = serverStorage:FindFirstChild("LUA-X_Animations")
+		if not parent then
+			parent = Instance.new("Folder")
+			parent.Name = "LUA-X_Animations"
+			parent.Parent = serverStorage
+		end
+	end
+	sequence.Parent = parent
+	return true, "created KeyframeSequence " .. sequence.Name .. " (" .. #keyframeList .. " keyframes) under " .. pathOf(parent)
 end
 
 local function applyProposal(proposal)
@@ -739,6 +1142,57 @@ local function applyProposal(proposal)
 			end
 		end
 		return true, "updated " .. target .. " (" .. count .. " properties)"
+	end
+	if op == "reparent_instance" then
+		local spec = decodeSpec(content) or {}
+		local toPath = type(spec.to) == "string" and spec.to or ""
+		local object = findPath(target)
+		local newParent = findPath(toPath)
+		if not object or not newParent then return false, "reparent failed: target/destination not found" end
+		if newParent == object or object:IsDescendantOf(newParent) then return false, "cannot reparent into own descendant: " .. toPath end
+		object.Parent = newParent
+		return true, "reparented " .. target .. " -> " .. toPath
+	end
+	if op == "rename_instance" then
+		local spec = decodeSpec(content) or {}
+		if type(spec.name) ~= "string" or spec.name == "" then return false, "rename_instance expects JSON {name}" end
+		local object = findPath(target)
+		if not object then return false, "instance not found: " .. target end
+		object.Name = spec.name
+		return true, "renamed " .. target .. " -> " .. spec.name
+	end
+	if op == "clone_instance" then
+		local spec = decodeSpec(content) or {}
+		local object = findPath(target)
+		if not object then return false, "instance not found: " .. target end
+		local okClone, copy = pcall(function() return object:Clone() end)
+		if not okClone or not copy then return false, "clone failed (Archivable?) for: " .. target end
+		copy.Name = type(spec.name) == "string" and spec.name ~= "" and spec.name or (object.Name .. "_Copy")
+		local destination = findPath(type(spec.to) == "string" and spec.to or "") or object.Parent
+		if not destination then pcall(function() copy:Destroy() end); return false, "clone destination not found" end
+		copy.Parent = destination
+		return true, "cloned " .. target .. " -> " .. pathOf(copy)
+	end
+	if op == "configure_lighting" then
+		return applyLightingSpec(target, content)
+	end
+	if op == "create_terrain_region" then
+		return applyTerrainRegion(content)
+	end
+	if op == "create_constraint" then
+		return applyConstraintSpec(target, content)
+	end
+	if op == "set_attributes" then
+		return applyAttributesSpec(target, content)
+	end
+	if op == "add_tags" then
+		return applyTagsSpec(target, content, true)
+	end
+	if op == "remove_tags" then
+		return applyTagsSpec(target, content, false)
+	end
+	if op == "create_keyframes" then
+		return applyKeyframesSpec(target, content)
 	end
 	if INSTANCE_OP_DEFAULTS[op] then
 		local spec = type(content) == "string" and content or "{}"
@@ -833,9 +1287,31 @@ local function codeSegments(text)
 	if #segments == 0 then table.insert(segments, {code = false, text = text}) end
 	return segments
 end
+-- Roblox has no plugin-accessible clipboard API, so we select the code in a
+-- focusable TextBox; Ctrl+C then works natively and never fails.
+local copyOverlay, copyBoxText
+local function showCopyOverlay(text)
+	if not widget then return end
+	if not copyOverlay then
+		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false}, chatScroller and chatPanel or widget), 6)
+		ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -16, 0, 16), BackgroundTransparency = 1, Text = "CODE — press Ctrl+C to copy, then close", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, copyOverlay)
+		copyBoxText = ui("TextBox", {Position = UDim2.new(0, 8, 0, 22), Size = UDim2.new(1, -16, 1, -30), BackgroundColor3 = Color3.fromRGB(8, 10, 16), BorderSizePixel = 0, TextColor3 = Color3.fromRGB(205, 217, 240), Font = Enum.Font.Code, TextSize = 10, ClearTextOnFocus = false, TextWrapped = true, MultiLine = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = ""}, copyOverlay)
+		round(copyBoxText, 5)
+	end
+	if not copyOverlay or not copyBoxText then return end
+	copyOverlay.Visible = true
+	copyBoxText.Text = text
+	task.defer(function()
+		pcall(function()
+			copyBoxText:CaptureFocus()
+			copyBoxText.SelectionStart = 1
+			copyBoxText.CursorPosition = #text + 1
+		end)
+	end)
+end
 local function copyCode(text)
-	local ok = pcall(function() ClipboardService:SetClipboard(text) end)
-	setStatus(ok and "Code copied to clipboard." or "Clipboard unavailable in this Studio version.", ok and "good" or "warn")
+	local ok = pcall(showCopyOverlay, text)
+	setStatus(ok and "Code selected — press Ctrl+C to copy." or "Select the code block and copy it manually.", ok and "good" or "warn")
 end
 local function stripLangTag(text)
 	local first, rest = text:match("^([^\n]-)\n(.*)$")
@@ -1099,6 +1575,30 @@ task.spawn(function() while true do if widget and widget.Enabled and not disconn
 task.spawn(function() while true do local ok=pcall(pollConversation); if not ok then warn("[LUA-X] conversation poll failed") end; task.wait(CHAT_POLL_SECONDS) end end)
 task.spawn(function() while true do task.wait(30); local ok=pcall(refreshRemoteStatus); if not ok then warn("[LUA-X] remote status refresh failed") end end end)
 task.spawn(function() while true do task.wait(8); local ok=pcall(pushContext); if not ok then warn("[LUA-X] context push failed") end end end)
+task.spawn(function() while true do pcall(pollAgentEvents); task.wait(AGENT_POLL_SECONDS) end end)
+task.spawn(function() while true do pcall(captureAndPostVision, false); task.wait(VISION_CAPTURE_SECONDS) end end)
 task.spawn(function() pcall(refreshContext) end)
 
-print("[LUA-X] Connected Studio bridge v" .. PLUGIN_VERSION .. " active (session " .. sessionId .. ")")
+-- Ribbon entry points are wired HERE (not at the top of the file) so that
+-- buildWidget/setStatus/refreshContext/pollConversation exist as real locals.
+-- Wiring earlier binds those names as nil globals and silently breaks the button.
+if openAction then
+	plugin.ActionTriggered:Connect(function(action)
+		if action == openAction then
+			local ok, err = pcall(function()
+				if buildWidget() then
+					widget.Enabled = true
+					refreshContext(); setStatus("LUA-X Studio ready.", "good"); task.defer(pollConversation)
+				end
+			end)
+			if not ok then warn("[LUA-X] open action failed: " .. tostring(err)) end
+		end
+	end)
+end
+pcall(function()
+	plugin.Activation:Connect(function()
+		if buildWidget() then widget.Enabled = true; refreshContext(); setStatus("LUA-X Studio ready.", "good") end
+	end)
+end)
+
+print("[LUA-X] Twin-AI Studio bridge v" .. PLUGIN_VERSION .. " active (session " .. sessionId .. ") (toolbar: " .. (toolbarButton and "OK" or "FAILED") .. ", ribbon action: " .. (openAction and "OK" or "unavailable") .. ", vision: " .. (StudioCaptureService and "OK" or "unavailable") .. ")")

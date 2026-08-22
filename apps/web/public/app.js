@@ -65,6 +65,41 @@ const checkSession = document.querySelector('#check-session');
 const cancelConnect = document.querySelector('#cancel-connect');
 const runDiagnosticsBtn = document.querySelector('#run-diagnostics');
 const diagnosticsBox = document.querySelector('#diagnostics-box');
+const agentActivity = document.querySelector('#agent-activity');
+const agentActivityState = document.querySelector('#agent-activity-state');
+const agentFeed = document.querySelector('#agent-feed');
+let agentFeedLastAt = 0;
+function renderAgentEvents(events) {
+  if (!agentFeed || !Array.isArray(events) || events.length === 0) return;
+  const fresh = events.filter((e) => e && typeof e.at === 'number' && e.at > agentFeedLastAt);
+  if (fresh.length === 0) return;
+  agentFeedLastAt = fresh[fresh.length - 1].at;
+  for (const e of fresh) {
+    const row = document.createElement('div');
+    row.className = 'agent-event-row';
+    const role = (typeof e.role === 'string' ? e.role : 'AGENT').toUpperCase();
+    const when = new Date(e.at).toLocaleTimeString();
+    const color = role.includes('ARCHITECT') ? '#8ab4ff' : role.includes('BUILDER') ? '#7fd1a8' : role === 'VISION' ? '#e0b36a' : '#9aa3b5';
+    row.innerHTML = `<span style="color:${color};font-weight:700">${esc(role)}</span> <span style="opacity:.6">${when}</span> — ${esc(String(e.message ?? '').slice(0, 160))}`;
+    agentFeed.appendChild(row);
+    while (agentFeed.children.length > 40) agentFeed.removeChild(agentFeed.firstChild);
+  }
+  agentFeed.scrollTop = agentFeed.scrollHeight;
+}
+async function refreshAgentFeed() {
+  if (!studioConnected || !studioSessionId || !agentFeed) {
+    if (agentActivityState) agentActivityState.textContent = 'idle';
+    return;
+  }
+  try {
+    const data = await getJson(`/api/studio/agent-events?sessionId=${encodeURIComponent(studioSessionId)}&since=${agentFeedLastAt}`);
+    if (data && Array.isArray(data.events)) {
+      renderAgentEvents(data.events);
+      if (agentActivityState) agentActivityState.textContent = data.events.length > 0 ? 'active' : 'connected';
+    }
+  } catch { /* feed is best-effort */ }
+}
+setInterval(refreshAgentFeed, 4000);
 const diagSummary = document.querySelector('#diag-summary');
 const diagItems = {
   website: document.querySelector('#diag-website'),
@@ -177,7 +212,7 @@ function promptForToken() {
   return true;
 }
 
-const PLUGIN_VERSION = '1.4.1';
+  const PLUGIN_VERSION = '2.0.0';
 const PLUGIN_DOWNLOADED_KEY = 'lua_x_plugin_downloaded';
 const POLL_NORMAL_MS = 4000;
 const POLL_CONNECTING_MS = 1200;
@@ -733,6 +768,7 @@ async function refreshStudio() {
         studioLastCommand = s.body.lastCommand || null;
         studioLastSeen = s.body.lastSeenAt || Date.now();
         studioConnected = true;
+        if (agentActivity) agentActivity.classList.remove('hidden');
       } else {
         studioConnected = false;
       }
@@ -1082,6 +1118,10 @@ async function send() {
     }
     const reply = (typeof b.response === 'string' && b.response) || (b.plan && b.plan.summary) || 'No response from backend.';
     typing.remove();
+    if (Array.isArray(b.agentTrace) && b.agentTrace.length > 0) {
+      agentActivity?.classList.remove('hidden');
+      renderAgentEvents(b.agentTrace);
+    }
     webChatHistory.push({ role: 'assistant', content: reply });
     if (b.plan && Array.isArray(b.plan.changes) && b.plan.changes.length > 0) {
       webChatHistory.push({ role: 'assistant', content: `Build plan ready — ${b.plan.changes.length} change${b.plan.changes.length === 1 ? '' : 's'}. Open the LUA-X plugin in Roblox Studio to review and apply it.` });
