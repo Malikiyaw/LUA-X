@@ -302,7 +302,7 @@ function chatUserPromptEnriched(body: Record<string, unknown>): Promise<string> 
 }
 
 function normalizePlan(text: string): string {
-  return text.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+  return String(text ?? '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
 }
 
 function extractJson(text: string): unknown {
@@ -967,7 +967,8 @@ async function runTwinAgent(
  * creator never sees raw JSON, and returns the follow-up prompts separately.
  */
 export function extractSuggestions(text: string): { content: string; suggestions?: string[] } {
-  const match = /```json\s*([\s\S]*?)```\s*$/i.exec(text);
+  const safeText = String(text ?? '');
+  const match = /```json\s*([\s\S]*?)```\s*$/i.exec(safeText);
   if (match) {
     try {
       const parsed = JSON.parse(match[1]!) as unknown;
@@ -977,12 +978,12 @@ export function extractSuggestions(text: string): { content: string; suggestions
           .map(v => v.trim().slice(0, 120))
           .slice(0, 3);
         if (suggestions.length > 0) {
-          return { content: text.slice(0, match.index).trim(), suggestions };
+          return { content: safeText.slice(0, match.index).trim(), suggestions };
         }
       }
     } catch { /* not a suggestion block — keep full text */ }
   }
-  return { content: text.trim() };
+  return { content: safeText.trim() };
 }
 
 export async function handleGenerate(request: Request): Promise<Response> {
