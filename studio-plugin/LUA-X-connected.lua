@@ -33,7 +33,7 @@ if not HttpService then
 	return
 end
 
-local PLUGIN_VERSION = "2.1.0"
+local PLUGIN_VERSION = "2.1.1"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -98,6 +98,10 @@ local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSessi
 local chatScroller, chatList, chatInput, chatSend, chatSyncLabel
 local currentPlan, currentContext = nil, {}
 local chatHistory = {}
+-- Plans attached to assistant entries, keyed by the exact server-stored reply
+-- text so conversation syncs can re-attach Apply cards after a merge.
+local planByReplyText = {}
+local planByReplyTextCount = 0
 local busy, applyArmed, disconnected = false, false, false
 -- v2.1 unified-chat state
 local autoContext = true
@@ -1507,7 +1511,10 @@ local function syncFromServer()
 	local merged = {}
 	for _, message in ipairs(data.messages) do
 		if type(message) == "table" and (message.role == "user" or message.role == "assistant") and type(message.content) == "string" then
-			table.insert(merged, {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"})
+			local synced = {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"}
+			local attachedPlan = planByReplyText[message.content]
+			if attachedPlan ~= nil then synced.plan = attachedPlan end
+			table.insert(merged, synced)
 			if #merged >= MAX_HISTORY then break end
 		end
 	end
@@ -1573,9 +1580,26 @@ function sendChat(textOverride)
 		end
 	else
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
-		if dOk and type(data) == "table" and type(data.response) == "string" and data.response ~= "" then
-			local entry = {role = "assistant", text = data.response}
-			if type(data.plan) == "table" and type(data.plan.changes) == "table" and #data.plan.changes > 0 then
+		local hasPlan = dOk and type(data) == "table" and type(data.plan) == "table" and type(data.plan.changes) == "table" and #data.plan.changes > 0
+		if dOk and type(data) == "table" and ((type(data.response) == "string" and data.response ~= "") or hasPlan) then
+			local entryText = type(data.response) == "string" and data.response or ""
+			if hasPlan then
+				-- Key the plan by the exact text the server stores in the shared
+				-- conversation so Apply cards survive conversation syncs.
+				local keyText
+				if mode == "build" then
+					local summary = type(data.plan.summary) == "string" and data.plan.summary or ""
+					keyText = "Build plan ready: " .. string.sub(summary, 1, 500) .. " (" .. #data.plan.changes .. " changes)"
+					if entryText == "" then entryText = keyText end
+				else
+					keyText = entryText
+				end
+				if planByReplyTextCount > 64 then planByReplyText = {}; planByReplyTextCount = 0 end
+				planByReplyText[keyText] = data.plan
+				planByReplyTextCount = planByReplyTextCount + 1
+			end
+			local entry = {role = "assistant", text = entryText}
+			if hasPlan then
 				entry.plan = data.plan
 				currentPlan = data.plan
 				showToast("Build plan ready · review & apply", "good")

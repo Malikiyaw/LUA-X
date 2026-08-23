@@ -1,9 +1,9 @@
 {
   "name": "LUA-X Studio Plugin",
   "filename": "LUA-X.lua",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "source": "studio-plugin/LUA-X-connected.lua",
-  "sha256": "a363ff40cc1a175f0bbcdb9a000d0cccbabe86f25fec9a05204aa5ef7930ea0d",
+  "sha256": "6914809dac004b2f159555ff99aa6d1b2ca2a35f4093927aa2b4f3149fe8b87d",
   "minimumStudioVersion": "2024",
-  "requiredVersion": "2.1.0"
+  "requiredVersion": "2.1.1"
 }

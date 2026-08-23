@@ -900,6 +900,7 @@ async function runTwinAgent(
 
   const allChanges: PlanChange[] = [];
   const maxRepairs = maxIterations();
+  let builderRepairsUsed = 0;
 
   for (let taskIndex = 0; taskIndex < brief.tasks.length; taskIndex += 1) {
     const task = brief.tasks[taskIndex]!;
@@ -908,6 +909,7 @@ async function runTwinAgent(
       break;
     }
     let changesEmitted = false;
+    let repairNote: string | null = null;
     for (let attempt = 0; attempt < 2 && !changesEmitted; attempt += 1) {
       try {
         const changes = await runBuilderTask(baseUrl, apiKeys, body, task, allChanges, repairNote, id, trace, remainingMs);
@@ -918,6 +920,7 @@ async function runTwinAgent(
           traceEvent(trace, 'SYSTEM', 'builder-error', `Task ${task.id} failed: ${error instanceof Error ? error.message.slice(0, 140) : 'error'} — continuing.`);
           break;
         }
+        builderRepairsUsed += 1;
         repairNote = `Your previous attempt for this task failed validation: ${error instanceof Error ? error.message.slice(0, 300) : 'unknown'}. Fix the JSON structure and resubmit ALL changes for this task.`;
         traceEvent(trace, 'BUILDER', `builder-${task.id}`, 'Retrying after validation failure.');
       }
@@ -929,7 +932,7 @@ async function runTwinAgent(
   }
 
   const plan = consolidatePlan(brief, allChanges);
-  await syntaxGateAndRepair(baseUrl, apiKeys, body, plan, id, trace, remainingMs, maxRepairs - repairsUsed);
+  await syntaxGateAndRepair(baseUrl, apiKeys, body, plan, id, trace, remainingMs, Math.max(0, maxRepairs - builderRepairsUsed));
   traceEvent(trace, 'VERIFY', 'syntax-gate', `Structural gate passed across ${plan.changes.length} change(s).`);
 
   const reviewBudget = remainingMs();
@@ -1030,6 +1033,7 @@ export async function handleGenerate(request: Request): Promise<Response> {
           requestId: id,
           provider: 'nvidia',
           model,
+          response: `Build plan ready: ${plan.summary} (${plan.changes.length} changes)`,
           plan,
           agentTrace: trace.slice(-60),
           agents: { architect: agentMode() === 'single' ? 'skipped' : 'completed', builder: 'completed' },
