@@ -117,6 +117,9 @@ local agentLiveEvents = {}
 local agentLiveFrame = nil
 local agentLiveList = nil
 local agentDotArch, agentDotBuild
+local armedPlanRef = nil
+local twinMode = true
+local lastSyncSig = nil
 local sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
 
@@ -1264,10 +1267,12 @@ local function applyPlanCard(plan, button)
 	if #changes == 0 then setStatus("No automatically applicable changes.", "warn"); return end
 	if not button.Armed then
 		button.Armed = true
+		armedPlanRef = plan
 		button.Text = "Confirm Apply  ·  " .. #changes
 		setStatus("Review the change set, then confirm.", "warn")
 		return
 	end
+	armedPlanRef = nil
 	busy = true; button.Armed = false; button.Text = "Applying…"
 	pcall(function() ChangeHistoryService:SetWaypoint("LUA-X · Before Apply") end)
 	local success, failed, results = 0, 0, {}
@@ -1352,8 +1357,14 @@ local copyOverlay, copyBoxText
 local function showCopyOverlay(text)
 	if not widget then return end
 	if not copyOverlay then
-		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false}, chatArea or widget), 6)
-		ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -16, 0, 16), BackgroundTransparency = 1, Text = "CODE — press Ctrl+C to copy, then close", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, copyOverlay)
+		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Active = true}, chatArea or widget), 6)
+		stroke(copyOverlay)
+		ui("TextLabel", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -56, 0, 16), BackgroundTransparency = 1, Text = "CODE — press Ctrl+C to copy, then close", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, copyOverlay)
+		local closeCopy = round(ui("TextButton", {Position = UDim2.new(1, -46, 0, 2), Size = UDim2.new(0, 42, 0, 18), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "CLOSE", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.text, AutoButtonColor = false}, copyOverlay), 5)
+		stroke(closeCopy)
+		closeCopy.MouseEnter:Connect(function() closeCopy.BackgroundColor3 = C.hover end)
+		closeCopy.MouseLeave:Connect(function() closeCopy.BackgroundColor3 = C.field end)
+		closeCopy.MouseButton1Click:Connect(function() copyOverlay.Visible = false end)
 		copyBoxText = ui("TextBox", {Position = UDim2.new(0, 8, 0, 22), Size = UDim2.new(1, -16, 1, -30), BackgroundColor3 = Color3.fromRGB(8, 10, 16), BorderSizePixel = 0, TextColor3 = Color3.fromRGB(205, 217, 240), Font = Enum.Font.Code, TextSize = 10, ClearTextOnFocus = false, TextWrapped = true, MultiLine = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, Text = ""}, copyOverlay)
 		round(copyBoxText, 5)
 	end
@@ -1561,6 +1572,13 @@ function renderChat()
 					ui("TextLabel", {Position = UDim2.new(0, 37, 0, 42 + shown * 16), Size = UDim2.new(1, -48, 0, 12), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left, Text = "+" .. (#plan.changes - shown) .. " more..."}, card)
 				end
 				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 36), Size = UDim2.new(0.60, -8, 0, 28), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Apply Changes", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(10, 24, 16)}, card), 7)
+				if armedPlanRef == plan then
+					applyBtn.Armed = true
+					local armedCount = 0
+					for _, p in ipairs(plan.changes) do if type(p) == "table" and p.operation ~= "note" then armedCount = armedCount + 1 end end
+					applyBtn.Text = "Confirm Apply  ·  " .. armedCount
+					applyBtn.BackgroundColor3 = Color3.fromRGB(120, 190, 140)
+				end
 				applyBtn.MouseButton1Click:Connect(function() pcall(applyPlanCard, plan, applyBtn) end)
 				local copyJsonBtn = round(ui("TextButton", {Position = UDim2.new(0.60, 4, 0, cardH - 36), Size = UDim2.new(0.40, -15, 0, 28), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy JSON", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, card), 7)
 				copyJsonBtn.MouseButton1Click:Connect(function()
@@ -1613,21 +1631,47 @@ local function syncFromServer()
 	for _, m in ipairs(data.messages) do
 		if type(m) == "table" and (m.role == "user" or m.role == "assistant") then serverCount = serverCount + 1 end
 	end
-	if serverCount < #chatHistory then return end
+	local lastMsg = data.messages[#data.messages]
+	local sig = tostring(serverCount) .. "|" .. tostring(lastMsg and lastMsg.at or 0) .. "|" .. tostring(lastMsg and type(lastMsg.content) == "string" and #lastMsg.content or 0)
+	if sig == lastSyncSig then return end
+	if serverCount < #chatHistory then
+		local hasAgents = false
+		for _, e in ipairs(chatHistory) do if e.role == "agents" then hasAgents = true; break end end
+		if hasAgents then return end
+	end
+	lastSyncSig = sig
+	local agentsByAssistant = {}
+	for i = 2, #chatHistory do
+		local prev = chatHistory[i - 1]
+		local cur = chatHistory[i]
+		if prev and cur and prev.role == "agents" and cur.role == "assistant" and type(cur.text) == "string" then
+			agentsByAssistant[cur.text] = prev
+		end
+	end
 	local merged = {}
 	for _, message in ipairs(data.messages) do
 		if type(message) == "table" and (message.role == "user" or message.role == "assistant") and type(message.content) == "string" then
-			-- Self-heal: skip poisoned "[object Object]" replies from the old chat-mode bug
-			-- so they neither display again nor get re-sent as model history.
 			if message.role == "assistant" and message.content:gsub("%s+", "") == "[objectObject]" then
-				serverCount = serverCount - 1
+				-- skip poisoned reply
 			else
+				local anchored = agentsByAssistant[message.content]
+				if anchored then
+					table.insert(merged, {role = "agents", live = false, events = type(anchored.events) == "table" and anchored.events or {}, at = anchored.at})
+				end
 				local synced = {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"}
 				local attachedPlan = planByReplyText[message.content]
 				if attachedPlan ~= nil then synced.plan = attachedPlan end
 				table.insert(merged, synced)
 				if #merged >= MAX_HISTORY then break end
 			end
+		end
+	end
+	if #chatHistory > 0 and chatHistory[#chatHistory].role == "agents" then
+		local lastAgents = chatHistory[#chatHistory]
+		if lastAgents.live == true or (type(lastAgents.events) == "table" and #lastAgents.events > 0) then
+			local shouldKeep = true
+			for _, m in ipairs(merged) do if m == lastAgents then shouldKeep = false; break end end
+			if shouldKeep then table.insert(merged, lastAgents) end
 		end
 	end
 	chatHistory = merged
@@ -1651,6 +1695,8 @@ function sendChat(textOverride)
 	if string.sub(text, 1, 6) == "/build" then
 		mode = "build"
 		text = (string.sub(text, 7):gsub("^%s+", ""))
+	elseif twinMode then
+		mode = "build"
 	end
 	if #text < 2 then return end
 	table.insert(chatHistory, {role = "user", text = text, at = DateTime.now().UnixTimestampMillis})
@@ -1825,16 +1871,16 @@ local function buildWidget()
 	sessionLabel = ui("TextLabel", {Position = UDim2.new(0, 14, 0, 26), Size = UDim2.new(0, 150, 0, 12), BackgroundTransparency = 1, Text = "Session " .. string.sub(sessionId, 1, 6) .. "… · v" .. PLUGIN_VERSION, Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, header)
 	connectionDot = round(ui("Frame", {Position = UDim2.new(0, 168, 0, 9), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.bad, BorderSizePixel = 0}, header), 4)
 	connectionLabel = ui("TextLabel", {Position = UDim2.new(0, 182, 0, 5), Size = UDim2.new(0, 110, 0, 16), BackgroundTransparency = 1, Text = "Studio offline", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, header)
-	local agentRow = ui("Frame", {Position = UDim2.new(0, 296, 0, 12), Size = UDim2.new(0, 106, 0, 22), BackgroundTransparency = 1}, header)
+	local agentRow = ui("Frame", {Position = UDim2.new(0, 170, 0, 32), Size = UDim2.new(0, 110, 0, 18), BackgroundTransparency = 1}, header)
 	ui("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, agentRow)
 	local archFrame = round(ui("Frame", {Size = UDim2.new(0, 50, 0, 20), BackgroundColor3 = C.field, BorderSizePixel = 0, LayoutOrder = 1}, agentRow), 6)
 	stroke(archFrame)
-	agentDotArch = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.muted, BorderSizePixel = 0}, archFrame), 4)
-	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "ARCH", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Center}, archFrame)
+	agentDotArch = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = twinMode and AGENT_ROLE_COLOR.ARCHITECT or C.muted, BorderSizePixel = 0}, archFrame), 4)
+	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "ARCH", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = twinMode and AGENT_ROLE_COLOR.ARCHITECT or C.muted, TextXAlignment = Enum.TextXAlignment.Center}, archFrame)
 	local buildFrame = round(ui("Frame", {Size = UDim2.new(0, 50, 0, 20), BackgroundColor3 = C.field, BorderSizePixel = 0, LayoutOrder = 2}, agentRow), 6)
 	stroke(buildFrame)
-	agentDotBuild = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.muted, BorderSizePixel = 0}, buildFrame), 4)
-	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "BUILD", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Center}, buildFrame)
+	agentDotBuild = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = twinMode and AGENT_ROLE_COLOR.BUILDER or C.muted, BorderSizePixel = 0}, buildFrame), 4)
+	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "BUILD", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = twinMode and AGENT_ROLE_COLOR.BUILDER or C.muted, TextXAlignment = Enum.TextXAlignment.Center}, buildFrame)
 
 	local function mkHeaderBtn(rightOffset, width, label, color)
 		local b = round(ui("TextButton", {Position = UDim2.new(1, rightOffset, 0, 14), Size = UDim2.new(width, 0, 0, 26), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = label, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = color or C.text, AutoButtonColor = false}, header), 7)
@@ -1850,9 +1896,12 @@ local function buildWidget()
 	local autoPill = mkHeaderBtn(-238, 70, autoContext and "CTX FULL" or "CTX MIN", C.accent)
 	autoPill.MouseEnter:Connect(function() autoPill.BackgroundColor3 = C.hover end)
 	autoPill.MouseLeave:Connect(function() autoPill.BackgroundColor3 = C.field end)
+	local twinPill = mkHeaderBtn(-312, 68, twinMode and "TWIN ON" or "TWIN OFF", twinMode and C.good or C.muted)
+	twinPill.MouseEnter:Connect(function() twinPill.BackgroundColor3 = C.hover end)
+	twinPill.MouseLeave:Connect(function() twinPill.BackgroundColor3 = C.field end)
 
 	-- ===== toast stack (top-right under header) =====
-	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 60), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10}, root)
+	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 60), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10, Active = false}, root)
 	ui("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right}, toastHost)
 
 	-- ===== chat area =====
@@ -1920,7 +1969,7 @@ local function buildWidget()
 	chipsHint = ui("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "Tip: Quote a reply or press FOCUS SEL to steer the agents' context.", Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, chipsRow)
 
 	local inputRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -94), Size = UDim2.new(1, -24, 0, 46), BackgroundTransparency = 1}, root)
-	chatInput = round(ui("TextBox", {Size = UDim2.new(1, -50, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, PlaceholderText = "Ask AI anything…  (/build twin-agent)", TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true}, inputRow), 9)
+	chatInput = round(ui("TextBox", {Size = UDim2.new(1, -50, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, PlaceholderText = twinMode and "Ask AI anything… (TWIN agents active)" or "Ask AI anything…  (/build twin-agent)", TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true}, inputRow), 9)
 	stroke(chatInput)
 	ui("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatInput)
 	local sendBtn = round(ui("TextButton", {Position = UDim2.new(1, -44, 0.5, -19), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "↑", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(255, 255, 255), AutoButtonColor = false}, inputRow), 19)
@@ -1960,6 +2009,7 @@ local function buildWidget()
 		chatHistory = {}
 		lastSuggestions = {}
 		currentPlan = nil
+		armedPlanRef = nil
 		agentLiveEntry = nil
 		agentLiveEvents = {}
 		if agentDotArch then agentDotArch.BackgroundColor3 = C.muted end
@@ -1979,6 +2029,20 @@ local function buildWidget()
 		autoPill.TextColor3 = autoContext and C.accent or C.muted
 		showToast(autoContext and "Full workspace context enabled" or "Selection-only context enabled", "warn")
 	end)
+	twinPill.MouseButton1Click:Connect(function()
+		twinMode = not twinMode
+		twinPill.Text = twinMode and "TWIN ON" or "TWIN OFF"
+		twinPill.TextColor3 = twinMode and C.good or C.muted
+		if chatInput then chatInput.PlaceholderText = twinMode and "Ask AI anything… (TWIN agents active)" or "Ask AI anything…  (/build twin-agent)" end
+		showToast(twinMode and "Twin agents always ON — every message uses ARCHITECT + BUILDER" or "Twin agents OFF — fast chat mode", twinMode and "good" or "warn")
+		if twinMode then
+			if agentDotArch then agentDotArch.BackgroundColor3 = AGENT_ROLE_COLOR.ARCHITECT end
+			if agentDotBuild then agentDotBuild.BackgroundColor3 = AGENT_ROLE_COLOR.BUILDER end
+		else
+			if agentDotArch then agentDotArch.BackgroundColor3 = C.muted end
+			if agentDotBuild then agentDotBuild.BackgroundColor3 = C.muted end
+		end
+	end)
 	if connButton then
 		connButton.MouseButton1Click:Connect(function()
 			if disconnected then reconnectNow() else disconnectNow() end
@@ -1988,6 +2052,10 @@ local function buildWidget()
 	UserInputService.InputBegan:Connect(function(input)
 		local kc = input.KeyCode
 		if kc == Enum.KeyCode.Escape then
+			if copyOverlay and copyOverlay.Visible then
+				copyOverlay.Visible = false
+				return
+			end
 			if settingsDrawer and settingsDrawer.Visible then
 				settingsDrawer.Visible = false
 				return
