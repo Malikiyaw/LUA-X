@@ -1617,11 +1617,17 @@ local function syncFromServer()
 	local merged = {}
 	for _, message in ipairs(data.messages) do
 		if type(message) == "table" and (message.role == "user" or message.role == "assistant") and type(message.content) == "string" then
-			local synced = {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"}
-			local attachedPlan = planByReplyText[message.content]
-			if attachedPlan ~= nil then synced.plan = attachedPlan end
-			table.insert(merged, synced)
-			if #merged >= MAX_HISTORY then break end
+			-- Self-heal: skip poisoned "[object Object]" replies from the old chat-mode bug
+			-- so they neither display again nor get re-sent as model history.
+			if message.role == "assistant" and message.content:gsub("%s+", "") == "[objectObject]" then
+				serverCount = serverCount - 1
+			else
+				local synced = {role = message.role, text = message.content, at = type(message.at) == "number" and message.at or nil, surface = type(message.surface) == "string" and message.surface or "server"}
+				local attachedPlan = planByReplyText[message.content]
+				if attachedPlan ~= nil then synced.plan = attachedPlan end
+				table.insert(merged, synced)
+				if #merged >= MAX_HISTORY then break end
+			end
 		end
 	end
 	chatHistory = merged

@@ -1069,7 +1069,7 @@ export async function handleGenerate(request: Request): Promise<Response> {
     const userPrompt = await chatUserPromptEnriched(body);
 
     try {
-      const content = await callModelResilient({
+      const chatResult = await callModelResilient({
         baseUrl,
         models: (process.env.NVIDIA_MODEL?.trim()
           ? [process.env.NVIDIA_MODEL.trim(), ...CHAT_MODELS.filter(m => m !== process.env.NVIDIA_MODEL!.trim())]
@@ -1087,15 +1087,16 @@ export async function handleGenerate(request: Request): Promise<Response> {
         role: 'CHAT',
         stage: 'chat',
       });
+      const chatContent = typeof chatResult === 'string' ? chatResult : String(chatResult?.content ?? '');
 
       let plan: AIPlan | undefined;
       try {
-        const parsed = parseAIPlan(content);
+        const parsed = parseAIPlan(chatContent);
         if (parsed.changes.length > 0) plan = parsed;
       } catch {
         // chat responses are free-form; a plan is optional
       }
-      const { content: replyText, suggestions } = extractSuggestions(content);
+      const { content: replyText, suggestions } = extractSuggestions(chatContent);
       const sessionId = sessionIdOf(body);
       if (sessionId) {
         await appendConversationMessage(sessionId, {
