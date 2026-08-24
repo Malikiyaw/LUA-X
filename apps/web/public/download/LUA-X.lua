@@ -1636,7 +1636,8 @@ local function pollConversation()
 end
 
 function sendChat(textOverride)
-	if busy or not chatInput then return end
+	if not chatInput then return end
+	if busy then setStatus("Twin agents still working — please wait…", "warn"); showToast("Agents busy — wait a moment", "warn"); return end
 	local raw = type(textOverride) == "string" and textOverride or tostring(chatInput.Text or "")
 	local text = raw:gsub("^%s+", ""):gsub("%s+$", "")
 	lastSuggestions = {}
@@ -1646,18 +1647,17 @@ function sendChat(textOverride)
 		text = (string.sub(text, 7):gsub("^%s+", ""))
 	end
 	if #text < 2 then return end
-	table.insert(chatHistory, {role = "user", text = text, at = Date.now()})
+	table.insert(chatHistory, {role = "user", text = text, at = DateTime.now().UnixTimestampMillis})
 	if type(textOverride) ~= "string" then chatInput.Text = "" end
 	if mode == "build" then
 		agentLiveEvents = {}
-		agentLiveEntry = {role = "agents", live = true, events = agentLiveEvents, at = Date.now()}
+		agentLiveEntry = {role = "agents", live = true, events = agentLiveEvents, at = DateTime.now().UnixTimestampMillis}
 		table.insert(chatHistory, agentLiveEntry)
 		if agentDotArch then agentDotArch.BackgroundColor3 = AGENT_ROLE_COLOR.ARCHITECT end
 		if agentDotBuild then agentDotBuild.BackgroundColor3 = AGENT_ROLE_COLOR.BUILDER end
 	end
 	renderChat()
 	refreshContext()
-	busy = true
 	setStatus(mode == "build" and "Twin agents building — ARCHITECT planning…" or "LUA-X is answering…", "warn")
 	local history = {}
 	for i = math.max(1, #chatHistory - 10), #chatHistory - 1 do
@@ -1683,6 +1683,7 @@ function sendChat(textOverride)
 	end
 	local payload = {prompt = text, projectId = tostring(game.PlaceId), mode = mode, context = payloadContext, history = history}
 	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
+	busy = true
 	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
 	if mode == "build" and agentLiveEntry then
@@ -1691,7 +1692,7 @@ function sendChat(textOverride)
 	if not ok then
 		if mode == "build" and agentLiveEntry then
 			if #agentLiveEvents == 0 then
-				table.insert(agentLiveEvents, {role = "SYSTEM", message = "Request failed — see error below.", at = Date.now()})
+				table.insert(agentLiveEvents, {role = "SYSTEM", message = "Request failed — see error below.", at = DateTime.now().UnixTimestampMillis})
 			end
 			agentLiveEntry.events = agentLiveEvents
 		end
@@ -1714,7 +1715,7 @@ function sendChat(textOverride)
 				agentLiveEntry.events = agentTrace
 			else
 				if #agentLiveEvents == 0 then
-					table.insert(agentLiveEvents, {role = "SYSTEM", message = "Agents completed.", at = Date.now()})
+					table.insert(agentLiveEvents, {role = "SYSTEM", message = "Agents completed.", at = DateTime.now().UnixTimestampMillis})
 				end
 				agentLiveEntry.events = agentLiveEvents
 			end
@@ -1723,9 +1724,9 @@ function sendChat(textOverride)
 			agentLiveEvents = {}
 		elseif mode == "build" then
 			if agentTrace and #agentTrace > 0 then
-				table.insert(chatHistory, {role = "agents", live = false, events = agentTrace, at = Date.now()})
+				table.insert(chatHistory, {role = "agents", live = false, events = agentTrace, at = DateTime.now().UnixTimestampMillis})
 			elseif #agentLiveEvents > 0 then
-				table.insert(chatHistory, {role = "agents", live = false, events = agentLiveEvents, at = Date.now()})
+				table.insert(chatHistory, {role = "agents", live = false, events = agentLiveEvents, at = DateTime.now().UnixTimestampMillis})
 			end
 			agentLiveEntry = nil
 			agentLiveEvents = {}
@@ -1745,7 +1746,7 @@ function sendChat(textOverride)
 				planByReplyText[keyText] = data.plan
 				planByReplyTextCount = planByReplyTextCount + 1
 			end
-			local entry = {role = "assistant", text = entryText, at = Date.now()}
+			local entry = {role = "assistant", text = entryText, at = DateTime.now().UnixTimestampMillis}
 			if hasPlan then
 				entry.plan = data.plan
 				currentPlan = data.plan
@@ -1760,10 +1761,10 @@ function sendChat(textOverride)
 			end
 			task.defer(syncFromServer)
 		elseif dOk and type(data) == "table" and data.error then
-			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error), at = Date.now()})
+			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error), at = DateTime.now().UnixTimestampMillis})
 			if mode == "build" then setStatus("Build error — " .. trim(tostring(data.error), 80), "bad") end
 		else
-			table.insert(chatHistory, {role = "assistant", text = "Backend returned an unexpected response.", at = Date.now()})
+			table.insert(chatHistory, {role = "assistant", text = "Backend returned an unexpected response.", at = DateTime.now().UnixTimestampMillis})
 			if mode == "build" then setStatus("Unexpected backend response.", "bad") end
 		end
 	end
