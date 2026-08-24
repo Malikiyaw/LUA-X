@@ -896,6 +896,7 @@ async function runTwinAgent(
     traceEvent(trace, 'SYSTEM', 'mode', 'AGENT_MODE=single — skipping ARCHITECT decomposition.');
   } else {
     brief = await runArchitect(baseUrl, apiKeys, body, id, trace, remainingMs);
+    traceEvent(trace, 'ARCHITECT', 'handoff', `ARCHITECT \u2192 BUILDER: handing off ${brief.tasks.length} task(s): ${brief.tasks.map(t => t.id).join(', ')}.`);
   }
 
   const allChanges: PlanChange[] = [];

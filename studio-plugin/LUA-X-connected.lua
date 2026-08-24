@@ -1,10 +1,11 @@
--- LUA-X Studio Plugin 2.1.0
--- Unified twin-AI chat bridge (reference-style single-surface UI):
--- header bar with quick actions, toast stack, collapsible assistant sections,
--- rich-text highlights, plan cards with in-chat two-step Apply, AI follow-up
--- suggestions with keyboard navigation, context chips composer, model pill,
--- manual vision capture, live ARCHITECT/BUILDER status line, and full v2.0
--- systems (vision loop, heartbeat, shared conversations, safe appliers).
+-- LUA-X Studio Plugin 2.2.0
+-- Unified twin-AI chat bridge (modern chat UI):
+-- rounded header with agent status pills, toast stack, live twin-agent feed
+-- cards (ARCHITECT <-> BUILDER handoff visible), collapsible assistant sections,
+-- rich-text highlights, plan cards with in-chat two-step Apply, suggestion
+-- chips panel with keyboard navigation, context chips composer, model pill,
+-- manual vision capture, live agent activity, and full v2.0 systems
+-- (vision loop, heartbeat, shared conversations, safe appliers).
 --
 -- Reliability rules for this file:
 --   * NEVER call game:GetService on a service that may not exist at top level without a guard.
@@ -33,7 +34,7 @@ if not HttpService then
 	return
 end
 
-local PLUGIN_VERSION = "2.1.1"
+local PLUGIN_VERSION = "2.2.0"
 local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
 local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
 local TOKEN_KEY = "LUA_X_API_TOKEN"
@@ -103,13 +104,19 @@ local chatHistory = {}
 local planByReplyText = {}
 local planByReplyTextCount = 0
 local busy, applyArmed, disconnected = false, false, false
--- v2.1 unified-chat state
+-- v2.2 unified-chat state
 local autoContext = true
 local lastSuggestions = {}
 local contextChips = {}
 local sendChat -- forward-declared; assigned below (web build commands + suggestion clicks use it)
-local showToast, chatArea, toastHost, renderChat -- forward-declared v2.1 UI helpers
+local showToast, chatArea, toastHost, renderChat -- forward-declared v2.2 UI helpers
 local lastClaimedRequest = nil
+-- v2.2 twin-agent live feed
+local agentLiveEntry = nil
+local agentLiveEvents = {}
+local agentLiveFrame = nil
+local agentLiveList = nil
+local agentDotArch, agentDotBuild
 local sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
 
@@ -139,7 +146,6 @@ local function setStatus(text, kind)
 	local color = kind == "good" and C.good or kind == "warn" and C.warn or kind == "bad" and C.bad or C.muted
 	if statusLabel then statusLabel.TextColor3 = color end
 	if statusDot then statusDot.BackgroundColor3 = color end
-	if activityLabel then activityLabel.Text = kind == "good" and "Healthy" or kind == "bad" and "Attention" or "Working" end
 end
 local function setConnected(on, label)
 	local statusText = on and ("Connected · " .. (label or "online")) or (disconnected and "Disconnected · tap Reconnect" or "Studio offline")
@@ -402,7 +408,6 @@ local function refreshContext()
 		end
 	end
 	if contextBox then contextBox.Text = table.concat({"SELECTIONS  " .. #selected, "SCRIPTS     " .. #files, "TREE        " .. select(2, tree:gsub("\n", "\n")) + 1 .. " nodes", "", "TREE", #tree > 0 and trim(tree, 1500) or "(empty)", #files > 0 and ("\nSCRIPTS\n" .. table.concat(files, "\n")) or ""}, "\n") end
-	if selectionLabel then selectionLabel.Text = tostring(#selected) .. " selected" end
 	contextDirty = true
 end
 local function pushContext()
@@ -502,6 +507,43 @@ end
 -- ===== Live twin-agent activity feed =====
 local AGENT_POLL_SECONDS = 3
 local lastAgentEventAt = 0
+local AGENT_ROLE_COLOR = { ARCHITECT = Color3.fromRGB(96,165,250), BUILDER = Color3.fromRGB(88,190,125), VERIFY = Color3.fromRGB(214,164,86), VISION = Color3.fromRGB(167,139,250), SYSTEM = Color3.fromRGB(148,155,172), REVIEW = Color3.fromRGB(96,165,250) }
+local AGENT_ROLE_BG = { ARCHITECT = Color3.fromRGB(30,45,75), BUILDER = Color3.fromRGB(26,50,40), VERIFY = Color3.fromRGB(55,45,28), VISION = Color3.fromRGB(44,36,68), SYSTEM = Color3.fromRGB(36,40,52), REVIEW = Color3.fromRGB(30,45,75) }
+local function agentRoleColor(role)
+	local key = string.upper(tostring(role or "SYSTEM"))
+	return AGENT_ROLE_COLOR[key] or AGENT_ROLE_COLOR.SYSTEM, AGENT_ROLE_BG[key] or AGENT_ROLE_BG.SYSTEM
+end
+local function updateLiveAgentCard()
+	if not agentLiveList or not agentLiveEntry then return end
+	for _, child in ipairs(agentLiveList:GetChildren()) do
+		if child:IsA("Frame") then child:Destroy() end
+	end
+	for i, event in ipairs(agentLiveEvents) do
+		local role = type(event.role) == "string" and event.role or "SYSTEM"
+		local textColor, bgColor = agentRoleColor(role)
+		local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1, LayoutOrder = i}, agentLiveList)
+		local badge = round(ui("TextLabel", {Size = UDim2.new(0, 72, 0, 16), BackgroundColor3 = bgColor, BorderSizePixel = 0, Text = string.upper(role), Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = textColor, TextXAlignment = Enum.TextXAlignment.Center}, row), 4)
+		stroke(badge)
+		local msg = type(event.message) == "string" and event.message or ""
+		ui("TextLabel", {Position = UDim2.new(0, 80, 0, 0), Size = UDim2.new(1, -80, 1, 0), BackgroundTransparency = 1, Text = trim(msg, 88), Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, row)
+	end
+	if agentLiveFrame then
+		local rows = #agentLiveEvents
+		agentLiveFrame.Size = UDim2.new(1, 0, 0, math.max(56, 36 + rows * 22 + 10))
+	end
+	pcall(function() if chatScroller then chatScroller.CanvasPosition = Vector2.new(0, chatScroller.AbsoluteCanvasSize.Y) end end)
+	local dotColor = C.muted
+	if #agentLiveEvents > 0 then
+		local lastRole = string.upper(tostring(agentLiveEvents[#agentLiveEvents].role or ""))
+		if lastRole == "ARCHITECT" or lastRole == "REVIEW" then dotColor = AGENT_ROLE_COLOR.ARCHITECT
+		elseif lastRole == "BUILDER" then dotColor = AGENT_ROLE_COLOR.BUILDER
+		elseif lastRole == "VERIFY" then dotColor = AGENT_ROLE_COLOR.VERIFY
+		elseif lastRole == "VISION" then dotColor = AGENT_ROLE_COLOR.VISION
+		end
+	end
+	if agentDotArch then agentDotArch.BackgroundColor3 = dotColor end
+	if agentDotBuild then agentDotBuild.BackgroundColor3 = (#agentLiveEvents > 0 and AGENT_ROLE_COLOR.BUILDER or C.muted) end
+end
 local function pollAgentEvents()
 	if disconnected or not widget or not widget.Enabled then return end
 	local url = rootUrl() .. "/api/studio/agent-events?sessionId=" .. HttpService:UrlEncode(sessionId)
@@ -510,13 +552,21 @@ local function pollAgentEvents()
 	if not ok or not response then return end
 	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 	if not dOk or type(data) ~= "table" or type(data.events) ~= "table" then return end
+	local newCount = 0
 	for _, event in ipairs(data.events) do
 		if type(event) == "table" and type(event.at) == "number" and event.at > lastAgentEventAt then
 			lastAgentEventAt = event.at
 			local role = type(event.role) == "string" and event.role or "AGENT"
 			local message = type(event.message) == "string" and event.message or ""
 			if message ~= "" then setStatus("[" .. string.upper(role) .. "] " .. trim(message, 96), "warn") end
+			if agentLiveEntry and message ~= "" then
+				table.insert(agentLiveEvents, {at = event.at, role = role, stage = type(event.stage) == "string" and event.stage or "", message = message, model = type(event.model) == "string" and event.model or nil})
+				newCount = newCount + 1
+			end
 		end
+	end
+	if newCount > 0 and agentLiveEntry then
+		updateLiveAgentCard()
 	end
 end
 local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
@@ -1383,18 +1433,68 @@ function renderChat()
 	for _, child in ipairs(chatScroller:GetChildren()) do
 		if child ~= chatList and child:IsA("GuiObject") then child:Destroy() end
 	end
+	agentLiveFrame = nil
+	agentLiveList = nil
 	local lastAssistantAt = 0
 	for index, entry in ipairs(chatHistory) do
 		if entry.role == "assistant" and not entry.system then lastAssistantAt = index end
+		if entry.role == "agents" then lastAssistantAt = index end
 	end
 	for index, entry in ipairs(chatHistory) do
 		if entry.role == "user" then
 			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatScroller)
-			local bubble = round(ui("Frame", {Position = UDim2.new(0.10, 0, 0, 0), Size = UDim2.new(0.90, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.userBubble, BorderSizePixel = 0}, row), 9)
+			local bubble = round(ui("Frame", {AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -6, 0, 0), Size = UDim2.new(0.88, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.userBubble, BorderSizePixel = 0}, row), 10)
 			stroke(bubble)
 			ui("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11)}, bubble)
-			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, Text = "YOU" .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Left}, bubble)
+			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 12), BackgroundTransparency = 1, Text = "YOU" .. timeBadge(entry), Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.accent, TextXAlignment = Enum.TextXAlignment.Right}, bubble)
 			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, Text = tostring(entry.text), Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top}, bubble)
+		elseif entry.role == "agents" then
+			local isLive = entry.live == true
+			local events = type(entry.events) == "table" and entry.events or {}
+			local cardColor = isLive and Color3.fromRGB(22, 30, 48) or Color3.fromRGB(24, 28, 40)
+			local countText = tostring(#events) .. " step" .. (#events == 1 and "" or "s")
+			local headerText = isLive and ("TWIN AGENTS WORKING · " .. countText) or ("TWIN AGENTS · " .. countText .. " · COMPLETE")
+			local headerColor = isLive and C.accent or C.good
+			local row = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = index}, chatScroller)
+			local card = round(ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundColor3 = cardColor, BorderSizePixel = 0}, row), 10)
+			stroke(card)
+			ui("UIPadding", {PaddingTop = UDim.new(0, 9), PaddingBottom = UDim.new(0, 9), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, card)
+			ui("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, card)
+			local headerRow = ui("Frame", {Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, LayoutOrder = 0}, card)
+			local dot = round(ui("Frame", {Size = UDim2.new(0, 8, 0, 8), Position = UDim2.new(0, 0, 0, 4), BackgroundColor3 = headerColor, BorderSizePixel = 0}, headerRow), 4)
+			if isLive then
+				task.spawn(function()
+					while entry.live == true and dot.Parent do
+						local ok = pcall(function()
+							dot.BackgroundTransparency = 0.35
+							task.wait(0.45)
+							if dot.Parent then dot.BackgroundTransparency = 0 end
+							task.wait(0.45)
+						end)
+						if not ok then break end
+					end
+				end)
+			end
+			ui("TextLabel", {Position = UDim2.new(0, 14, 0, 0), Size = UDim2.new(1, -14, 1, 0), BackgroundTransparency = 1, Text = headerText, Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = headerColor, TextXAlignment = Enum.TextXAlignment.Left}, headerRow)
+			local list = ui("Frame", {Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, BackgroundTransparency = 1, LayoutOrder = 1}, card)
+			ui("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, list)
+			if isLive then
+				agentLiveFrame = card
+				agentLiveList = list
+			end
+			if #events == 0 then
+				ui("TextLabel", {Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = isLive and "ARCHITECT analyzing request & project context..." or "No steps recorded.", Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, list)
+			else
+				for ei, ev in ipairs(events) do
+					local role = type(ev.role) == "string" and ev.role or "SYSTEM"
+					local msg = type(ev.message) == "string" and ev.message or ""
+					local tc, bg = agentRoleColor(role)
+					local erow = ui("Frame", {Size = UDim2.new(1, 0, 0, 20), BackgroundTransparency = 1, LayoutOrder = ei}, list)
+					local badge = round(ui("TextLabel", {Size = UDim2.new(0, 70, 0, 16), BackgroundColor3 = bg, BorderSizePixel = 0, Text = string.upper(role), Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = tc, TextXAlignment = Enum.TextXAlignment.Center}, erow), 4)
+					stroke(badge)
+					ui("TextLabel", {Position = UDim2.new(0, 76, 0, 0), Size = UDim2.new(1, -76, 1, 0), BackgroundTransparency = 1, Text = trim(msg, 82), Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, erow)
+				end
+			end
 		elseif entry.system then
 			local lineText = tostring(entry.text)
 			local isFail = string.sub(lineText, 1, 4) == "FAIL"
@@ -1458,10 +1558,15 @@ function renderChat()
 					end
 				end
 				if #plan.changes > shown then
-					ui("TextLabel", {Position = UDim2.new(0, 37, 0, 42 + shown * 16), Size = UDim2.new(1, -48, 0, 12), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left, Text = "+" .. (#plan.changes - shown) .. " more…"}, card)
+					ui("TextLabel", {Position = UDim2.new(0, 37, 0, 42 + shown * 16), Size = UDim2.new(1, -48, 0, 12), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left, Text = "+" .. (#plan.changes - shown) .. " more..."}, card)
 				end
-				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 36), Size = UDim2.new(1, -22, 0, 28), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Apply Changes", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(10, 24, 16)}, card), 7)
+				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 36), Size = UDim2.new(0.60, -8, 0, 28), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Apply Changes", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(10, 24, 16)}, card), 7)
 				applyBtn.MouseButton1Click:Connect(function() pcall(applyPlanCard, plan, applyBtn) end)
+				local copyJsonBtn = round(ui("TextButton", {Position = UDim2.new(0.60, 4, 0, cardH - 36), Size = UDim2.new(0.40, -15, 0, 28), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy JSON", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, card), 7)
+				copyJsonBtn.MouseButton1Click:Connect(function()
+					local okJson, jsonText = pcall(function() return HttpService:JSONEncode(plan) end)
+					if okJson then copyCode(jsonText) else showToast("Could not encode plan", "bad") end
+				end)
 			end
 
 			do
@@ -1483,7 +1588,8 @@ function renderChat()
 			ui("UIListLayout", {Padding = UDim.new(0, 5), SortOrder = Enum.SortOrder.LayoutOrder}, srow)
 			ui("TextLabel", {Size = UDim2.new(1, 0, 0, 13), BackgroundTransparency = 1, Text = "SUGGESTED NEXT  (Tab fills · Enter picks)", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, srow)
 			for si, s in ipairs(lastSuggestions) do
-				local btn = round(ui("TextButton", {Size = UDim2.new(1, 0, 0, 25), BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "▸   " .. tostring(s), TextXAlignment = Enum.TextXAlignment.Left, RichText = false, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = si}, srow), 7)
+				local btn = round(ui("TextButton", {Size = UDim2.new(1, 0, 0, 26), BackgroundColor3 = C.panel, BorderSizePixel = 0, Text = "→   " .. tostring(s), TextXAlignment = Enum.TextXAlignment.Left, RichText = false, Font = Enum.Font.GothamMedium, TextSize = 11, TextColor3 = C.text, AutoButtonColor = false, LayoutOrder = si}, srow), 7)
+				stroke(btn)
 				btn.MouseEnter:Connect(function() btn.BackgroundColor3 = C.hover end)
 				btn.MouseLeave:Connect(function() btn.BackgroundColor3 = (si == suggestionIndex) and C.hover or C.panel end)
 				btn.MouseButton1Click:Connect(function()
@@ -1540,8 +1646,15 @@ function sendChat(textOverride)
 		text = (string.sub(text, 7):gsub("^%s+", ""))
 	end
 	if #text < 2 then return end
-	table.insert(chatHistory, {role = "user", text = text})
+	table.insert(chatHistory, {role = "user", text = text, at = Date.now()})
 	if type(textOverride) ~= "string" then chatInput.Text = "" end
+	if mode == "build" then
+		agentLiveEvents = {}
+		agentLiveEntry = {role = "agents", live = true, events = agentLiveEvents, at = Date.now()}
+		table.insert(chatHistory, agentLiveEntry)
+		if agentDotArch then agentDotArch.BackgroundColor3 = AGENT_ROLE_COLOR.ARCHITECT end
+		if agentDotBuild then agentDotBuild.BackgroundColor3 = AGENT_ROLE_COLOR.BUILDER end
+	end
 	renderChat()
 	refreshContext()
 	busy = true
@@ -1549,7 +1662,7 @@ function sendChat(textOverride)
 	local history = {}
 	for i = math.max(1, #chatHistory - 10), #chatHistory - 1 do
 		local entry = chatHistory[i]
-		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and not entry.system then
+		if type(entry) == "table" and (entry.role == "user" or entry.role == "assistant") and not entry.system and entry.role ~= "agents" then
 			table.insert(history, {role = entry.role, content = entry.text})
 		end
 	end
@@ -1572,20 +1685,54 @@ function sendChat(textOverride)
 	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
 	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
+	if mode == "build" and agentLiveEntry then
+		agentLiveEntry.live = false
+	end
 	if not ok then
+		if mode == "build" and agentLiveEntry then
+			if #agentLiveEvents == 0 then
+				table.insert(agentLiveEvents, {role = "SYSTEM", message = "Request failed — see error below.", at = Date.now()})
+			end
+			agentLiveEntry.events = agentLiveEvents
+		end
+		if mode == "build" then
+			agentLiveEntry = nil
+			agentLiveEvents = {}
+		end
 		if response and response.StatusCode == 401 then
 			table.insert(chatHistory, {role = "assistant", text = "Authorization rejected — open ⋯ Settings, paste your LUA-X API token and Save Token."})
 		else
 			table.insert(chatHistory, {role = "assistant", text = "Backend " .. tostring(response and response.StatusCode or "error") .. ": " .. (response and bodyError(response) or "unreachable")})
 		end
+		if mode == "build" then setStatus("Build failed — see error.", "bad") end
 	else
 		local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
 		local hasPlan = dOk and type(data) == "table" and type(data.plan) == "table" and type(data.plan.changes) == "table" and #data.plan.changes > 0
+		local agentTrace = dOk and type(data) == "table" and type(data.agentTrace) == "table" and data.agentTrace or nil
+		if mode == "build" and agentLiveEntry then
+			if agentTrace and #agentTrace > 0 then
+				agentLiveEntry.events = agentTrace
+			else
+				if #agentLiveEvents == 0 then
+					table.insert(agentLiveEvents, {role = "SYSTEM", message = "Agents completed.", at = Date.now()})
+				end
+				agentLiveEntry.events = agentLiveEvents
+			end
+			agentLiveEntry.live = false
+			agentLiveEntry = nil
+			agentLiveEvents = {}
+		elseif mode == "build" then
+			if agentTrace and #agentTrace > 0 then
+				table.insert(chatHistory, {role = "agents", live = false, events = agentTrace, at = Date.now()})
+			elseif #agentLiveEvents > 0 then
+				table.insert(chatHistory, {role = "agents", live = false, events = agentLiveEvents, at = Date.now()})
+			end
+			agentLiveEntry = nil
+			agentLiveEvents = {}
+		end
 		if dOk and type(data) == "table" and ((type(data.response) == "string" and data.response ~= "") or hasPlan) then
 			local entryText = type(data.response) == "string" and data.response or ""
 			if hasPlan then
-				-- Key the plan by the exact text the server stores in the shared
-				-- conversation so Apply cards survive conversation syncs.
 				local keyText
 				if mode == "build" then
 					local summary = type(data.plan.summary) == "string" and data.plan.summary or ""
@@ -1598,7 +1745,7 @@ function sendChat(textOverride)
 				planByReplyText[keyText] = data.plan
 				planByReplyTextCount = planByReplyTextCount + 1
 			end
-			local entry = {role = "assistant", text = entryText}
+			local entry = {role = "assistant", text = entryText, at = Date.now()}
 			if hasPlan then
 				entry.plan = data.plan
 				currentPlan = data.plan
@@ -1613,9 +1760,11 @@ function sendChat(textOverride)
 			end
 			task.defer(syncFromServer)
 		elseif dOk and type(data) == "table" and data.error then
-			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error)})
+			table.insert(chatHistory, {role = "assistant", text = "LUA-X: " .. tostring(data.error), at = Date.now()})
+			if mode == "build" then setStatus("Build error — " .. trim(tostring(data.error), 80), "bad") end
 		else
-			table.insert(chatHistory, {role = "assistant", text = "Backend returned an unexpected response."})
+			table.insert(chatHistory, {role = "assistant", text = "Backend returned an unexpected response.", at = Date.now()})
+			if mode == "build" then setStatus("Unexpected backend response.", "bad") end
 		end
 	end
 	if #lastSuggestions == 0 then lastSuggestions = localSuggestions() end
@@ -1658,20 +1807,33 @@ local function buildWidget()
 		if not legacyOk then warn("[LUA-X] widget error", result, legacy); return false end
 		widget = legacy
 	end
-	widget.Title = "LUA-X Studio"
+	widget.Title = "LUA-X Studio v" .. PLUGIN_VERSION
 
 	local root = ui("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.bg, BorderSizePixel = 0}, widget)
 
-	-- ===== header bar =====
-	local header = ui("Frame", {Size = UDim2.new(1, 0, 0, 46), BackgroundColor3 = C.panel, BorderSizePixel = 0}, root)
+	-- ===== header bar (modern v2.2) =====
+	local header = ui("Frame", {Size = UDim2.new(1, 0, 0, 54), BackgroundColor3 = C.panel, BorderSizePixel = 0}, root)
 	ui("Frame", {Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.stroke, BorderSizePixel = 0}, header)
-	ui("TextLabel", {Position = UDim2.new(0, 14, 0, 6), Size = UDim2.new(0, 130, 0, 18), BackgroundTransparency = 1, Text = "LUA-X Chat", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left}, header)
-	sessionLabel = ui("TextLabel", {Position = UDim2.new(0, 14, 0, 26), Size = UDim2.new(0, 230, 0, 12), BackgroundTransparency = 1, Text = "Session " .. string.sub(sessionId, 1, 6) .. "… · v" .. PLUGIN_VERSION, Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, header)
-	connectionDot = round(ui("Frame", {Position = UDim2.new(0, 152, 0, 9), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.bad, BorderSizePixel = 0}, header), 4)
-	connectionLabel = ui("TextLabel", {Position = UDim2.new(0, 166, 0, 5), Size = UDim2.new(0, 170, 0, 16), BackgroundTransparency = 1, Text = "Studio offline", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	ui("TextLabel", {Position = UDim2.new(0, 14, 0, 8), Size = UDim2.new(0, 140, 0, 16), BackgroundTransparency = 1, Text = "LUA-X Chat", Font = Enum.Font.GothamBold, TextSize = 14, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	sessionLabel = ui("TextLabel", {Position = UDim2.new(0, 14, 0, 26), Size = UDim2.new(0, 150, 0, 12), BackgroundTransparency = 1, Text = "Session " .. string.sub(sessionId, 1, 6) .. "… · v" .. PLUGIN_VERSION, Font = Enum.Font.Code, TextSize = 8, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	connectionDot = round(ui("Frame", {Position = UDim2.new(0, 168, 0, 9), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.bad, BorderSizePixel = 0}, header), 4)
+	connectionLabel = ui("TextLabel", {Position = UDim2.new(0, 182, 0, 5), Size = UDim2.new(0, 110, 0, 16), BackgroundTransparency = 1, Text = "Studio offline", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left}, header)
+	local agentRow = ui("Frame", {Position = UDim2.new(0, 296, 0, 12), Size = UDim2.new(0, 106, 0, 22), BackgroundTransparency = 1}, header)
+	ui("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 6), VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder}, agentRow)
+	local archFrame = round(ui("Frame", {Size = UDim2.new(0, 50, 0, 20), BackgroundColor3 = C.field, BorderSizePixel = 0, LayoutOrder = 1}, agentRow), 6)
+	stroke(archFrame)
+	agentDotArch = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.muted, BorderSizePixel = 0}, archFrame), 4)
+	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "ARCH", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Center}, archFrame)
+	local buildFrame = round(ui("Frame", {Size = UDim2.new(0, 50, 0, 20), BackgroundColor3 = C.field, BorderSizePixel = 0, LayoutOrder = 2}, agentRow), 6)
+	stroke(buildFrame)
+	agentDotBuild = round(ui("Frame", {Position = UDim2.new(0, 6, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = C.muted, BorderSizePixel = 0}, buildFrame), 4)
+	ui("TextLabel", {Position = UDim2.new(0, 18, 0, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = "BUILD", Font = Enum.Font.GothamBold, TextSize = 7, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Center}, buildFrame)
 
 	local function mkHeaderBtn(rightOffset, width, label, color)
-		local b = round(ui("TextButton", {Position = UDim2.new(1, rightOffset, 0, 10), Size = UDim2.new(width, 0, 0, 26), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = label, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = color or C.text}, header), 7)
+		local b = round(ui("TextButton", {Position = UDim2.new(1, rightOffset, 0, 14), Size = UDim2.new(width, 0, 0, 26), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = label, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = color or C.text, AutoButtonColor = false}, header), 7)
+		stroke(b)
+		b.MouseEnter:Connect(function() b.BackgroundColor3 = C.hover end)
+		b.MouseLeave:Connect(function() b.BackgroundColor3 = C.field end)
 		return b
 	end
 	local closeBtn = mkHeaderBtn(-36, 28, "×")
@@ -1679,13 +1841,15 @@ local function buildWidget()
 	local refreshBtn = mkHeaderBtn(-116, 42, "SYNC")
 	local moreBtn = mkHeaderBtn(-160, 36, "SET")
 	local autoPill = mkHeaderBtn(-238, 70, autoContext and "CTX FULL" or "CTX MIN", C.accent)
+	autoPill.MouseEnter:Connect(function() autoPill.BackgroundColor3 = C.hover end)
+	autoPill.MouseLeave:Connect(function() autoPill.BackgroundColor3 = C.field end)
 
 	-- ===== toast stack (top-right under header) =====
-	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 52), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10}, root)
+	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 60), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10}, root)
 	ui("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right}, toastHost)
 
 	-- ===== chat area =====
-	chatArea = ui("Frame", {Position = UDim2.new(0, 0, 0, 47), Size = UDim2.new(1, 0, 1, -47 - 134), BackgroundTransparency = 1}, root)
+	chatArea = ui("Frame", {Position = UDim2.new(0, 0, 0, 55), Size = UDim2.new(1, 0, 1, -55 - 142), BackgroundTransparency = 1}, root)
 	chatScroller = ui("ScrollingFrame", {Size = UDim2.fromScale(1, 1), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 4, BackgroundTransparency = 1, BorderSizePixel = 0}, chatArea)
 	chatList = ui("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder}, chatScroller)
 	ui("UIPadding", {PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatScroller)
@@ -1740,22 +1904,28 @@ local function buildWidget()
 		end)
 	end
 
-	-- ===== composer =====
-	pulseDot = round(ui("Frame", {Position = UDim2.new(0, 12, 1, -128), Size = UDim2.new(0, 7, 0, 7), BackgroundColor3 = C.accent, BorderSizePixel = 0}, root), 4)
-	statusLabel = ui("TextLabel", {Position = UDim2.new(0, 26, 1, -134), Size = UDim2.new(1, -38, 0, 20), BackgroundTransparency = 1, Text = "Connected bridge starting…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, root)
-	chipsRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -112), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1}, root)
+	-- ===== composer (modern v2.2) =====
+	pulseDot = round(ui("Frame", {Position = UDim2.new(0, 12, 1, -136), Size = UDim2.new(0, 7, 0, 7), BackgroundColor3 = C.accent, BorderSizePixel = 0}, root), 4)
+	statusDot = pulseDot
+	statusLabel = ui("TextLabel", {Position = UDim2.new(0, 26, 1, -142), Size = UDim2.new(1, -38, 0, 20), BackgroundTransparency = 1, Text = "Twin-AI bridge starting…", Font = Enum.Font.GothamMedium, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, root)
+	chipsRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -120), Size = UDim2.new(1, -24, 0, 22), BackgroundTransparency = 1}, root)
 	ui("UIListLayout", {Padding = UDim.new(0, 6), FillDirection = Enum.FillDirection.Horizontal, SortOrder = Enum.SortOrder.LayoutOrder}, chipsRow)
 	chipsHint = ui("TextLabel", {Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "Tip: Quote a reply or press FOCUS SEL to steer the agents' context.", Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left}, chipsRow)
 
-	local inputRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -86), Size = UDim2.new(1, -24, 0, 44), BackgroundTransparency = 1}, root)
-	chatInput = round(ui("TextBox", {Size = UDim2.new(1, -50, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, PlaceholderText = "Ask AI anything…  (/build forces the strict twin-agent pipeline)", TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true}, inputRow), 9)
+	local inputRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -94), Size = UDim2.new(1, -24, 0, 46), BackgroundTransparency = 1}, root)
+	chatInput = round(ui("TextBox", {Size = UDim2.new(1, -50, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, ClearTextOnFocus = false, Font = Enum.Font.Gotham, TextSize = 12, TextColor3 = C.text, PlaceholderText = "Ask AI anything…  (/build twin-agent)", TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, MultiLine = true}, inputRow), 9)
 	stroke(chatInput)
-	ui("UIPadding", {PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10)}, chatInput)
-	local sendBtn = round(ui("TextButton", {Position = UDim2.new(1, -44, 0.5, -19), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "↑", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(255, 255, 255)}, inputRow), 19)
+	ui("UIPadding", {PaddingTop = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatInput)
+	local sendBtn = round(ui("TextButton", {Position = UDim2.new(1, -44, 0.5, -19), Size = UDim2.new(0, 38, 0, 38), BackgroundColor3 = C.accent, BorderSizePixel = 0, Text = "↑", Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(255, 255, 255), AutoButtonColor = false}, inputRow), 19)
+	sendBtn.MouseEnter:Connect(function() sendBtn.BackgroundColor3 = Color3.fromRGB(80, 145, 255) end)
+	sendBtn.MouseLeave:Connect(function() sendBtn.BackgroundColor3 = C.accent end)
 	sendBtn.MouseButton1Click:Connect(function() pcall(sendChat) end)
 
-	local toolbarRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -38), Size = UDim2.new(1, -24, 0, 26), BackgroundTransparency = 1}, root)
-	local attachBtn = round(ui("TextButton", {Size = UDim2.new(0, 84, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "FOCUS SEL", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, toolbarRow), 6)
+	local toolbarRow = ui("Frame", {Position = UDim2.new(0, 12, 1, -42), Size = UDim2.new(1, -24, 0, 26), BackgroundTransparency = 1}, root)
+	local attachBtn = round(ui("TextButton", {Size = UDim2.new(0, 84, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "FOCUS SEL", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text, AutoButtonColor = false}, toolbarRow), 6)
+	stroke(attachBtn)
+	attachBtn.MouseEnter:Connect(function() attachBtn.BackgroundColor3 = C.hover end)
+	attachBtn.MouseLeave:Connect(function() attachBtn.BackgroundColor3 = C.field end)
 	attachBtn.MouseButton1Click:Connect(function()
 		local sel = Selection:Get()
 		if #sel == 0 or sel[1] == nil then showToast("Nothing selected", "warn"); return end
@@ -1764,23 +1934,31 @@ local function buildWidget()
 		showToast("Selection attached as focus", "good")
 	end)
 	local visionLabel = StudioCaptureService and "VISION NOW" or "NO VISION API"
-	local visionBtn = round(ui("TextButton", {Position = UDim2.new(0, 90, 0, 0), Size = UDim2.new(0, 92, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = visionLabel, Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = StudioCaptureService and C.text or C.faint}, toolbarRow), 6)
+	local visionBtn = round(ui("TextButton", {Position = UDim2.new(0, 90, 0, 0), Size = UDim2.new(0, 92, 1, 0), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = visionLabel, Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = StudioCaptureService and C.text or C.faint, AutoButtonColor = false}, toolbarRow), 6)
+	stroke(visionBtn)
+	visionBtn.MouseEnter:Connect(function() if StudioCaptureService then visionBtn.BackgroundColor3 = C.hover end end)
+	visionBtn.MouseLeave:Connect(function() visionBtn.BackgroundColor3 = C.field end)
 	visionBtn.MouseButton1Click:Connect(function()
 		if not StudioCaptureService then showToast("StudioCaptureService unavailable", "warn"); return end
 		captureAndPostVision(true)
 		showToast("Capturing viewport for the agents…", "warn")
 	end)
 	modelPill = round(ui("TextLabel", {Position = UDim2.new(0, 190, 0, 0), Size = UDim2.new(0, 210, 1, 0), BackgroundColor3 = C.chip, BorderSizePixel = 0, Text = "AI · loading model…", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted}, toolbarRow), 6)
+	stroke(modelPill)
 	chatSyncLabel = ui("TextLabel", {Position = UDim2.new(1, -110, 0, 0), Size = UDim2.new(0, 110, 1, 0), BackgroundTransparency = 1, Text = "· local only", Font = Enum.Font.GothamMedium, TextSize = 9, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Right}, toolbarRow)
 
-	-- ===== wiring =====
+	-- ===== wiring (all buttons guaranteed clickable) =====
 	closeBtn.MouseButton1Click:Connect(function() widget.Enabled = false end)
 	newChatBtn.MouseButton1Click:Connect(function()
 		chatHistory = {}
 		lastSuggestions = {}
 		currentPlan = nil
+		agentLiveEntry = nil
+		agentLiveEvents = {}
+		if agentDotArch then agentDotArch.BackgroundColor3 = C.muted end
+		if agentDotBuild then agentDotBuild.BackgroundColor3 = C.muted end
 		renderChat()
-		showToast("New chat view — server thread preserved", "good")
+		showToast("New chat — local view cleared (server thread preserved)", "good")
 	end)
 	refreshBtn.MouseButton1Click:Connect(function()
 		refreshContext()
@@ -1794,13 +1972,38 @@ local function buildWidget()
 		autoPill.TextColor3 = autoContext and C.accent or C.muted
 		showToast(autoContext and "Full workspace context enabled" or "Selection-only context enabled", "warn")
 	end)
+	if connButton then
+		connButton.MouseButton1Click:Connect(function()
+			if disconnected then reconnectNow() else disconnectNow() end
+		end)
+	end
 
 	UserInputService.InputBegan:Connect(function(input)
 		local kc = input.KeyCode
+		if kc == Enum.KeyCode.Escape then
+			if settingsDrawer and settingsDrawer.Visible then
+				settingsDrawer.Visible = false
+				return
+			end
+			if #lastSuggestions > 0 then
+				lastSuggestions = {}
+				renderChat()
+				return
+			end
+		end
 		if chatInput and chatInput:IsFocused() then
 			if kc == Enum.KeyCode.Return or kc == Enum.KeyCode.Enter then
 				local shiftDown = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
-				if not shiftDown then task.defer(function() pcall(sendChat) end) end
+				if not shiftDown then
+					if #suggestionRows > 0 and suggestionIndex >= 1 and lastSuggestions[suggestionIndex] then
+						local picked = tostring(lastSuggestions[suggestionIndex] or "")
+						if picked ~= "" then
+							task.defer(function() pcall(sendChat, picked) end)
+							return
+						end
+					end
+					task.defer(function() pcall(sendChat) end)
+				end
 			elseif #suggestionRows > 0 then
 				if kc == Enum.KeyCode.Down then
 					suggestionIndex = math.min(suggestionIndex + 1, #suggestionRows)
@@ -1810,12 +2013,22 @@ local function buildWidget()
 					highlightSuggestions()
 				elseif kc == Enum.KeyCode.Tab and suggestionIndex >= 1 then
 					chatInput.Text = tostring(lastSuggestions[suggestionIndex] or "")
+				elseif kc == Enum.KeyCode.Return or kc == Enum.KeyCode.Enter then
+					if suggestionIndex >= 1 then
+						chatInput.Text = tostring(lastSuggestions[suggestionIndex] or "")
+					end
 				end
 			end
-		end
-		if kc == Enum.KeyCode.Escape and #suggestionRows > 0 then
-			lastSuggestions = {}
-			renderChat()
+		else
+			if #suggestionRows > 0 then
+				if kc == Enum.KeyCode.Down then
+					suggestionIndex = math.min(suggestionIndex + 1, #suggestionRows)
+					highlightSuggestions()
+				elseif kc == Enum.KeyCode.Up then
+					suggestionIndex = math.max(suggestionIndex - 1, 1)
+					highlightSuggestions()
+				end
+			end
 		end
 	end)
 	Selection.SelectionChanged:Connect(function() if widget and widget.Enabled then refreshContext() end end)
@@ -1836,12 +2049,19 @@ local function buildWidget()
 				if statusOk and statusResponse then
 					local dOk, d = pcall(function() return HttpService:JSONDecode(statusResponse.Body) end)
 					if dOk and type(d) == "table" and type(d.model) == "string" then
-						modelPill.Text = "AI · " .. tostring(d.model):gsub("^.-/", "") .. (d.agents == nil and "" or "")
+						local shortModel = tostring(d.model):gsub("^.-/", "")
+						local keysText = ""
+						if type(d.keys) == "number" and d.keys > 0 then
+							keysText = " · " .. tostring(d.keys) .. " key" .. (d.keys == 1 and "" or "s")
+						elseif d.configured then
+							keysText = " · ready"
+						end
+						modelPill.Text = "AI · " .. shortModel .. keysText
 						modelPill.TextColor3 = d.configured and C.good or C.warn
 					end
 				end
 			end)
-			task.wait(90)
+			task.wait(60)
 		end
 	end)
 	task.spawn(function()
