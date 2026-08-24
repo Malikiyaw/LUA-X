@@ -120,6 +120,10 @@ local agentDotArch, agentDotBuild
 local armedPlanRef = nil
 local twinMode = true
 local lastSyncSig = nil
+local pendingApplyPlan = nil
+local applyModal, applyModalTitle, applyModalBody, applyModalConfirm, applyModalCancel
+local twinStatusBar, twinStatusLabel, twinStatusDot
+local twinElapsedStart = 0
 local sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
 
@@ -1303,6 +1307,59 @@ local function applyPlanCard(plan, button)
 	end
 end
 
+local function applyPlanDirect(plan)
+	if busy then showToast("Agents busy — wait a moment", "warn"); return end
+	if type(plan) ~= "table" or type(plan.changes) ~= "table" then setStatus("No plan on this card.", "bad"); return end
+	local changes = {}
+	for _, proposal in ipairs(plan.changes) do
+		if type(proposal) == "table" and proposal.operation ~= "note" then table.insert(changes, proposal) end
+	end
+	if #changes == 0 then setStatus("No automatically applicable changes.", "warn"); return end
+	armedPlanRef = nil
+	busy = true
+	pcall(function() ChangeHistoryService:SetWaypoint("LUA-X · Before Apply") end)
+	local success, failed, results = 0, 0, {}
+	for _, proposal in ipairs(changes) do
+		local ok, result = applyProposal(proposal)
+		if ok then success = success + 1; table.insert(results, "OK   " .. tostring(result))
+		else failed = failed + 1; table.insert(results, "FAIL " .. tostring(result)) end
+	end
+	pcall(function() ChangeHistoryService:SetWaypoint("LUA-X · After Apply") end)
+	busy = false
+	for _, line in ipairs(results) do
+		table.insert(chatHistory, {role = "assistant", text = line, system = true})
+	end
+	renderChat()
+	showToast(string.format("Applied %d · failed %d", success, failed), failed == 0 and "good" or "bad")
+	setStatus(string.format("Applied %d · failed %d · Studio Undo available.", success, failed), failed == 0 and "good" or "bad")
+	if not disconnected then
+		local summary = type(plan.summary) == "string" and plan.summary or "Plan"
+		pcall(function()
+			safe("POST", rootUrl() .. "/api/studio/apply", {
+				sessionId = sessionId,
+				planSummary = summary,
+				success = success,
+				failed = failed,
+				results = results,
+			}, 1)
+		end)
+	end
+end
+
+local function showApplyModal(plan)
+	if type(plan) ~= "table" or type(plan.changes) ~= "table" then return end
+	pendingApplyPlan = plan
+	local list = {}
+	for _, ch in ipairs(plan.changes) do
+		if type(ch) == "table" and ch.operation ~= "note" then table.insert(list, tostring(ch.target)) end
+	end
+	local preview = #list > 3 and (table.concat(list, ", ", 1, 3) .. " +" .. (#list - 3) .. " more") or table.concat(list, ", ")
+	if preview == "" then preview = tostring(plan.summary or "Build plan") end
+	applyModalTitle.Text = "Apply " .. #list .. " change" .. (#list == 1 and "" or "s") .. "?"
+	applyModalBody.Text = trim(preview, 180) .. "\n\nStudio Undo (Ctrl+Z) will revert everything. Continue?"
+	applyModal.Visible = true
+end
+
 -- ===== v2.1 unified-chat helpers =====
 local function escRich(s)
 	local out = tostring(s)
@@ -1555,8 +1612,8 @@ function renderChat()
 				local plan = entry.plan
 				currentPlan = plan
 				local shown = math.min(#plan.changes, 6)
-				local cardH = 42 + shown * 16 + (#plan.changes > shown and 13 or 0) + 44
-				local card = round(ui("Frame", {Size = UDim2.new(1, -20, 0, cardH), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = C.planCard, BorderSizePixel = 0, LayoutOrder = 900}, bodyHolder), 8)
+				local cardH = 42 + shown * 16 + (#plan.changes > shown and 13 or 0) + 72
+				local card = round(ui("Frame", {Size = UDim2.new(1, -20, 0, cardH), Position = UDim2.new(0, 10, 0, 0), BackgroundColor3 = C.planCard, BorderSizePixel = 0, LayoutOrder = 900, ZIndex = 2}, bodyHolder), 8)
 				stroke(card)
 				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 8), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = C.good, TextXAlignment = Enum.TextXAlignment.Left, Text = string.format("BUILD PLAN · %d change%s", #plan.changes, #plan.changes == 1 and "" or "s")}, card)
 				ui("TextLabel", {Position = UDim2.new(0, 11, 0, 24), Size = UDim2.new(1, -22, 0, 14), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd, Text = tostring(plan.summary or "")}, card)
@@ -1571,16 +1628,15 @@ function renderChat()
 				if #plan.changes > shown then
 					ui("TextLabel", {Position = UDim2.new(0, 37, 0, 42 + shown * 16), Size = UDim2.new(1, -48, 0, 12), BackgroundTransparency = 1, Font = Enum.Font.Gotham, TextSize = 9, TextColor3 = C.faint, TextXAlignment = Enum.TextXAlignment.Left, Text = "+" .. (#plan.changes - shown) .. " more..."}, card)
 				end
-				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 36), Size = UDim2.new(0.60, -8, 0, 28), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Apply Changes", Font = Enum.Font.GothamBold, TextSize = 10, TextColor3 = Color3.fromRGB(10, 24, 16)}, card), 7)
-				if armedPlanRef == plan then
-					applyBtn.Armed = true
-					local armedCount = 0
-					for _, p in ipairs(plan.changes) do if type(p) == "table" and p.operation ~= "note" then armedCount = armedCount + 1 end end
-					applyBtn.Text = "Confirm Apply  ·  " .. armedCount
-					applyBtn.BackgroundColor3 = Color3.fromRGB(120, 190, 140)
-				end
-				applyBtn.MouseButton1Click:Connect(function() pcall(applyPlanCard, plan, applyBtn) end)
-				local copyJsonBtn = round(ui("TextButton", {Position = UDim2.new(0.60, 4, 0, cardH - 36), Size = UDim2.new(0.40, -15, 0, 28), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy JSON", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text}, card), 7)
+				local applyBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 64), Size = UDim2.new(1, -22, 0, 34), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "▶  Apply Changes", Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Color3.fromRGB(10, 24, 16), AutoButtonColor = false, ZIndex = 5, Active = true}, card), 8)
+				stroke(applyBtn)
+				applyBtn.MouseEnter:Connect(function() applyBtn.BackgroundColor3 = Color3.fromRGB(105, 210, 145) end)
+				applyBtn.MouseLeave:Connect(function() applyBtn.BackgroundColor3 = C.good end)
+				applyBtn.MouseButton1Click:Connect(function() showApplyModal(plan) end)
+				local copyJsonBtn = round(ui("TextButton", {Position = UDim2.new(0, 11, 0, cardH - 26), Size = UDim2.new(1, -22, 0, 22), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Copy JSON", Font = Enum.Font.GothamBold, TextSize = 9, TextColor3 = C.text, AutoButtonColor = false, ZIndex = 5, Active = true}, card), 7)
+				stroke(copyJsonBtn)
+				copyJsonBtn.MouseEnter:Connect(function() copyJsonBtn.BackgroundColor3 = C.hover end)
+				copyJsonBtn.MouseLeave:Connect(function() copyJsonBtn.BackgroundColor3 = C.field end)
 				copyJsonBtn.MouseButton1Click:Connect(function()
 					local okJson, jsonText = pcall(function() return HttpService:JSONEncode(plan) end)
 					if okJson then copyCode(jsonText) else showToast("Could not encode plan", "bad") end
@@ -1735,9 +1791,11 @@ function sendChat(textOverride)
 	end
 	local payload = {prompt = text, projectId = tostring(game.PlaceId), mode = mode, context = payloadContext, history = history}
 	if not disconnected then payload.sessionId = sessionId; payload.surface = "plugin" end
+	twinElapsedStart = os.clock()
 	busy = true
 	local ok, response = safe("POST", saveEndpoint(), payload, 3)
 	busy = false
+	twinElapsedStart = 0
 	if mode == "build" and agentLiveEntry then
 		agentLiveEntry.live = false
 	end
@@ -1904,11 +1962,41 @@ local function buildWidget()
 	toastHost = ui("Frame", {Position = UDim2.new(1, -272, 0, 60), Size = UDim2.new(0, 258, 0, 420), BackgroundTransparency = 1, ZIndex = 10, Active = false}, root)
 	ui("UIListLayout", {Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, HorizontalAlignment = Enum.HorizontalAlignment.Right}, toastHost)
 
+	-- ===== persistent TWIN thinking bar (always visible) =====
+	twinStatusBar = ui("Frame", {Position = UDim2.new(0, 0, 0, 54), Size = UDim2.new(1, 0, 0, 18), BackgroundColor3 = Color3.fromRGB(22, 28, 42), BorderSizePixel = 0, ZIndex = 2}, root)
+	ui("Frame", {Position = UDim2.new(0, 0, 1, -1), Size = UDim2.new(1, 0, 0, 1), BackgroundColor3 = C.stroke, BorderSizePixel = 0}, twinStatusBar)
+	twinStatusDot = round(ui("Frame", {Position = UDim2.new(0, 10, 0.5, -4), Size = UDim2.new(0, 8, 0, 8), BackgroundColor3 = twinMode and AGENT_ROLE_COLOR.ARCHITECT or C.muted, BorderSizePixel = 0}, twinStatusBar), 4)
+	twinStatusLabel = ui("TextLabel", {Position = UDim2.new(0, 24, 0, 0), Size = UDim2.new(1, -28, 1, 0), BackgroundTransparency = 1, Text = twinMode and "TWIN THINKING · ARCHITECT ready · BUILDER ready · 2 keys" or "FAST CHAT · single-agent", Font = Enum.Font.GothamBold, TextSize = 8, TextColor3 = twinMode and C.accent or C.muted, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}, twinStatusBar)
+
 	-- ===== chat area =====
-	chatArea = ui("Frame", {Position = UDim2.new(0, 0, 0, 55), Size = UDim2.new(1, 0, 1, -55 - 142), BackgroundTransparency = 1}, root)
+	chatArea = ui("Frame", {Position = UDim2.new(0, 0, 0, 73), Size = UDim2.new(1, 0, 1, -73 - 142), BackgroundTransparency = 1}, root)
 	chatScroller = ui("ScrollingFrame", {Size = UDim2.fromScale(1, 1), CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollBarThickness = 4, BackgroundTransparency = 1, BorderSizePixel = 0}, chatArea)
 	chatList = ui("UIListLayout", {Padding = UDim.new(0, 10), SortOrder = Enum.SortOrder.LayoutOrder}, chatScroller)
 	ui("UIPadding", {PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatScroller)
+
+	-- ===== Apply confirmation modal (bulletproof) =====
+	applyModal = ui("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BackgroundTransparency = 0.35, ZIndex = 20, Visible = false, Active = true}, root)
+	local modalCard = round(ui("Frame", {Position = UDim2.new(0.5, -155, 0.5, -90), Size = UDim2.new(0, 310, 0, 180), BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 21, Active = true}, applyModal), 12)
+	stroke(modalCard)
+	ui("UIPadding", {PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 14), PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14)}, modalCard)
+	applyModalTitle = ui("TextLabel", {Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = "Apply Build Plan?", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 21}, modalCard)
+	applyModalBody = ui("TextLabel", {Position = UDim2.new(0, 0, 0, 22), Size = UDim2.new(1, 0, 0, 72), BackgroundTransparency = 1, Text = "Review the changes below.", Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 21}, modalCard)
+	applyModalCancel = round(ui("TextButton", {Position = UDim2.new(0, 0, 1, -36), Size = UDim2.new(0.5, -6, 0, 32), BackgroundColor3 = C.field, BorderSizePixel = 0, Text = "Cancel", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = C.text, AutoButtonColor = false, ZIndex = 21}, modalCard), 8)
+	stroke(applyModalCancel)
+	applyModalConfirm = round(ui("TextButton", {Position = UDim2.new(0.5, 6, 1, -36), Size = UDim2.new(0.5, -6, 0, 32), BackgroundColor3 = C.good, BorderSizePixel = 0, Text = "Confirm Apply", Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Color3.fromRGB(10, 24, 16), AutoButtonColor = false, ZIndex = 21}, modalCard), 8)
+	applyModalConfirm.MouseEnter:Connect(function() applyModalConfirm.BackgroundColor3 = Color3.fromRGB(105, 210, 145) end)
+	applyModalConfirm.MouseLeave:Connect(function() applyModalConfirm.BackgroundColor3 = C.good end)
+	applyModalCancel.MouseEnter:Connect(function() applyModalCancel.BackgroundColor3 = C.hover end)
+	applyModalCancel.MouseLeave:Connect(function() applyModalCancel.BackgroundColor3 = C.field end)
+	applyModalConfirm.MouseButton1Click:Connect(function()
+		local plan = pendingApplyPlan
+		applyModal.Visible = false
+		pendingApplyPlan = nil
+		if plan then pcall(applyPlanDirect, plan) end
+	end)
+	applyModalCancel.MouseButton1Click:Connect(function() applyModal.Visible = false; pendingApplyPlan = nil end)
+	applyModal.MouseButton1Click:Connect(function() applyModal.Visible = false; pendingApplyPlan = nil end)
+	modalCard.MouseButton1Click:Connect(function() end)
 
 	-- ===== settings drawer (overlays chat area) =====
 	settingsDrawer = ui("ScrollingFrame", {Position = UDim2.new(0, 8, 1, -206), Size = UDim2.new(1, -16, 0, 300), Visible = false, ZIndex = 6, ScrollBarThickness = 4, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, BackgroundColor3 = C.panel, BorderSizePixel = 0}, root)
@@ -2052,6 +2140,11 @@ local function buildWidget()
 	UserInputService.InputBegan:Connect(function(input)
 		local kc = input.KeyCode
 		if kc == Enum.KeyCode.Escape then
+			if applyModal and applyModal.Visible then
+				applyModal.Visible = false
+				pendingApplyPlan = nil
+				return
+			end
 			if copyOverlay and copyOverlay.Visible then
 				copyOverlay.Visible = false
 				return
@@ -2147,6 +2240,38 @@ local function buildWidget()
 				if pulseDot then pulseDot.BackgroundTransparency = 0.85 end
 				task.wait(0.45)
 			end)
+		end
+	end)
+	task.spawn(function()
+		while true do
+			pcall(function()
+				if twinStatusBar and twinStatusLabel then
+					if busy and twinMode then
+						local elapsed = twinElapsedStart > 0 and (os.clock() - twinElapsedStart) or 0
+						local lastMsg = #agentLiveEvents > 0 and agentLiveEvents[#agentLiveEvents].message or "ARCHITECT analyzing request…"
+						twinStatusLabel.Text = string.format("TWIN THINKING · %s · %.1fs", trim(lastMsg, 42), elapsed)
+						twinStatusLabel.TextColor3 = C.accent
+						if twinStatusDot then twinStatusDot.BackgroundColor3 = C.accent end
+					elseif busy then
+						local elapsed = twinElapsedStart > 0 and (os.clock() - twinElapsedStart) or 0
+						twinStatusLabel.Text = string.format("LUA-X thinking… %.1fs", elapsed)
+						twinStatusLabel.TextColor3 = C.warn
+						if twinStatusDot then twinStatusDot.BackgroundColor3 = C.warn end
+					else
+						if twinMode then
+							local pill = modelPill and modelPill.Text or "AI ready"
+							twinStatusLabel.Text = "TWIN READY · ARCHITECT + BUILDER idle · " .. trim(pill, 36)
+							twinStatusLabel.TextColor3 = C.muted
+							if twinStatusDot then twinStatusDot.BackgroundColor3 = AGENT_ROLE_COLOR.ARCHITECT; twinStatusDot.BackgroundTransparency = 0 end
+						else
+							twinStatusLabel.Text = "FAST CHAT · single-agent"
+							twinStatusLabel.TextColor3 = C.muted
+							if twinStatusDot then twinStatusDot.BackgroundColor3 = C.muted end
+						end
+					end
+				end
+			end)
+			task.wait(0.6)
 		end
 	end)
 	return true
