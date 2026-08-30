@@ -1753,8 +1753,10 @@ function sendChat(textOverride)
 		text = (string.sub(text, 7):gsub("^%s+", ""))
 	elseif twinMode then
 		local low = string.lower(text)
-		local isGreeting = #text <= 12 and string.match(low, "^(hi|hello|hey|yo|hiya|ciao|bonjour|hola|sup|howdy)[!%.%s]*$")
-		if not isGreeting then mode = "build" end
+		local isGreeting = #text < 6 or (#text <= 20 and string.match(low, "^(hi|hello|hey|yo|hiya|halo|hai|ciao|bonjour|hola|sup|howdy|test|ping)[!%.%s]*$"))
+		local hasBuildIntent = string.find(low, "build") or string.find(low, "make") or string.find(low, "create") or string.find(low, "script") or string.find(low, "system") or string.find(low, "game") or string.find(low, "add ") or string.find(low, "fix")
+		if #text >= 8 and hasBuildIntent and not isGreeting then mode = "build"
+		elseif #text >= 15 and not isGreeting then mode = "build" end
 	end
 	if #text < 2 then return end
 	table.insert(chatHistory, {role = "user", text = text, at = DateTime.now().UnixTimestampMillis})

@@ -17,23 +17,25 @@ import {
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const CHAT_MODELS = [
-  'meta/llama-3.3-70b-instruct',
-  'openai/gpt-oss-120b',
+  'nvidia/llama-3.1-nemotron-nano-8b-v1',
+  'meta/llama-3.2-3b-instruct',
   'openai/gpt-oss-20b',
-  'deepseek-ai/deepseek-v4-flash',
-  'moonshotai/kimi-k3',
   'qwen/qwen3-next-80b-a3b-instruct',
   'mistralai/mistral-nemotron',
+];
+const FALLBACK_MODELS = [
+  'meta/llama-3.3-70b-instruct',
+  'openai/gpt-oss-120b',
+  'deepseek-ai/deepseek-v4-flash',
+  'moonshotai/kimi-k3',
   'nvidia/llama-3.1-nemotron-70b-instruct',
-  'nvidia/llama-3.1-nemotron-nano-8b-v1',
   'meta/llama-3.1-8b-instruct',
-  'meta/llama-3.2-3b-instruct',
   'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
-const ARCHITECT_MODELS = CHAT_MODELS;
-const BUILDER_MODELS = CHAT_MODELS;
+const ARCHITECT_MODELS = [...CHAT_MODELS, ...FALLBACK_MODELS];
+const BUILDER_MODELS = [...CHAT_MODELS, ...FALLBACK_MODELS];
 const DEFAULT_VISION_MODEL = 'meta/llama-3.2-90b-vision-instruct';
 const MAX_BODY = 128 * 1024;
 const MODES = new Set(['chat', 'build', 'plan']);
@@ -575,7 +577,7 @@ async function callModelResilient(options: ResilientCallOptions): Promise<Resili
         const content = await callModelOnce(options.baseUrl, model, key, options.messages, {
           maxTokens: options.maxTokens,
           temperature: options.temperature,
-          timeoutMs: Math.min(remaining - 2000, 120000),
+          timeoutMs: Math.min(remaining - 2000, 25000),
           id: options.id,
         });
         options.trace.push({ at: Date.now(), stage: options.stage, role: options.role, model, message: `completed (${Math.round(content.length / 1024)}KB)` });
@@ -739,7 +741,7 @@ async function runBuilderTask(
       { role: 'system', content: BUILDER_SYSTEM_PROMPT },
       { role: 'user', content: userParts },
     ],
-    maxTokens: 16384, temperature: 0.2, remainingMs, id: id,
+    maxTokens: 4096, temperature: 0.2, remainingMs, id: id,
     trace, role: 'BUILDER', stage: `builder-${task.id}`,
   });
 
@@ -891,7 +893,7 @@ async function runTwinAgent(
 ): Promise<{ plan: AIPlan; model: string }> {
   const baseUrl = (process.env.NVIDIA_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/$/, '');
   const startedAt = Date.now();
-  const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 270000), 10000), 285000);
+  const deadlineMs = Math.min(Math.max(Number(process.env.AI_DEADLINE_MS || 60000), 10000), 120000);
   const remainingMs = () => deadlineMs - (Date.now() - startedAt);
 
   const singleMode = agentMode() === 'single';
@@ -1022,7 +1024,7 @@ export async function handleGenerate(request: Request): Promise<Response> {
 
     if (mode === 'build' || mode === 'plan') {
       const promptTrim = String(body.prompt ?? '').trim();
-      const isGreeting = promptTrim.length <= 12 && /^(hi|hello|hey|yo|hiya|ciao|bonjour|hola|sup|howdy)[!.\s]*$/i.test(promptTrim);
+      const isGreeting = promptTrim.length <= 20 && /^(hi|hello|hey|yo|hiya|halo|hai|ciao|bonjour|hola|sup|howdy|test|ping)[!.\s]*$/i.test(promptTrim) || promptTrim.length < 6;
       if (isGreeting) {
         const sessionId = sessionIdOf(body);
         const friendly = 'Hey! I\'m LUA-X — your twin-agent studio.\n\nTell me what to build (e.g. "/build a zombie chase game" or "make the sword feel good") and I\'ll generate a reviewable plan with concrete Luau, UI, VFX and config.\n\nTip: disable TWIN if you just want quick chat.';
