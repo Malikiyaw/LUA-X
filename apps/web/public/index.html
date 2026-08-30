@@ -3,142 +3,130 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0a0b10">
+  <meta name="theme-color" content="#0F0F10">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="LUA-X — twin-AI engineering studio for Roblox. The website is the chat.">
-  <title>LUA-X — Twin-AI Studio for Roblox</title>
+  <meta name="description" content="LUA-X — twin-AI studio. The chat is the landing.">
+  <title>LUA-X — Twin-AI Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/"><span class="brand-mark">⬡</span><b>LUA-X</b> <small style="color:var(--faint);font-weight:600;margin-left:6px">Studio v2.2</small></a>
-    <div class="top-actions">
-      <span class="status-pill" id="backend-status">Checking…</span>
-      <span class="status-pill" id="ai-status">AI —</span>
-      <span class="model-label" id="model-label"></span>
-      <button class="ghost-button" id="open-settings" type="button" title="API Token">⚙</button>
-      <a class="cta-button small" href="/LUA-X.lua" download="LUA-X.lua">Get Plugin</a>
-    </div>
-  </header>
-
-  <div class="app-layout">
-    <!-- LEFT RAIL -->
-    <aside class="rail left-rail" id="left-rail">
-      <div class="rail-card">
-        <div class="rail-title">New AI chat <span class="badge">Private</span></div>
-        <button class="ghost-button full" id="new-chat-btn" type="button">+ New chat</button>
-        <div class="rail-section">
-          <div class="rail-label">Onboarding Demos</div>
-          <button class="chip chip-action" data-prompt="Build an obby with checkpoints and a win pad">🏁 Obby • checkpoints</button>
-          <button class="chip chip-action" data-prompt="Make a terrain island with beach and trees">🏝 Terrain island</button>
-          <button class="chip chip-action" data-prompt="Create a UI shop with buy button and coins">🛒 UI Shop</button>
+  <!-- Stage: blurred backdrop behind floating card -->
+  <div class="stage">
+    <div class="floating-card" id="floating-card">
+      <div class="card-head">
+        <div class="head-left">
+          <button class="head-title" id="new-chat-btn" type="button">New AI chat <span class="chev">▾</span></button>
+          <span class="status-dot" id="studio-pulse" title="Studio"></span>
         </div>
-        <div class="rail-section">
-          <div class="rail-label">Desktop Bridge</div>
-          <div class="console-mini" id="console-mini">
-            <div class="console-status small">
-              <span class="status-ring offline" id="studio-pulse"></span>
-              <div class="console-id"><strong id="studio-label">Studio offline</strong><small id="studio-detail">Connect via plugin or CLI proxy</small></div>
-            </div>
-            <div class="meta-rows compact">
-              <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting…</b></div>
-              <div class="meta-row"><span>Plugin</span><b id="row-plugin">—</b></div>
-              <div class="meta-row"><span>Session</span><b id="row-session">—</b></div>
-            </div>
-            <div class="download-row compact">
-              <a class="primary-button small" href="/LUA-X.lua" download="LUA-X.lua">Download</a>
-              <button class="secondary-button small" id="connect-now" type="button">Connect</button>
-            </div>
-            <details class="install-details"><summary>Install & CLI</summary>
-              <ol class="install-steps small"><li>Drop LUA-X.lua into <code>%LOCALAPPDATA%\Roblox\Plugins</code></li><li>Restart Studio</li><li>Or run <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code></li></ol>
-            </details>
-          </div>
+        <div class="head-center">
+          <label class="personalize"><span>Personilize</span><span class="toggle" id="personalize-toggle" role="switch" aria-checked="true"></span></label>
         </div>
-        <div class="rail-section">
-          <div class="rail-label">Workspace</div>
-          <div class="waiting-box hidden" id="waiting-box"><div class="waiting-title" id="waiting-title">Connecting…</div><div class="waiting-steps" id="waiting-steps">Waiting for handshake.</div></div>
-          <ul class="checklist" id="checklist"><li id="check-backend">… Backend</li><li id="check-ai">… AI</li><li id="check-session">… Studio session</li></ul>
+        <div class="head-icons">
+          <span class="status-pill small hidden" id="ai-status">AI —</span>
+          <span class="model-label small hidden" id="model-label"></span>
+          <button class="icon-btn" id="open-settings" type="button" title="Settings">⋯</button>
+          <button class="icon-btn" id="close-card" type="button" title="Close">×</button>
         </div>
       </div>
-      <div class="rail-footer">
-        <span class="model-label" id="left-model">AI · nano-8b · 2 keys</span>
-      </div>
-    </aside>
 
-    <!-- CENTER CHAT -->
-    <main class="chat-main">
+      <!-- Chat feed = landing content -->
       <div class="chat-feed" id="chat-feed">
-        <!-- Greeting / hero IS the first assistant message -->
-        <div class="msg assistant greeting" id="greeting-card">
-          <div class="greeting-hero">
-            <h1>Build Roblox experiences by chatting with <em>two AI agents</em></h1>
-            <p>LUA-X <b>ARCHITECT</b> plans. <b>BUILDER</b> ships Luau, UI, VFX, mesh, terrain — reviewable, undo-safe. This page <em>is</em> Studio mission control. The local CLI proxy streams your prompt to Roblox Studio via <code>mcp.bat</code>/StudioMCP over stdio.</p>
-            <div class="feature-chips">
-              <span class="chip">🤖 Twin-AI</span><span class="chip">👁 Vision</span><span class="chip">🧊 Mesh Gen</span><span class="chip">🧩 One-click Apply</span><span class="chip">🛡 Undo-safe</span>
-            </div>
-          </div>
-          <div class="takeaways-card">
-            <div class="takeaways-head">✦ Shaping the AI Chat Experience — <span class="muted">Try:</span></div>
-            <ul class="takeaways-list">
-              <li>→ How should AI show uncertainty? <a class="chip small" data-prompt="How should AI show uncertainty in Studio?">Ask</a></li>
-              <li>→ Which UI elements build trust? <a class="chip small" data-prompt="Which UI elements build trust in AI responses?">Ask</a></li>
-              <li>→ What signals make responses feel reliable? <a class="chip small" data-prompt="What signals make AI responses feel reliable?">Ask</a></li>
-            </ul>
-          </div>
+        <div class="msg assistant center" id="greeting-card">
+          <div class="msg-time">1:40</div>
+          <div class="msg-title">Shaping the AI Chat Experience</div>
+          <div class="msg-body">During the meeting, the project vision was presented: to design a modern, intuitive, and trustworthy AI chat interface that emphasizes <b>usability</b> and <b>intelligent interaction</b>. Key design principles discussed include accessibility, conversational flow, and visual cues that <em>enhance user confidence in AI-driven responses</em>. The project scope was outlined, covering the creation of initial wireframes, visual concepts, and UI components specific to chat-based interactions.</div>
+          <button class="reply-pill" data-prompt="Reply to Shaping the AI Chat Experience">↩ Reply</button>
         </div>
         <div id="thread-feed"></div>
+        <div class="thinking hidden" id="thinking-row"><span class="spinner"></span> <span id="thinking-text">Getting a detailed report…</span></div>
+        <div class="takeaways-card hidden" id="takeaways-card">
+          <div class="takeaways-head">Key Takeaways <span class="muted">• 2</span></div>
+          <ol class="takeaways-list">
+            <li>The experience should scale from onboarding demos to advanced workflows without increasing complexity for the user.</li>
+            <li>The chat should serve as a primary interface for user interaction, prioritizing simplicity.</li>
+          </ol>
+          <div class="results-foot">12 results · <span id="arch-body">Analyzing request and project context…</span> · <span id="build-body">Waiting handoff…</span> · <span id="arch-model">—</span> <span id="build-model"></span></div>
+        </div>
         <div id="agent-feed" class="agent-feed hidden"></div>
       </div>
 
-      <div class="suggestions-row hidden" id="suggestions-row"></div>
+      <div class="suggestions-row" id="suggestions-row">
+        <button class="chip" data-prompt="How should AI show uncertainty?">→ How should AI show uncertainty?</button>
+        <button class="chip primary" data-prompt="Which UI elements build trust in AI responses?">→ Which UI elements build trust in AI responses?</button>
+        <button class="chip" data-prompt="What signals make AI responses feel reliable?">→ What signals make AI responses feel reliable?</button>
+      </div>
 
       <div class="composer">
         <div class="composer-bar">
-          <button class="ghost-button small" id="vision-btn" type="button" title="Attach image for mesh/vision">🖼</button>
+          <button class="icon-btn small" id="vision-btn" type="button" title="Attach image">＋</button>
           <input type="file" id="image-input" accept="image/*" class="hidden">
-          <textarea id="chat-input" rows="1" placeholder="Ask AI anything — e.g. build me a zombie chase game"></textarea>
-          <button class="primary-button round" id="send-btn" type="button">↑</button>
+          <div class="input-wrap">
+            <textarea id="chat-input" rows="1" placeholder="Ask AI anything"></textarea>
+            <div class="input-pills">
+              <span class="collab-token hidden" id="collab-token">kevin x louise <button type="button" id="clear-collab">×</button></span>
+            </div>
+          </div>
+          <button class="send-btn" id="send-btn" type="button">↑</button>
         </div>
         <div class="composer-meta">
-          <span class="model-pill" id="composer-model">Gemini 3 Pro → NVIDIA · nano-8b</span>
-          <span class="chip small" id="twin-pill" title="Toggle TWIN">TWIN ON</span>
+          <span class="model-pill"><span id="composer-model">Gemini 3 Pro</span> <span class="globe">🌐</span></span>
           <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
-          <label class="check small"><input type="checkbox" id="use-vision" checked> Vision</label>
+          <span class="chip small hidden" id="twin-pill">TWIN ON</span>
+          <label class="hidden"><input type="checkbox" id="use-vision" checked></label>
+          <span class="hint">ESC to close <span class="kbd">●</span></span>
         </div>
       </div>
-      <div class="footnote">Chat is per-user (Bearer token). Twin agents use your 2 NVIDIA keys. Mesh/Generate via <code>generate_mesh</code> MCP when desktop proxy is connected.</div>
-    </main>
 
-    <!-- RIGHT CANVAS -->
-    <aside class="rail right-rail" id="right-rail">
-      <div class="rail-card">
-        <div class="rail-title">Agent Canvas <span class="status-pill small" id="agent-activity-state">idle</span></div>
-        <div class="canvas-grid" id="canvas-grid">
-          <div class="agent-card arch"><div class="agent-head">ARCHITECT <span class="dot arch"></span></div><div class="agent-body" id="arch-body">Analyzing request and project context…</div><div class="agent-meta">Progress 0% · <span id="arch-model">—</span></div></div>
-          <div class="agent-card build"><div class="agent-head">BUILD <span class="dot build"></span></div><div class="agent-body" id="build-body">Waiting for ARCHITECT handoff…</div><div class="agent-meta"><span id="build-model">—</span></div></div>
-          <div class="agent-card market hidden" id="card-market"><div class="agent-head">Market Research Agent <span class="badge green">Analyzing 75%</span></div><div class="agent-body">124 data points processed · Token 12.4K</div></div>
-          <div class="agent-card legal hidden" id="card-legal"><div class="agent-head">Legal Compliance Agent <span class="badge">In progress</span></div><div class="agent-body">Analyzing… (twin handoff)</div></div>
-        </div>
-        <div class="panel small" id="bridge-panel"><div class="panel-head"><strong>Bridge</strong><span id="bridge-state">polling</span></div><div class="meta-rows compact"><div class="meta-row"><span>Backend</span><b id="row-backend">—</b></div><div class="meta-row"><span>AI</span><b id="row-ai">—</b></div></div></div>
+      <!-- Onboarding quick prompts (landing → chat injection) -->
+      <div class="quick-prompts">
+        <button class="chip small" data-prompt="Build an obby with checkpoints">🏁 Obby</button>
+        <button class="chip small" data-prompt="Make a terrain island with beach">🏝 Terrain</button>
+        <button class="chip small" data-prompt="Create a UI shop with buy button">🛒 Shop UI</button>
+        <button class="chip small" data-prompt="Generate a mesh car with image reference">🧊 Mesh</button>
+        <a class="chip small" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
       </div>
-    </aside>
+      <div class="status-row small">
+        <span class="status-pill small" id="backend-status">Checking…</span>
+        <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
+        <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
+      </div>
+    </div>
+
+    <!-- Canvas toggle (screenshot 3) -->
+    <div class="canvas-toggle">
+      <button class="ghost-button small" id="toggle-canvas" type="button">↗ Canvas view (Market/Legal agents)</button>
+    </div>
   </div>
 
-  <!-- SETTINGS DRAWER -->
+  <!-- Full canvas mode (hidden by default, shown when is-canvas) -->
+  <div class="canvas-stage hidden" id="canvas-stage">
+    <div class="canvas-bar">
+      <span class="agent-card mini">Market Research Agent <span class="badge green">75%</span> · 124 data points · Token 12.4K · Model <span id="canvas-model">GPT-4o</span></span>
+      <span class="agent-card mini">Legal Compliance Agent <span class="badge">In progress</span></span>
+    </div>
+    <div class="canvas-grid">
+      <div class="node market">Market Research Agent<br><small>Analyzing market trends</small></div>
+      <div class="node center">Plan the successful launch of our AI product in the European market.<br><small id="canvas-thinking">Dessin is thinking…</small> <a href="#" id="see-steps">See steps</a></div>
+      <div class="node legal">Legal Compliance Agent<br><small>In progress</small></div>
+    </div>
+  </div>
+
   <dialog id="settings-dialog" class="settings-dialog">
     <form method="dialog" class="panel narrow">
-      <div class="panel-head"><strong>API access</strong><span>per-user token (stored locally)</span></div>
-      <input id="token-input" type="password" placeholder="LUA-X API token (paste from Vercel /api/auth)" autocomplete="off">
+      <div class="panel-head"><strong>API access (per-user)</strong><span>Bearer token</span></div>
+      <input id="token-input" type="password" placeholder="LUA-X API token" autocomplete="off">
       <div class="plugin-actions">
         <button class="primary-button" id="save-token" type="button">Save Token</button>
         <button class="ghost-button" id="clear-token" type="button">Clear</button>
         <button class="ghost-button" value="cancel" type="submit">Close</button>
       </div>
-      <div class="install-note" id="token-note">Per-user Bearer — sent on every /api/ai/generate + WS. Leave blank if backend is public.</div>
+      <div class="install-note" id="token-note">Per-user — sent on every /api/ai/generate. Leave blank if public.</div>
+      <div class="install-note">Desktop proxy: <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code> (mcp.bat/StudioMCP)</div>
     </form>
   </dialog>
 
-  <footer class="footer">LUA-X v2.2 · chat is the landing · desktop proxy `npx @lua-x/desktop-bridge` streams to Studio MCP (`mcp.bat`)</footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>

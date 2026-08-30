@@ -19,12 +19,13 @@ async function fetchDetailed(p,init={}){const s=Date.now(); try{const r=await fe
 // State
 let studioConnected=false, studioSessionId=null, studioPlaceName=null, studioPlaceId=null, studioPluginVersion=null, studioLastSeen=0;
 let requiredPluginVersion='2.2.0', bridgeUp=false, connectRequestId=null, pingSentAt=0, agentFeedLastAt=0, threadLastCount=-1;
-let chatBusy=false, twinOn=true, chatHistory=[]; // {role,text,at}
+let chatBusy=false, twinOn=true, chatHistory=[];
 const backendStatus=$('#backend-status'), aiStatus=$('#ai-status'), modelLabel=$('#model-label'), composerModel=$('#composer-model');
 const studioPulse=$('#studio-pulse'), studioLabel=$('#studio-label'), studioDetail=$('#studio-detail'), latencyChip=$('#latency-chip');
 const threadFeed=$('#thread-feed'), chatFeed=$('#chat-feed'), agentFeed=$('#agent-feed');
 const chatInput=$('#chat-input'), sendBtn=$('#send-btn'), twinPill=$('#twin-pill'), suggestionsRow=$('#suggestions-row');
 const imageInput=$('#image-input'), visionBtn=$('#vision-btn'), useVision=$('#use-vision');
+const personalizeToggle=$('#personalize-toggle'), canvasStage=$('#canvas-stage');
 
 function setPill(el,ok,text){ if(!el) return; el.textContent=text; el.className=`status-pill ${ok===null?'':ok?'ok':'bad'}` }
 async function refreshHealth(){
@@ -183,8 +184,25 @@ chatInput?.addEventListener('keydown', (e)=>{
 $('#twin-pill')?.addEventListener('click', ()=>{
   twinOn=!twinOn;
   const p=$('#twin-pill'); if(p){ p.textContent=twinOn?'TWIN ON':'TWIN OFF'; p.style.opacity=twinOn?'1':'.6'}
+  if(personalizeToggle) personalizeToggle.classList.toggle('on', twinOn);
   showToast(twinOn?'Twin agents ON — ARCHITECT+BUILDER':'Twin OFF — fast chat');
 });
+personalizeToggle?.addEventListener('click', ()=>{
+  twinOn=!twinOn;
+  personalizeToggle.classList.toggle('on', twinOn);
+  const p=$('#twin-pill'); if(p){ p.textContent=twinOn?'TWIN ON':'TWIN OFF'; }
+  showToast(twinOn?'Personilize ON':'Personilize OFF');
+});
+$('#toggle-canvas')?.addEventListener('click', ()=>{
+  const cs=$('#canvas-stage'); if(!cs) return;
+  cs.classList.toggle('hidden');
+  document.body.classList.toggle('is-canvas', !cs.classList.contains('hidden'));
+  showToast(cs.classList.contains('hidden')?'Chat mode':'Canvas mode — Market/Legal agents');
+});
+$('#close-card')?.addEventListener('click', ()=> showToast('Card minimize — use New AI chat to reset'));
+document.querySelectorAll('.reply-pill').forEach(el=> el.addEventListener('click',()=>{
+  const p=el.getAttribute('data-prompt')||'Reply'; if(chatInput){ chatInput.value=p; chatInput.focus(); }
+}));
 document.querySelectorAll('[data-prompt]').forEach(el=> el.addEventListener('click',()=>{
   const p=el.getAttribute('data-prompt')||el.textContent||''; if(chatInput){chatInput.value=p; sendChat()}
 }));
