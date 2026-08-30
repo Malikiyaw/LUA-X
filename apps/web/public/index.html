@@ -3,131 +3,191 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#0F0F10">
+  <meta name="theme-color" content="#020308">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="LUA-X — twin-AI studio. The chat is the landing.">
-  <title>LUA-X — Twin-AI Studio</title>
+  <meta name="description" content="LUA-X — AI-native Roblox Studio development with twin AI agents, mesh, vision.">
+  <title>LUA-X — AI-Native Roblox Studio</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <!-- Stage: blurred backdrop behind floating card -->
-  <div class="stage">
-    <div class="floating-card" id="floating-card">
-      <div class="card-head">
-        <div class="head-left">
-          <button class="head-title" id="new-chat-btn" type="button">New AI chat <span class="chev">▾</span></button>
-          <span class="status-dot" id="studio-pulse" title="Studio"></span>
-        </div>
-        <div class="head-center">
-          <label class="personalize"><span>Personilize</span><span class="toggle" id="personalize-toggle" role="switch" aria-checked="true"></span></label>
-        </div>
-        <div class="head-icons">
-          <span class="status-pill small hidden" id="ai-status">AI —</span>
-          <span class="model-label small hidden" id="model-label"></span>
-          <button class="icon-btn" id="open-settings" type="button" title="Settings">⋯</button>
-          <button class="icon-btn" id="close-card" type="button" title="Close">×</button>
-        </div>
+  <nav class="top-nav" id="top-nav">
+    <div class="nav-inner">
+      <div class="nav-brand">★ LUA-X</div>
+      <div class="nav-links">
+        <a class="nav-link" href="#hero">Workspace</a>
+        <a class="nav-link" href="#agents">Agents</a>
+        <a class="nav-link" href="#canvas-stage">Canvas</a>
+        <a class="nav-link" href="#docs">Docs</a>
       </div>
-
-      <!-- Chat feed = landing content -->
-      <div class="chat-feed" id="chat-feed">
-        <div class="msg assistant center" id="greeting-card">
-          <div class="msg-time">1:40</div>
-          <div class="msg-title">Shaping the AI Chat Experience</div>
-          <div class="msg-body">During the meeting, the project vision was presented: to design a modern, intuitive, and trustworthy AI chat interface that emphasizes <b>usability</b> and <b>intelligent interaction</b>. Key design principles discussed include accessibility, conversational flow, and visual cues that <em>enhance user confidence in AI-driven responses</em>. The project scope was outlined, covering the creation of initial wireframes, visual concepts, and UI components specific to chat-based interactions.</div>
-          <button class="reply-pill" data-prompt="Reply to Shaping the AI Chat Experience">↩ Reply</button>
-        </div>
-        <div id="thread-feed"></div>
-        <div class="thinking hidden" id="thinking-row"><span class="spinner"></span> <span id="thinking-text">Getting a detailed report…</span></div>
-        <div class="takeaways-card hidden" id="takeaways-card">
-          <div class="takeaways-head">Key Takeaways <span class="muted">• 2</span></div>
-          <ol class="takeaways-list">
-            <li>The experience should scale from onboarding demos to advanced workflows without increasing complexity for the user.</li>
-            <li>The chat should serve as a primary interface for user interaction, prioritizing simplicity.</li>
-          </ol>
-          <div class="results-foot">12 results · <span id="arch-body">Analyzing request and project context…</span> · <span id="build-body">Waiting handoff…</span> · <span id="arch-model">—</span> <span id="build-model"></span></div>
-        </div>
-        <div id="agent-feed" class="agent-feed hidden"></div>
+      <div class="nav-actions">
+        <button class="pill dark" id="new-project-btn" type="button">+ New Project</button>
+        <a class="pill white" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
       </div>
+      <button class="nav-rail-toggle" id="nav-rail-toggle" type="button">☰</button>
+    </div>
+  </nav>
 
-      <div class="suggestions-row" id="suggestions-row">
-        <button class="chip" data-prompt="How should AI show uncertainty?">→ How should AI show uncertainty?</button>
-        <button class="chip primary" data-prompt="Which UI elements build trust in AI responses?">→ Which UI elements build trust in AI responses?</button>
-        <button class="chip" data-prompt="What signals make AI responses feel reliable?">→ What signals make AI responses feel reliable?</button>
+  <section class="hero" id="hero">
+    <div class="hero-inner">
+      <h1>AI-native Roblox Studio</h1>
+      <p class="hero-sub">Twin ARCHITECT + BUILDER agents, mesh generation, vision attach — from prompt to place in seconds.</p>
+      <div class="hero-ctas">
+        <button class="pill primary" id="hero-start-btn" type="button">Start in Studio →</button>
+        <button class="pill ghost" id="hero-docs-btn" type="button">Read Docs</button>
+        <button class="pill ghost" id="hero-desktop-btn" type="button">npx @lua-x/desktop-bridge</button>
       </div>
+      <div class="stats-strip">
+        <div class="stat"><span class="stat-num" id="stat-sync">74%</span> <span class="stat-label">Sync</span></div>
+        <div class="stat"><span class="stat-num">2</span> <span class="stat-label">Keys pooled</span></div>
+        <div class="stat"><span class="stat-num" id="stat-studio">Studio offline</span> <span class="stat-label">Studio</span></div>
+      </div>
+    </div>
+  </section>
 
-      <div class="composer">
-        <div class="composer-bar">
-          <button class="icon-btn small" id="vision-btn" type="button" title="Attach image">＋</button>
-          <input type="file" id="image-input" accept="image/*" class="hidden">
-          <div class="input-wrap">
-            <textarea id="chat-input" rows="1" placeholder="Ask AI anything"></textarea>
-            <div class="input-pills">
-              <span class="collab-token hidden" id="collab-token">kevin x louise <button type="button" id="clear-collab">×</button></span>
-            </div>
+  <div class="workspace-shell" id="workspace-shell">
+    <aside class="left-rail" id="left-rail">
+      <button class="rail-btn active" data-target="#hero" type="button" title="Home">🏠</button>
+      <button class="rail-btn" data-target="#chat-feed" type="button" title="Chat">💬</button>
+      <button class="rail-btn" data-target="#suggestions-row" type="button" title="Prompts">⚡</button>
+      <button class="rail-btn" data-target="#agents" type="button" title="Agents">🤖</button>
+      <button class="rail-btn" data-target="#canvas-stage" type="button" title="Canvas">▦</button>
+      <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
+      <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
+    </aside>
+
+    <main class="canvas-col" id="canvas-col">
+      <div class="canvas-stage" id="canvas-stage">
+        <div class="canvas-bar" id="canvas-bar">
+          <span class="agent-card active" id="agents">ARCHITECT <span class="badge green">active</span> · <span id="arch-body">Analyzing request and project context…</span></span>
+          <span class="agent-card" id="build-agent">BUILDER <span class="badge">idle</span> · <span id="build-body">Waiting handoff…</span></span>
+          <span class="agent-card mini">Market Research <span class="badge green">75%</span> · 124 data points · Token 12.4K</span>
+          <span class="agent-card mini">Legal Compliance <span class="badge">in progress</span></span>
+        </div>
+        <div class="canvas-grid">
+          <svg id="canvas-connections" xmlns="http://www.w3.org/2000/svg"></svg>
+          <div class="node center" id="central-task">
+            <div class="node-badge">6 active agents</div>
+            <div class="node-title" id="central-title">Plan the successful launch of our AI product in the European market.</div>
+            <div id="canvas-thinking">Dessin is thinking…</div>
+            <button class="ghost-button small" id="see-steps" type="button">See steps</button>
           </div>
-          <button class="send-btn" id="send-btn" type="button">↑</button>
-        </div>
-        <div class="composer-meta">
-          <span class="model-pill"><span id="composer-model">Gemini 3 Pro</span> <span class="globe">🌐</span></span>
-          <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
-          <span class="chip small hidden" id="twin-pill">TWIN ON</span>
-          <label class="hidden"><input type="checkbox" id="use-vision" checked></label>
-          <span class="hint">ESC to close <span class="kbd">●</span></span>
+          <div class="node" id="node-arch">
+            <div class="node-title">ARCHITECT</div>
+            <small id="arch-model">—</small>
+          </div>
+          <div class="node" id="node-build">
+            <div class="node-title">BUILDER</div>
+            <small id="build-model"></small>
+          </div>
         </div>
       </div>
 
-      <!-- Onboarding quick prompts (landing → chat injection) -->
-      <div class="quick-prompts">
-        <button class="chip small" data-prompt="Build an obby with checkpoints">🏁 Obby</button>
-        <button class="chip small" data-prompt="Make a terrain island with beach">🏝 Terrain</button>
-        <button class="chip small" data-prompt="Create a UI shop with buy button">🛒 Shop UI</button>
-        <button class="chip small" data-prompt="Generate a mesh car with image reference">🧊 Mesh</button>
-        <a class="chip small" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
-      </div>
-      <div class="status-row small">
-        <span class="status-pill small" id="backend-status">Checking…</span>
-        <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
-        <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
-      </div>
-    </div>
+      <div class="thread-feed-wrap">
+        <div class="chat-feed" id="chat-feed">
+          <div class="msg assistant center" id="greeting-card">
+            <div class="msg-time">1:40</div>
+            <div class="msg-title">Shaping the AI Chat Experience</div>
+            <div class="msg-body">During the meeting, the project vision was presented: to design a modern, intuitive, and trustworthy AI chat interface that emphasizes <b>usability</b> and <b>intelligent interaction</b>. Key design principles discussed include accessibility, conversational flow, and visual cues that <em>enhance user confidence in AI-driven responses</em>. The project scope was outlined, covering the creation of initial wireframes, visual concepts, and UI components specific to chat-based interactions.</div>
+            <button class="reply-pill" data-prompt="Reply to Shaping the AI Chat Experience">↩ Reply</button>
+          </div>
+          <div id="thread-feed"></div>
+          <div class="thinking hidden" id="thinking-row"><span class="spinner"></span> <span id="thinking-text">Getting a detailed report…</span></div>
+          <div class="takeaways-card hidden" id="takeaways-card">
+            <div class="takeaways-head">Key Takeaways <span class="muted">• 2</span></div>
+            <ol class="takeaways-list">
+              <li>The experience should scale from onboarding demos to advanced workflows without increasing complexity for the user.</li>
+              <li>The chat should serve as a primary interface for user interaction, prioritizing simplicity.</li>
+            </ol>
+            <div class="results-foot">12 results · <span id="arch-body2">Analyzing request and project context…</span> · <span id="build-body2">Waiting handoff…</span> · <span id="arch-model2">—</span> <span id="build-model2"></span></div>
+          </div>
+          <div id="agent-feed" class="agent-feed hidden"></div>
+        </div>
 
-    <!-- Canvas toggle (screenshot 3) -->
-    <div class="canvas-toggle">
-      <button class="ghost-button small" id="toggle-canvas" type="button">↗ Canvas view (Market/Legal agents)</button>
-    </div>
+        <div class="suggestions-row" id="suggestions-row">
+          <button class="chip" data-prompt="How should AI show uncertainty?">→ How should AI show uncertainty?</button>
+          <button class="chip primary" data-prompt="Which UI elements build trust in AI responses?">→ Which UI elements build trust in AI responses?</button>
+          <button class="chip" data-prompt="What signals make AI responses feel reliable?">→ What signals make AI responses feel reliable?</button>
+        </div>
+
+        <div class="quick-prompts" id="quick-prompts">
+          <button class="chip small" data-prompt="Build an obby with checkpoints">🏁 Obby</button>
+          <button class="chip small" data-prompt="Make a terrain island with beach">🏝 Terrain</button>
+          <button class="chip small" data-prompt="Create a UI shop with buy button">🛒 Shop UI</button>
+          <button class="chip small" data-prompt="Generate a mesh car with image reference">🧊 Mesh</button>
+          <a class="chip small" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
+        </div>
+      </div>
+    </main>
+
+    <aside class="chat-panel" id="chat-panel">
+      <div class="floating-card" id="floating-card">
+        <div class="card-head">
+          <div class="head-left">
+            <button class="head-title" id="new-chat-btn" type="button">New AI chat <span class="chev">▾</span></button>
+            <span class="status-dot" id="studio-pulse" title="Studio"></span>
+          </div>
+          <div class="head-center">
+            <label class="personalize"><span>Personilize</span><span class="toggle" id="personalize-toggle" role="switch" aria-checked="true"></span></label>
+          </div>
+          <div class="head-icons">
+            <span class="status-pill small hidden" id="ai-status">AI —</span>
+            <span class="model-label small hidden" id="model-label"></span>
+            <button class="icon-btn" id="open-settings" type="button" title="Settings">⋯</button>
+            <button class="icon-btn" id="close-card" type="button" title="Close">×</button>
+          </div>
+        </div>
+        <div class="composer">
+          <div class="composer-bar">
+            <button class="icon-btn small" id="vision-btn" type="button" title="Attach image">＋</button>
+            <input type="file" id="image-input" accept="image/*" class="hidden">
+            <div class="input-wrap">
+              <textarea id="chat-input" rows="1" placeholder="Ask AI anything"></textarea>
+              <div class="input-pills">
+                <span class="collab-token hidden" id="collab-token">kevin x louise <button type="button" id="clear-collab">×</button></span>
+              </div>
+            </div>
+            <button class="send-btn" id="send-btn" type="button">↑</button>
+          </div>
+          <div class="composer-meta">
+            <span class="model-pill"><span id="composer-model">Gemini 3 Pro</span> <span class="globe">🌐</span></span>
+            <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
+            <span class="chip small hidden" id="twin-pill">TWIN ON</span>
+            <label class="hidden"><input type="checkbox" id="use-vision" checked></label>
+            <span class="hint">ESC to close <span class="kbd">●</span></span>
+          </div>
+        </div>
+        <div class="status-row small" id="status-row">
+          <span class="status-pill small" id="backend-status">Checking…</span>
+          <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
+          <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
+        </div>
+      </div>
+      <dialog id="settings-dialog" class="settings-dialog">
+        <form method="dialog" class="panel narrow">
+          <div class="panel-head"><strong>API access (per-user)</strong><span>Bearer token</span></div>
+          <input id="token-input" type="password" placeholder="LUA-X API token" autocomplete="off">
+          <div class="plugin-actions">
+            <button class="primary-button" id="save-token" type="button">Save Token</button>
+            <button class="ghost-button" id="clear-token" type="button">Clear</button>
+            <button class="ghost-button" value="cancel" type="submit">Close</button>
+          </div>
+          <div class="install-note" id="token-note">Per-user — sent on every /api/ai/generate. Leave blank if public.</div>
+          <div class="install-note">Desktop proxy: <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code> (mcp.bat/StudioMCP)</div>
+        </form>
+      </dialog>
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </aside>
   </div>
 
-  <!-- Full canvas mode (hidden by default, shown when is-canvas) -->
-  <div class="canvas-stage hidden" id="canvas-stage">
-    <div class="canvas-bar">
-      <span class="agent-card mini">Market Research Agent <span class="badge green">75%</span> · 124 data points · Token 12.4K · Model <span id="canvas-model">GPT-4o</span></span>
-      <span class="agent-card mini">Legal Compliance Agent <span class="badge">In progress</span></span>
+  <footer class="footer" id="docs">
+    <div class="footer-inner">
+      <span>LUA-X v2.2.0 — AI-native Roblox Studio</span>
+      <span class="footer-links"><a class="footer-link" href="#hero">Workspace</a> · <a class="footer-link" href="#agents">Agents</a> · <a class="footer-link" href="https://github.com/Malikiyaw/LUA-X" target="_blank">GitHub</a></span>
     </div>
-    <div class="canvas-grid">
-      <div class="node market">Market Research Agent<br><small>Analyzing market trends</small></div>
-      <div class="node center">Plan the successful launch of our AI product in the European market.<br><small id="canvas-thinking">Dessin is thinking…</small> <a href="#" id="see-steps">See steps</a></div>
-      <div class="node legal">Legal Compliance Agent<br><small>In progress</small></div>
-    </div>
-  </div>
+  </footer>
 
-  <dialog id="settings-dialog" class="settings-dialog">
-    <form method="dialog" class="panel narrow">
-      <div class="panel-head"><strong>API access (per-user)</strong><span>Bearer token</span></div>
-      <input id="token-input" type="password" placeholder="LUA-X API token" autocomplete="off">
-      <div class="plugin-actions">
-        <button class="primary-button" id="save-token" type="button">Save Token</button>
-        <button class="ghost-button" id="clear-token" type="button">Clear</button>
-        <button class="ghost-button" value="cancel" type="submit">Close</button>
-      </div>
-      <div class="install-note" id="token-note">Per-user — sent on every /api/ai/generate. Leave blank if public.</div>
-      <div class="install-note">Desktop proxy: <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code> (mcp.bat/StudioMCP)</div>
-    </form>
-  </dialog>
-
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>
 </html>
