@@ -17,15 +17,21 @@ import {
 
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const CHAT_MODELS = [
+  'meta/llama-3.3-70b-instruct',
+  'nvidia/llama-3.1-nemotron-70b-instruct',
   'meta/llama-3.1-8b-instruct',
-  'nvidia/llama-3.3-nemotron-super-49b-v1',
+  'nvidia/llama-3.1-nemotron-nano-8b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
 const ARCHITECT_MODELS = CHAT_MODELS;
 const BUILDER_MODELS = [
+  'meta/llama-3.3-70b-instruct',
+  'nvidia/llama-3.1-nemotron-70b-instruct',
   'meta/llama-3.1-8b-instruct',
-  'nvidia/llama-3.3-nemotron-super-49b-v1',
+  'nvidia/llama-3.1-nemotron-nano-8b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+  'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
 const DEFAULT_VISION_MODEL = 'meta/llama-3.2-90b-vision-instruct';
 const MAX_BODY = 128 * 1024;
@@ -517,8 +523,11 @@ async function callModelOnce(
         : providerError && typeof providerError === 'object' && 'message' in providerError
           ? String(providerError.message)
           : `NVIDIA returned HTTP ${response.status}.`;
-      const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-      throw new ModelError(message, response.status, retryable);
+      // 410 Gone = model deprecated/removed → must try next model, not abort key loop
+      const isGone = response.status === 410;
+      const retryable = isGone || response.status === 408 || response.status === 429 || response.status >= 500;
+      const finalMessage = isGone ? `Model ${model} is deprecated (HTTP 410 Gone) — trying fallback model.` : message;
+      throw new ModelError(finalMessage, response.status, retryable);
     }
     const choices = isRecord(payload) ? payload.choices : undefined;
     const first = Array.isArray(choices) ? choices[0] : undefined;
@@ -575,7 +584,10 @@ async function callModelResilient(options: ResilientCallOptions): Promise<Resili
         const retryable = error instanceof ModelError ? error.retryable : true;
         lastMessage = error instanceof Error ? error.message : 'Model request failed.';
         lastStatus = status;
-        options.trace.push({ at: Date.now(), stage: options.stage, role: options.role, model, message: `attempt failed: ${lastMessage.slice(0, 160)}` });
+        const isGone = status === 410;
+        const traceMsg = isGone ? `model deprecated (410) — ${model} → trying fallback` : `attempt failed: ${lastMessage.slice(0, 160)}`;
+        options.trace.push({ at: Date.now(), stage: options.stage, role: options.role, model, message: traceMsg });
+        if (isGone) break; // skip remaining keys for this deprecated model, try next model
         if (!retryable) break;
       }
     }
@@ -1043,17 +1055,20 @@ export async function handleGenerate(request: Request): Promise<Response> {
         }, { 'x-request-id': id });
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Twin-agent generation failed.';
-        traceEvent(trace, 'SYSTEM', 'fatal', message);
+        const isGone = message.includes('410') || message.includes('deprecated');
+        const hint = isGone ? ' One or more models are deprecated (HTTP 410). Using updated fallbacks; if this persists, set NVIDIA_MODEL=meta/llama-3.3-70b-instruct in Vercel and Redeploy.' : '';
+        traceEvent(trace, 'SYSTEM', 'fatal', message + hint);
         const sessionId = sessionIdOf(body);
         if (sessionId) {
           try { await recordAgentEvents(sessionId, trace); } catch { /* ignore */ }
         }
         return json(502, {
           error: 'LUA-X could not generate a valid change plan.',
-          detail: message,
+          detail: message + hint,
           requestId: id,
           retryable: true,
           agentTrace: trace.slice(-30),
+          hint: isGone ? 'Update NVIDIA_MODEL to a supported model and redeploy.' : undefined,
         }, { 'x-request-id': id });
       }
     }

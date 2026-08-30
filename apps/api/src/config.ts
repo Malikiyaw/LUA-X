@@ -49,7 +49,7 @@ export function loadConfig(): ApiConfig {
     nodeEnv: process.env.NODE_ENV ?? 'development',
     nvidiaApiKeys: readNvidiaKeys(),
     nvidiaBaseUrl: (process.env.NVIDIA_BASE_URL ?? 'https://integrate.api.nvidia.com/v1').replace(/\/$/, ''),
-    nvidiaModel: process.env.NVIDIA_MODEL ?? 'nvidia/llama-3.3-nemotron-super-49b-v1',
+    nvidiaModel: process.env.NVIDIA_MODEL ?? 'meta/llama-3.3-70b-instruct',
     aiMaxTokens: intEnv('AI_MAX_TOKENS', 4096),
     aiTemperature: floatEnv('AI_TEMPERATURE', 0.2, 0, 1),
     aiTimeoutMs: intEnv('AI_TIMEOUT_MS', 60000),

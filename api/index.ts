@@ -136,7 +136,7 @@ async function handler(request: Request): Promise<Response> {
     }
 
     if (request.method === 'GET' && (pathname === '/api/ai/status' || pathname === '/ai/status')) {
-      const model = process.env.NVIDIA_MODEL?.trim() || 'nvidia/llama-3.3-nemotron-super-49b-v1';
+      const model = process.env.NVIDIA_MODEL?.trim() || 'meta/llama-3.3-70b-instruct';
       const visionModel = process.env.VISION_MODEL?.trim() || 'meta/llama-3.2-90b-vision-instruct';
       const keyCount = [process.env.NVIDIA_API_KEY, process.env.NVIDIA_API_KEY_1, process.env.NVIDIA_API_KEY_2, process.env.NVIDIA_API_KEY_3, process.env.NVIDIA_API_KEY_4].map(v => v?.trim()).filter((v): v is string => Boolean(v)).length;
       return json(200, {

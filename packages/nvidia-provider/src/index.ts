@@ -80,8 +80,9 @@ export class NvidiaClient {
         const message = typeof payload === 'object' && payload !== null && 'error' in payload
           ? String((payload as { error?: unknown }).error)
           : `NVIDIA request failed with HTTP ${response.status}.`;
-        const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
-        throw new NvidiaApiError(message, response.status, retryable, requestId);
+        const retryable = response.status === 410 || response.status === 408 || response.status === 429 || response.status >= 500;
+        const finalMessage = response.status === 410 ? `Model ${this.options.model} is deprecated (HTTP 410 Gone)` : message;
+        throw new NvidiaApiError(finalMessage, response.status, retryable, requestId);
       }
 
       if (!payload || typeof payload !== 'object') {
