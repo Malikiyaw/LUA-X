@@ -5,169 +5,140 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#0a0b10">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="LUA-X — twin-AI engineering studio for Roblox. Chat inside Studio; the website is mission control.">
+  <meta name="description" content="LUA-X — twin-AI engineering studio for Roblox. The website is the chat.">
   <title>LUA-X — Twin-AI Studio for Roblox</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="#home"><span class="brand-mark">⬡</span><b>LUA-X</b></a>
-    <nav class="topnav">
-      <a class="nav-link active" data-view="home" href="#home">Home</a>
-      <a class="nav-link" data-view="agents" href="#agents">Live Agents</a>
-      <a class="nav-link" data-view="settings" href="#settings">Settings</a>
-    </nav>
+    <a class="brand" href="/"><span class="brand-mark">⬡</span><b>LUA-X</b> <small style="color:var(--faint);font-weight:600;margin-left:6px">Studio v2.2</small></a>
     <div class="top-actions">
       <span class="status-pill" id="backend-status">Checking…</span>
       <span class="status-pill" id="ai-status">AI —</span>
       <span class="model-label" id="model-label"></span>
-      <a class="cta-button" href="/LUA-X.lua" download="LUA-X.lua" id="download-plugin">Get the Plugin</a>
+      <button class="ghost-button" id="open-settings" type="button" title="API Token">⚙</button>
+      <a class="cta-button small" href="/LUA-X.lua" download="LUA-X.lua">Get Plugin</a>
     </div>
   </header>
 
-  <main>
-    <!-- ============ HOME ============ -->
-    <section class="view" id="view-home">
-      <div class="hero">
-        <h1>Build Roblox experiences by chatting with <em>two AI agents</em> inside Studio</h1>
-        <p>LUA-X ARCHITECT plans your game. LUA-X BUILDER ships scripts, UI, VFX, animation, terrain and lighting — reviewed, applied and undo-safe inside Roblox Studio. This site is mission control.</p>
-        <div class="feature-chips">
-          <span class="chip">🤖 Twin-AI Agent</span>
-          <span class="chip">👁 Studio Vision</span>
-          <span class="chip">🧩 One-click Apply</span>
-          <span class="chip">🎬 Keyframe Animations</span>
-          <span class="chip">🛡 Undo-safe Apply</span>
+  <div class="app-layout">
+    <!-- LEFT RAIL -->
+    <aside class="rail left-rail" id="left-rail">
+      <div class="rail-card">
+        <div class="rail-title">New AI chat <span class="badge">Private</span></div>
+        <button class="ghost-button full" id="new-chat-btn" type="button">+ New chat</button>
+        <div class="rail-section">
+          <div class="rail-label">Onboarding Demos</div>
+          <button class="chip chip-action" data-prompt="Build an obby with checkpoints and a win pad">🏁 Obby • checkpoints</button>
+          <button class="chip chip-action" data-prompt="Make a terrain island with beach and trees">🏝 Terrain island</button>
+          <button class="chip chip-action" data-prompt="Create a UI shop with buy button and coins">🛒 UI Shop</button>
         </div>
-      </div>
-
-      <div class="console-card" id="studio-console">
-        <div class="console-status">
-          <span class="status-ring offline" id="studio-pulse"></span>
-          <div class="console-id">
-            <strong id="studio-label">Studio offline</strong>
-            <small id="studio-detail">Open the LUA-X plugin in Roblox Studio to connect</small>
-          </div>
-          <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
-        </div>
-
-        <div class="console-grid">
-          <div class="console-main">
-            <div class="download-row">
-              <a class="primary-button big" id="download-plugin-2" href="/LUA-X.lua" download="LUA-X.lua">Download LUA-X.lua</a>
-              <a class="ghost-button" id="download-fix" href="/Fix-LUA-X.bat" download="Fix-LUA-X.bat">One-click Fix (.bat)</a>
+        <div class="rail-section">
+          <div class="rail-label">Desktop Bridge</div>
+          <div class="console-mini" id="console-mini">
+            <div class="console-status small">
+              <span class="status-ring offline" id="studio-pulse"></span>
+              <div class="console-id"><strong id="studio-label">Studio offline</strong><small id="studio-detail">Connect via plugin or CLI proxy</small></div>
             </div>
-            <span class="plugin-meta" id="plugin-meta">SHA-256 …</span>
-            <ol class="install-steps">
-              <li><b>Download</b> LUA-X.lua above</li>
-              <li>Drop it into <code>%LOCALAPPDATA%\Roblox\Plugins</code> (or Plugins → Manage Plugins → Open Plugins Folder)</li>
-              <li>Fully restart Roblox Studio → the LUA-X window opens by itself</li>
-            </ol>
-            <div class="version-warning hidden" id="version-warning">
-              Update required — installed <b id="version-installed">—</b>, required <b id="version-required">2.1.0</b>
-              <a class="ghost-button" id="version-download" href="/LUA-X.lua" download="LUA-X.lua">Get latest</a>
-            </div>
-            <div class="install-note">Not showing in the Plugins tab? Run the one-click Fix — it installs to every known folder and clears blocked copies (LUA-X.lua.txt).</div>
-          </div>
-
-          <div class="console-side">
-            <div class="console-actions">
-              <button class="primary-button" id="connect-now" type="button">Connect to Studio</button>
-              <button class="ghost-button hidden" id="cancel-connect" type="button">Cancel</button>
-              <button class="secondary-button hidden" id="ping-studio-2" type="button">Ping Studio</button>
-              <button class="secondary-button hidden" id="ping-studio" type="button">Ping Studio</button>
-              <button class="ghost-button hidden" id="disconnect-studio" type="button">Disconnect</button>
-              <button class="ghost-button" id="run-diagnostics" type="button">Run Connection Test</button>
-              <button class="ghost-button" id="test-bridge" type="button">Test Studio Bridge</button>
-            </div>
-            <div class="meta-rows">
-              <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting for Studio…</b></div>
-              <div class="meta-row"><span>Project</span><b id="row-project">—</b></div>
-              <div class="meta-row"><span>Place</span><b id="row-place">—</b></div>
+            <div class="meta-rows compact">
+              <div class="meta-row"><span>Connection</span><b id="row-connection">Waiting…</b></div>
               <div class="meta-row"><span>Plugin</span><b id="row-plugin">—</b></div>
-              <div class="meta-row"><span>Heartbeat</span><b id="row-heartbeat">—</b></div>
               <div class="meta-row"><span>Session</span><b id="row-session">—</b></div>
             </div>
-            <div class="waiting-box hidden" id="waiting-box">
-              <div class="waiting-title" id="waiting-title">Connecting to Roblox Studio…</div>
-              <div class="waiting-steps" id="waiting-steps">Waiting for the plugin to complete the handshake.</div>
+            <div class="download-row compact">
+              <a class="primary-button small" href="/LUA-X.lua" download="LUA-X.lua">Download</a>
+              <button class="secondary-button small" id="connect-now" type="button">Connect</button>
             </div>
-            <ul class="checklist" id="checklist">
-              <li id="check-download">… Plugin downloaded</li>
-              <li id="check-backend">… Backend online</li>
-              <li id="check-ai">… NVIDIA AI available</li>
-              <li id="check-session">… Studio session</li>
+            <details class="install-details"><summary>Install & CLI</summary>
+              <ol class="install-steps small"><li>Drop LUA-X.lua into <code>%LOCALAPPDATA%\Roblox\Plugins</code></li><li>Restart Studio</li><li>Or run <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code></li></ol>
+            </details>
+          </div>
+        </div>
+        <div class="rail-section">
+          <div class="rail-label">Workspace</div>
+          <div class="waiting-box hidden" id="waiting-box"><div class="waiting-title" id="waiting-title">Connecting…</div><div class="waiting-steps" id="waiting-steps">Waiting for handshake.</div></div>
+          <ul class="checklist" id="checklist"><li id="check-backend">… Backend</li><li id="check-ai">… AI</li><li id="check-session">… Studio session</li></ul>
+        </div>
+      </div>
+      <div class="rail-footer">
+        <span class="model-label" id="left-model">AI · nano-8b · 2 keys</span>
+      </div>
+    </aside>
+
+    <!-- CENTER CHAT -->
+    <main class="chat-main">
+      <div class="chat-feed" id="chat-feed">
+        <!-- Greeting / hero IS the first assistant message -->
+        <div class="msg assistant greeting" id="greeting-card">
+          <div class="greeting-hero">
+            <h1>Build Roblox experiences by chatting with <em>two AI agents</em></h1>
+            <p>LUA-X <b>ARCHITECT</b> plans. <b>BUILDER</b> ships Luau, UI, VFX, mesh, terrain — reviewable, undo-safe. This page <em>is</em> Studio mission control. The local CLI proxy streams your prompt to Roblox Studio via <code>mcp.bat</code>/StudioMCP over stdio.</p>
+            <div class="feature-chips">
+              <span class="chip">🤖 Twin-AI</span><span class="chip">👁 Vision</span><span class="chip">🧊 Mesh Gen</span><span class="chip">🧩 One-click Apply</span><span class="chip">🛡 Undo-safe</span>
+            </div>
+          </div>
+          <div class="takeaways-card">
+            <div class="takeaways-head">✦ Shaping the AI Chat Experience — <span class="muted">Try:</span></div>
+            <ul class="takeaways-list">
+              <li>→ How should AI show uncertainty? <a class="chip small" data-prompt="How should AI show uncertainty in Studio?">Ask</a></li>
+              <li>→ Which UI elements build trust? <a class="chip small" data-prompt="Which UI elements build trust in AI responses?">Ask</a></li>
+              <li>→ What signals make responses feel reliable? <a class="chip small" data-prompt="What signals make AI responses feel reliable?">Ask</a></li>
             </ul>
           </div>
         </div>
-
-        <div class="troubleshoot-box hidden" id="connect-error-box">
-          <div class="waiting-title" id="connect-error-title">Connection failed</div>
-          <ul class="checklist">
-            <li id="connect-error-endpoint">Endpoint —</li>
-            <li id="connect-error-http">HTTP —</li>
-            <li id="connect-error-request">Request ID —</li>
-            <li id="connect-error-hint">The website could not reach the LUA-X API.</li>
-          </ul>
-        </div>
-        <div class="troubleshoot-box hidden" id="bridge-test-box">
-          <div class="waiting-title">Studio Bridge Test</div>
-          <ul class="checklist">
-            <li id="bridge-test-api">… API reachable</li>
-            <li id="bridge-test-status">… Studio bridge reachable</li>
-            <li id="bridge-test-connect">… Connect endpoint reachable</li>
-            <li id="bridge-test-request">… Connection request created</li>
-          </ul>
-          <div class="waiting-steps" id="bridge-test-wait">Waiting for the plugin to claim the request…</div>
-        </div>
-        <div class="troubleshoot-box hidden" id="diagnostics-box">
-          <div class="waiting-title">LUA-X Diagnostics</div>
-          <ul class="checklist">
-            <li id="diag-website">… Website</li>
-            <li id="diag-api">… API</li>
-            <li id="diag-bridge">… Studio bridge</li>
-            <li id="diag-connect">… Connect endpoint</li>
-            <li id="diag-pending">… Plugin pending-poll</li>
-            <li id="diag-session">… Session registration</li>
-            <li id="diag-heartbeat">… Heartbeat</li>
-            <li id="diag-command">… Command channel</li>
-            <li id="diag-ping">… Ping response</li>
-          </ul>
-          <div class="waiting-steps" id="diag-summary">Running checks…</div>
-        </div>
+        <div id="thread-feed"></div>
+        <div id="agent-feed" class="agent-feed hidden"></div>
       </div>
 
-      <p class="footnote">Chat happens inside Roblox Studio — this website mirrors the twin agents live. Nothing is executed on the website.</p>
-    </section>
+      <div class="suggestions-row hidden" id="suggestions-row"></div>
 
-    <!-- ============ LIVE AGENTS ============ -->
-    <section class="view hidden" id="view-agents">
-      <div class="agents-grid">
-        <div class="panel">
-          <div class="panel-head"><strong>Twin-AI Activity</strong><span id="agent-activity-state">idle</span></div>
-          <div id="agent-feed" class="agent-feed">Connect Studio and run a build — ARCHITECT / BUILDER / VISION events stream here live.</div>
+      <div class="composer">
+        <div class="composer-bar">
+          <button class="ghost-button small" id="vision-btn" type="button" title="Attach image for mesh/vision">🖼</button>
+          <input type="file" id="image-input" accept="image/*" class="hidden">
+          <textarea id="chat-input" rows="1" placeholder="Ask AI anything — e.g. build me a zombie chase game"></textarea>
+          <button class="primary-button round" id="send-btn" type="button">↑</button>
         </div>
-        <div class="panel">
-          <div class="panel-head"><strong>Shared Thread</strong><span id="thread-state">read-only mirror of the Studio chat</span></div>
-          <div id="thread-feed" class="thread-feed">The conversation you have with LUA-X inside Roblox Studio appears here in real time.</div>
+        <div class="composer-meta">
+          <span class="model-pill" id="composer-model">Gemini 3 Pro → NVIDIA · nano-8b</span>
+          <span class="chip small" id="twin-pill" title="Toggle TWIN">TWIN ON</span>
+          <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
+          <label class="check small"><input type="checkbox" id="use-vision" checked> Vision</label>
         </div>
       </div>
-    </section>
+      <div class="footnote">Chat is per-user (Bearer token). Twin agents use your 2 NVIDIA keys. Mesh/Generate via <code>generate_mesh</code> MCP when desktop proxy is connected.</div>
+    </main>
 
-    <!-- ============ SETTINGS ============ -->
-    <section class="view hidden" id="view-settings">
-      <div class="panel narrow">
-        <div class="panel-head"><strong>API access</strong><span>token stored only in this browser</span></div>
-        <input id="token-input" type="password" placeholder="LUA-X API token (optional)" autocomplete="off" spellcheck="false">
-        <div class="plugin-actions">
-          <button class="primary-button" id="save-token" type="button">Save Token</button>
-          <button class="ghost-button" id="clear-token" type="button">Clear Token</button>
+    <!-- RIGHT CANVAS -->
+    <aside class="rail right-rail" id="right-rail">
+      <div class="rail-card">
+        <div class="rail-title">Agent Canvas <span class="status-pill small" id="agent-activity-state">idle</span></div>
+        <div class="canvas-grid" id="canvas-grid">
+          <div class="agent-card arch"><div class="agent-head">ARCHITECT <span class="dot arch"></span></div><div class="agent-body" id="arch-body">Analyzing request and project context…</div><div class="agent-meta">Progress 0% · <span id="arch-model">—</span></div></div>
+          <div class="agent-card build"><div class="agent-head">BUILD <span class="dot build"></span></div><div class="agent-body" id="build-body">Waiting for ARCHITECT handoff…</div><div class="agent-meta"><span id="build-model">—</span></div></div>
+          <div class="agent-card market hidden" id="card-market"><div class="agent-head">Market Research Agent <span class="badge green">Analyzing 75%</span></div><div class="agent-body">124 data points processed · Token 12.4K</div></div>
+          <div class="agent-card legal hidden" id="card-legal"><div class="agent-head">Legal Compliance Agent <span class="badge">In progress</span></div><div class="agent-body">Analyzing… (twin handoff)</div></div>
         </div>
-        <div class="install-note" id="token-note">If the backend requires a token it is sent automatically with every request.</div>
+        <div class="panel small" id="bridge-panel"><div class="panel-head"><strong>Bridge</strong><span id="bridge-state">polling</span></div><div class="meta-rows compact"><div class="meta-row"><span>Backend</span><b id="row-backend">—</b></div><div class="meta-row"><span>AI</span><b id="row-ai">—</b></div></div></div>
       </div>
-    </section>
-  </main>
+    </aside>
+  </div>
 
-  <footer class="footer">LUA-X v2.1.0 · chat lives inside Roblox Studio · this page watches the agents work</footer>
+  <!-- SETTINGS DRAWER -->
+  <dialog id="settings-dialog" class="settings-dialog">
+    <form method="dialog" class="panel narrow">
+      <div class="panel-head"><strong>API access</strong><span>per-user token (stored locally)</span></div>
+      <input id="token-input" type="password" placeholder="LUA-X API token (paste from Vercel /api/auth)" autocomplete="off">
+      <div class="plugin-actions">
+        <button class="primary-button" id="save-token" type="button">Save Token</button>
+        <button class="ghost-button" id="clear-token" type="button">Clear</button>
+        <button class="ghost-button" value="cancel" type="submit">Close</button>
+      </div>
+      <div class="install-note" id="token-note">Per-user Bearer — sent on every /api/ai/generate + WS. Leave blank if backend is public.</div>
+    </form>
+  </dialog>
+
+  <footer class="footer">LUA-X v2.2 · chat is the landing · desktop proxy `npx @lua-x/desktop-bridge` streams to Studio MCP (`mcp.bat`)</footer>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="/app.js" defer></script>
 </body>
