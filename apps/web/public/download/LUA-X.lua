@@ -14,46 +14,46 @@
 --     nil globals inside earlier closures (this broke the ribbon button before).
 
 -- Safe service acquisition: a missing service must never kill plugin loading.
-local function safeGetService(name)
+function safeGetService(name)
 	local ok, service = pcall(function() return game:GetService(name) end)
 	if ok and service then return service end
 	warn("[LUA-X] Service unavailable (continuing without it): " .. tostring(name))
 	return nil
 end
 
-local HttpService = safeGetService("HttpService")
-local Selection = safeGetService("Selection")
-local ChangeHistoryService = safeGetService("ChangeHistoryService")
-local ScriptEditorService = safeGetService("ScriptEditorService")
-local UserInputService = safeGetService("UserInputService")
-local CollectionService = safeGetService("CollectionService")
-local StudioCaptureService = safeGetService("StudioCaptureService")
+HttpService = safeGetService("HttpService")
+Selection = safeGetService("Selection")
+ChangeHistoryService = safeGetService("ChangeHistoryService")
+ScriptEditorService = safeGetService("ScriptEditorService")
+UserInputService = safeGetService("UserInputService")
+CollectionService = safeGetService("CollectionService")
+StudioCaptureService = safeGetService("StudioCaptureService")
 
 if not HttpService then
 	warn("[LUA-X] FATAL: HttpService unavailable - plugin cannot start.")
 	return
 end
 
-local PLUGIN_VERSION = "2.2.0"
-local DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
-local ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
-local TOKEN_KEY = "LUA_X_API_TOKEN"
-local SESSION_KEY = "LUA_X_STUDIO_SESSION"
-local HEARTBEAT_SECONDS = 4
-local COMMAND_SECONDS = 2
-local CONNECT_POLL_SECONDS = 2
-local CHAT_POLL_SECONDS = 6
-local MAX_SCRIPTS = 32
-local MAX_SOURCE = 6500
-local MAX_CONTEXT = 40000
-local MAX_HISTORY = 50
-local MAX_TREE_NODES = 1400
-local TREE_DEPTH = 8
-local MAX_SELECTION_DETAILS = 12
-local MAX_ASSET_REFS = 24
-local TREE_ROOTS = {"Workspace", "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterPlayer", "StarterGui", "Lighting", "SoundService", "ReplicatedFirst", "Teams"}
+PLUGIN_VERSION = "2.2.0"
+DEFAULT_ENDPOINT = "https://lua-x-api.vercel.app/api/ai/generate"
+ENDPOINT_KEY = "LUA_X_API_ENDPOINT"
+TOKEN_KEY = "LUA_X_API_TOKEN"
+SESSION_KEY = "LUA_X_STUDIO_SESSION"
+HEARTBEAT_SECONDS = 4
+COMMAND_SECONDS = 2
+CONNECT_POLL_SECONDS = 2
+CHAT_POLL_SECONDS = 6
+MAX_SCRIPTS = 32
+MAX_SOURCE = 6500
+MAX_CONTEXT = 40000
+MAX_HISTORY = 50
+MAX_TREE_NODES = 1400
+TREE_DEPTH = 8
+MAX_SELECTION_DETAILS = 12
+MAX_ASSET_REFS = 24
+TREE_ROOTS = {"Workspace", "ReplicatedStorage", "ServerScriptService", "ServerStorage", "StarterPlayer", "StarterGui", "Lighting", "SoundService", "ReplicatedFirst", "Teams"}
 
-local C = {
+C = {
 	bg = Color3.fromRGB(16, 17, 22), panel = Color3.fromRGB(26, 28, 36), field = Color3.fromRGB(34, 37, 47),
 	hover = Color3.fromRGB(42, 46, 58), stroke = Color3.fromRGB(52, 56, 70),
 	text = Color3.fromRGB(240, 242, 248), muted = Color3.fromRGB(148, 155, 172), faint = Color3.fromRGB(104, 111, 128),
@@ -63,7 +63,7 @@ local C = {
 }
 
 -- Robust toolbar creation: Studio silently hides plugins that error at load. Wrap every step in pcall.
-local toolbar, toolbarButton
+toolbar, toolbarButton = nil, nil
 do
 	local ok, t = pcall(function() return plugin:CreateToolbar("LUA-X") end)
 	if ok and t then toolbar = t else warn("[LUA-X] CreateToolbar failed: " .. tostring(t)); toolbar = nil end
@@ -85,61 +85,61 @@ end
 -- NOTE: the ActionTriggered/Activation connections are wired at the BOTTOM of this
 -- file (after buildWidget and friends exist as locals). Wiring them here would bind
 -- those names as nil globals and break the ribbon button.
-local openAction
+openAction = nil
 do
 	local okA, a = pcall(function() return plugin:CreatePluginAction("LUAX.OpenStudio", "Open LUA-X", "Open the LUA-X Studio dock", "") end)
 	if okA and a then openAction = a else warn("[LUA-X] CreatePluginAction unavailable - falling back to legacy toolbar / auto-open window") end
 end
 
 
-local widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel
-local endpointBox, tokenBox, contextBox
-local websiteChip, aiChip, errorLabel
-local connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton
-local chatScroller, chatList, chatInput, chatSend, chatSyncLabel
-local currentPlan, currentContext = nil, {}
-local chatHistory = {}
+widget, statusLabel, statusDot, connectionLabel, connectionDot, sessionLabel = nil, nil, nil, nil, nil, nil
+endpointBox, tokenBox, contextBox = nil, nil, nil
+websiteChip, aiChip, errorLabel = nil, nil, nil
+connCardDot, connCardStatus, connCardProject, connCardPlace, connCardSession, connCardWebsite, connDiagLabel, connButton = nil, nil, nil, nil, nil, nil, nil, nil
+chatScroller, chatList, chatInput, chatSend, chatSyncLabel = nil, nil, nil, nil, nil
+currentPlan, currentContext = nil, {}
+chatHistory = {}
 -- Plans attached to assistant entries, keyed by the exact server-stored reply
 -- text so conversation syncs can re-attach Apply cards after a merge.
-local planByReplyText = {}
-local planByReplyTextCount = 0
-local busy, applyArmed, disconnected = false, false, false
+planByReplyText = {}
+planByReplyTextCount = 0
+busy, applyArmed, disconnected = false, false, false
 -- v2.2 unified-chat state
-local autoContext = true
-local lastSuggestions = {}
-local contextChips = {}
-local sendChat -- forward-declared; assigned below (web build commands + suggestion clicks use it)
-local showToast, chatArea, toastHost, renderChat -- forward-declared v2.2 UI helpers
-local lastClaimedRequest = nil
+autoContext = true
+lastSuggestions = {}
+contextChips = {}
+sendChat = nil -- forward-declared; assigned below (web build commands + suggestion clicks use it)
+showToast, chatArea, toastHost, renderChat = nil, nil, nil, nil -- forward-declared v2.2 UI helpers
+lastClaimedRequest = nil
 -- v2.2 twin-agent live feed
-local agentLiveEntry = nil
-local agentLiveEvents = {}
-local agentLiveFrame = nil
-local agentLiveList = nil
-local agentDotArch, agentDotBuild
-local armedPlanRef = nil
-local twinMode = true
-local lastSyncSig = nil
-local pendingApplyPlan = nil
-local applyModal, applyModalTitle, applyModalBody, applyModalConfirm, applyModalCancel
-local twinStatusBar, twinStatusLabel, twinStatusDot
-local twinElapsedStart = 0
-local sessionId = plugin:GetSetting(SESSION_KEY)
+agentLiveEntry = nil
+agentLiveEvents = {}
+agentLiveFrame = nil
+agentLiveList = nil
+agentDotArch, agentDotBuild = nil, nil
+armedPlanRef = nil
+twinMode = true
+lastSyncSig = nil
+pendingApplyPlan = nil
+applyModal, applyModalTitle, applyModalBody, applyModalConfirm, applyModalCancel = nil, nil, nil, nil, nil
+twinStatusBar, twinStatusLabel, twinStatusDot = nil, nil, nil
+twinElapsedStart = 0
+sessionId = plugin:GetSetting(SESSION_KEY)
 if type(sessionId) ~= "string" or sessionId == "" then sessionId = HttpService:GenerateGUID(false); plugin:SetSetting(SESSION_KEY, sessionId) end
 
-local function ui(kind, props, parent)
+function ui(kind, props, parent)
 	local o = Instance.new(kind)
 	for k, v in pairs(props or {}) do o[k] = v end
 	o.Parent = parent
 	return o
 end
-local function round(o, r) ui("UICorner", {CornerRadius = UDim.new(0, r or 9)}, o); return o end
-local function stroke(o) ui("UIStroke", {Color = C.stroke, Thickness = 1, Transparency = 0.12}, o); return o end
-local function trim(v, n)
+function round(o, r) ui("UICorner", {CornerRadius = UDim.new(0, r or 9)}, o); return o end
+function stroke(o) ui("UIStroke", {Color = C.stroke, Thickness = 1, Transparency = 0.12}, o); return o end
+function trim(v, n)
 	v = tostring(v or "")
 	return #v <= n and v or string.sub(v, 1, n) .. "\n… [truncated]"
 end
-local function endpoint()
+function endpoint()
 	local v = tostring(endpointBox and endpointBox.Text or DEFAULT_ENDPOINT):gsub("^%s+", ""):gsub("%s+$", "")
 	if v == "" then v = DEFAULT_ENDPOINT end
 	while string.sub(v, -1) == "/" do v = string.sub(v, 1, -2) end
@@ -147,14 +147,14 @@ local function endpoint()
 	if string.match(v, "/api$") then return v .. "/ai/generate" end
 	return v .. "/api/ai/generate"
 end
-local function rootUrl() return string.gsub(endpoint(), "/api/ai/generate$", "") end
-local function setStatus(text, kind)
+function rootUrl() return string.gsub(endpoint(), "/api/ai/generate$", "") end
+function setStatus(text, kind)
 	if statusLabel then statusLabel.Text = text end
 	local color = kind == "good" and C.good or kind == "warn" and C.warn or kind == "bad" and C.bad or C.muted
 	if statusLabel then statusLabel.TextColor3 = color end
 	if statusDot then statusDot.BackgroundColor3 = color end
 end
-local function setConnected(on, label)
+function setConnected(on, label)
 	local statusText = on and ("Connected · " .. (label or "online")) or (disconnected and "Disconnected · tap Reconnect" or "Studio offline")
 	if connectionLabel then connectionLabel.Text = statusText end
 	if connectionDot then connectionDot.BackgroundColor3 = on and C.good or C.bad end
@@ -169,10 +169,10 @@ local function setConnected(on, label)
 	if chatSyncLabel then chatSyncLabel.Text = on and "· synced to web" or "· local only" end
 	if chatSyncLabel then chatSyncLabel.TextColor3 = on and C.good or C.muted end
 end
-local function token()
+function token()
 	return tostring(plugin:GetSetting(TOKEN_KEY) or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
-local function request(method, url, payload)
+function request(method, url, payload)
 	local headers = {Accept = "application/json"}
 	local tok = token()
 	if tok ~= "" then headers["Authorization"] = "Bearer " .. tok end
@@ -180,7 +180,7 @@ local function request(method, url, payload)
 	if payload ~= nil then options.Headers["Content-Type"] = "application/json"; options.Body = HttpService:JSONEncode(payload) end
 	return HttpService:RequestAsync(options)
 end
-local function bodyError(response)
+function bodyError(response)
 	local raw = tostring(response and (response.Body or response.StatusMessage) or "Request failed")
 	local ok, parsed = pcall(function() return HttpService:JSONDecode(raw) end)
 	if ok and type(parsed) == "table" then
@@ -190,7 +190,7 @@ local function bodyError(response)
 	end
 	return trim(raw, 300)
 end
-local function safe(method, url, payload, tries)
+function safe(method, url, payload, tries)
 	local last
 	for i = 1, tries or 2 do
 		local ok, response = pcall(function() return request(method, url, payload) end)
@@ -202,23 +202,23 @@ local function safe(method, url, payload, tries)
 	return false, last
 end
 
-local function pathOf(instance)
+function pathOf(instance)
 	local p, cur = {}, instance
 	while cur and cur ~= game do table.insert(p, 1, cur.Name); cur = cur.Parent end
 	return #p > 0 and "game." .. table.concat(p, ".") or "game"
 end
-local function findPath(path)
+function findPath(path)
 	local n = tostring(path or ""):gsub("^game%.?", "")
 	if n == "" then return game end
 	local cur = game
 	for _, part in ipairs(string.split(n, ".")) do if part == "" then return nil end; cur = cur:FindFirstChild(part); if not cur then return nil end end
 	return cur
 end
-local function readSource(object)
+function readSource(object)
 	local ok, value = pcall(function() return object.Source end)
 	return ok and type(value) == "string" and value or nil
 end
-local function selectedScripts()
+function selectedScripts()
 	local result, seen = {}, {}
 	for _, item in ipairs(Selection:Get()) do
 		if item:IsA("LuaSourceContainer") and not seen[item] then table.insert(result, item); seen[item] = true end
@@ -230,7 +230,7 @@ local function selectedScripts()
 	end
 	return result
 end
-local function compactTree()
+function compactTree()
 	local lines, count = {}, 0
 	local function walk(inst, depth)
 		if count >= MAX_TREE_NODES or depth > TREE_DEPTH then return end
@@ -249,7 +249,7 @@ local function compactTree()
 	end
 	return table.concat(lines, "\n")
 end
-local function collectScripts(seen, files, sourceParts)
+function collectScripts(seen, files, sourceParts)
 	local function take(script)
 		if #files >= MAX_SCRIPTS or seen[script] then return end
 		seen[script] = true
@@ -269,12 +269,12 @@ local function collectScripts(seen, files, sourceParts)
 		end
 	end
 end
-local function safeGetProp(inst, prop)
+function safeGetProp(inst, prop)
 	local ok, v = pcall(function() return inst[prop] end)
 	if not ok then return nil end
 	return v
 end
-local function selectionDetailsList(selected)
+function selectionDetailsList(selected)
 	local out = {}
 	for i = 1, math.min(#selected, MAX_SELECTION_DETAILS) do
 		local inst = selected[i]
@@ -306,7 +306,7 @@ local function selectionDetailsList(selected)
 	end
 	return out
 end
-local function collectInstanceCounts()
+function collectInstanceCounts()
 	local counts = {}
 	for _, root in ipairs(TREE_ROOTS) do
 		local svc = game:FindService(root)
@@ -319,7 +319,7 @@ local function collectInstanceCounts()
 	if ok then counts["_total"] = placeCount end
 	return counts
 end
-local function collectAssetRefs()
+function collectAssetRefs()
 	local refs, seen = {}, {}
 	local function checkAssetProps(inst, path)
 		if #refs >= MAX_ASSET_REFS then return end
@@ -345,7 +345,7 @@ local function collectAssetRefs()
 	end
 	return refs
 end
-local function getLightingSummary()
+function getLightingSummary()
 	local lighting = game:FindService("Lighting")
 	if not lighting then return nil end
 	local summary = {}
@@ -357,9 +357,9 @@ local function getLightingSummary()
 	if tech then summary.technology = tostring(tech) end
 	return summary
 end
-local contextDirty = false
-local MAX_REMOTES = 24
-local function collectRemotes()
+contextDirty = false
+MAX_REMOTES = 24
+function collectRemotes()
 	local remotes, seen = {}, 0
 	for _, root in ipairs(TREE_ROOTS) do
 		if seen >= MAX_REMOTES then break end
@@ -376,7 +376,7 @@ local function collectRemotes()
 	end
 	return remotes
 end
-local function refreshContext()
+function refreshContext()
 	local selected = Selection:Get()
 	local instances, files, sourceParts, seen = {}, {}, {}, {}
 	for _, item in ipairs(selected) do table.insert(instances, pathOf(item) .. " [" .. item.ClassName .. "]") end
@@ -417,7 +417,7 @@ local function refreshContext()
 	if contextBox then contextBox.Text = table.concat({"SELECTIONS  " .. #selected, "SCRIPTS     " .. #files, "TREE        " .. select(2, tree:gsub("\n", "\n")) + 1 .. " nodes", "", "TREE", #tree > 0 and trim(tree, 1500) or "(empty)", #files > 0 and ("\nSCRIPTS\n" .. table.concat(files, "\n")) or ""}, "\n") end
 	contextDirty = true
 end
-local function pushContext()
+function pushContext()
 	if disconnected or contextDirty == false then return end
 	contextDirty = false
 	local ok, response = safe("POST", rootUrl() .. "/api/studio/context", {sessionId = sessionId, context = type(currentContext) == "table" and currentContext or {}}, 1)
@@ -425,12 +425,12 @@ local function pushContext()
 end
 
 -- ===== Real screenshot vision (StudioCaptureService) =====
-local VISION_CAPTURE_SECONDS = 20
-local VISION_MAX_WIDTH = 512
-local visionPermissionAsked = false
-local visionLastPostAt = 0
+VISION_CAPTURE_SECONDS = 20
+VISION_MAX_WIDTH = 512
+visionPermissionAsked = false
+visionLastPostAt = 0
 
-local function visionEncodeFrame(capture)
+function visionEncodeFrame(capture)
 	local resolution = capture.Resolution
 	local width = math.floor(resolution.X)
 	local height = math.floor(resolution.Y)
@@ -467,7 +467,7 @@ local function visionEncodeFrame(capture)
 	return { data = table.concat(parts), width = width, height = height }
 end
 
-local function captureVisionFrame()
+function captureVisionFrame()
 	if not StudioCaptureService then return nil end
 	if not visionPermissionAsked then
 		visionPermissionAsked = true
@@ -489,7 +489,7 @@ local function captureVisionFrame()
 	return capture
 end
 
-local function postVisionFrame(encoded)
+function postVisionFrame(encoded)
 	local payload = {
 		sessionId = sessionId,
 		width = encoded.width,
@@ -500,7 +500,7 @@ local function postVisionFrame(encoded)
 	return safe("POST", rootUrl() .. "/api/studio/vision", payload, 1)
 end
 
-local function captureAndPostVision(force)
+function captureAndPostVision(force)
 	if disconnected or not StudioCaptureService then return end
 	if not force and (os.clock() - visionLastPostAt) < VISION_CAPTURE_SECONDS then return end
 	visionLastPostAt = os.clock()
@@ -512,15 +512,15 @@ local function captureAndPostVision(force)
 end
 
 -- ===== Live twin-agent activity feed =====
-local AGENT_POLL_SECONDS = 3
-local lastAgentEventAt = 0
-local AGENT_ROLE_COLOR = { ARCHITECT = Color3.fromRGB(96,165,250), BUILDER = Color3.fromRGB(88,190,125), VERIFY = Color3.fromRGB(214,164,86), VISION = Color3.fromRGB(167,139,250), SYSTEM = Color3.fromRGB(148,155,172), REVIEW = Color3.fromRGB(96,165,250) }
-local AGENT_ROLE_BG = { ARCHITECT = Color3.fromRGB(30,45,75), BUILDER = Color3.fromRGB(26,50,40), VERIFY = Color3.fromRGB(55,45,28), VISION = Color3.fromRGB(44,36,68), SYSTEM = Color3.fromRGB(36,40,52), REVIEW = Color3.fromRGB(30,45,75) }
-local function agentRoleColor(role)
+AGENT_POLL_SECONDS = 3
+lastAgentEventAt = 0
+AGENT_ROLE_COLOR = { ARCHITECT = Color3.fromRGB(96,165,250), BUILDER = Color3.fromRGB(88,190,125), VERIFY = Color3.fromRGB(214,164,86), VISION = Color3.fromRGB(167,139,250), SYSTEM = Color3.fromRGB(148,155,172), REVIEW = Color3.fromRGB(96,165,250) }
+AGENT_ROLE_BG = { ARCHITECT = Color3.fromRGB(30,45,75), BUILDER = Color3.fromRGB(26,50,40), VERIFY = Color3.fromRGB(55,45,28), VISION = Color3.fromRGB(44,36,68), SYSTEM = Color3.fromRGB(36,40,52), REVIEW = Color3.fromRGB(30,45,75) }
+function agentRoleColor(role)
 	local key = string.upper(tostring(role or "SYSTEM"))
 	return AGENT_ROLE_COLOR[key] or AGENT_ROLE_COLOR.SYSTEM, AGENT_ROLE_BG[key] or AGENT_ROLE_BG.SYSTEM
 end
-local function updateLiveAgentCard()
+function updateLiveAgentCard()
 	if not agentLiveList or not agentLiveEntry then return end
 	for _, child in ipairs(agentLiveList:GetChildren()) do
 		if child:IsA("Frame") then child:Destroy() end
@@ -551,7 +551,7 @@ local function updateLiveAgentCard()
 	if agentDotArch then agentDotArch.BackgroundColor3 = dotColor end
 	if agentDotBuild then agentDotBuild.BackgroundColor3 = (#agentLiveEvents > 0 and AGENT_ROLE_COLOR.BUILDER or C.muted) end
 end
-local function pollAgentEvents()
+function pollAgentEvents()
 	if disconnected or not widget or not widget.Enabled then return end
 	local url = rootUrl() .. "/api/studio/agent-events?sessionId=" .. HttpService:UrlEncode(sessionId)
 	if lastAgentEventAt > 0 then url = url .. "&since=" .. tostring(lastAgentEventAt) end
@@ -576,9 +576,9 @@ local function pollAgentEvents()
 		updateLiveAgentCard()
 	end
 end
-local function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
+function saveEndpoint() local value = endpoint(); endpointBox.Text = value; plugin:SetSetting(ENDPOINT_KEY, value); return value end
 
-local function heartbeatBody()
+function heartbeatBody()
 	local context = type(currentContext) == "table" and currentContext or {}
 	local placeIdStr = tostring(game.PlaceId)
 	local placeNameStr = tostring(game.Name)
@@ -599,8 +599,8 @@ local function heartbeatBody()
 	}
 end
 
-local lastDiagnostic = ""
-local function reportError(message)
+lastDiagnostic = ""
+function reportError(message)
 	local text = tostring(message or "")
 	if text == lastDiagnostic then return end
 	lastDiagnostic = text
@@ -620,7 +620,7 @@ local function reportError(message)
 	end
 end
 
-local function heartbeat()
+function heartbeat()
 	if disconnected then return end
 	local ok, response = safe("POST", rootUrl() .. "/api/studio/heartbeat", heartbeatBody(), 2)
 	if ok then
@@ -637,7 +637,7 @@ local function heartbeat()
 	end
 end
 
-local function registerSession(requestId)
+function registerSession(requestId)
 	if disconnected then return false end
 	local body = heartbeatBody()
 	if type(requestId) == "string" and requestId ~= "" then body.requestId = requestId end
@@ -655,7 +655,7 @@ local function registerSession(requestId)
 	return false
 end
 
-local function pollConnectionRequests()
+function pollConnectionRequests()
 	if disconnected then return end
 	local ok, response = safe("GET", rootUrl() .. "/api/studio/connect/pending", nil, 1)
 	if not ok or not response then return end
@@ -674,7 +674,7 @@ local function pollConnectionRequests()
 	end
 end
 
-local function refreshRemoteStatus()
+function refreshRemoteStatus()
 	if not websiteChip or not aiChip then return end
 	local wOk, wResponse = safe("GET", rootUrl() .. "/api/health", nil, 1)
 	websiteChip.Text = wOk and "Website: Online" or "Website: Offline"
@@ -690,7 +690,7 @@ local function refreshRemoteStatus()
 	aiChip.TextColor3 = configured and C.good or C.warn
 end
 
-local function startupDiagnostics()
+function startupDiagnostics()
 	local lines = {}
 	local hOk, hResponse = safe("GET", rootUrl() .. "/api/health", nil, 1)
 	table.insert(lines, hOk and "API health: online" or "API health: unreachable (check endpoint URL + Vercel deployment)")
@@ -710,14 +710,14 @@ local function startupDiagnostics()
 	return regOk
 end
 
-local function verifyLocal()
+function verifyLocal()
 	local count = #Selection:Get()
 	local scripts = #selectedScripts()
 	showToast("Verified · " .. count .. " selected · " .. scripts .. " scripts readable", "good")
 	setStatus("Studio-side verification complete.", "good")
 end
 
-local function pollCommands()
+function pollCommands()
 	local ok, response = safe("GET", rootUrl() .. "/api/studio/command?sessionId=" .. HttpService:UrlEncode(sessionId), nil, 1)
 	if not ok or not response then return end
 	local dOk, data = pcall(function() return HttpService:JSONDecode(response.Body) end)
@@ -735,7 +735,7 @@ local function pollCommands()
 	end
 end
 
-local function disconnectNow()
+function disconnectNow()
 	if disconnected then return end
 	disconnected = true
 	local ok, response = safe("POST", rootUrl() .. "/api/studio/disconnect", {sessionId = sessionId}, 2)
@@ -744,7 +744,7 @@ local function disconnectNow()
 	setStatus(ok and "Disconnected from LUA-X web · click Reconnect to resume." or "Disconnect failed: " .. (response and bodyError(response) or "unreachable"), "warn")
 end
 
-local function reconnectNow()
+function reconnectNow()
 	disconnected = false
 	local ok = registerSession()
 	if ok then setStatus("Reconnected · session registered with LUA-X web.", "good")
@@ -753,14 +753,14 @@ local function reconnectNow()
 	end
 end
 
-local function writeSource(object, source)
+function writeSource(object, source)
 	local ok, err = pcall(function() ScriptEditorService:UpdateSourceAsync(object, function() return source end) end)
 	if ok then return true end
 	local fallback, fallbackErr = pcall(function() object.Source = source end)
 	return fallback, fallback and nil or tostring(fallbackErr or err)
 end
 
-local function numbers(s)
+function numbers(s)
 	local out = {}
 	for n in string.gmatch(s, "%-?%d+%.?%d*") do
 		local v = tonumber(n)
@@ -768,20 +768,20 @@ local function numbers(s)
 	end
 	return out
 end
-local function resolveColor3(s)
+function resolveColor3(s)
 	local inner = string.match(s, "%((.*)%)")
 	if not inner then return nil end
 	local r, g, b = string.match(inner, "(%d+)%s*,%s*(%d+)%s*,%s*(%d+)")
 	if not r then return nil end
 	return Color3.fromRGB(tonumber(r), tonumber(g), tonumber(b))
 end
-local function resolveNumberRange(s)
+function resolveNumberRange(s)
 	local inner = string.match(s, "%((.*)%)")
 	local n = inner and numbers(inner) or {}
 	if #n == 1 then return NumberRange.new(n[1]) end
 	if #n >= 2 then return NumberRange.new(n[1], n[2]) end
 end
-local function resolveNumberSequence(s)
+function resolveNumberSequence(s)
 	local inner = string.match(s, "%((.*)%)")
 	if not inner then return nil end
 	if string.find(inner, "NumberSequenceKeypoint", 1, true) then
@@ -795,7 +795,7 @@ local function resolveNumberSequence(s)
 	if #n == 1 then return NumberSequence.new(n[1]) end
 	if #n >= 2 then return NumberSequence.new(n[1], n[2]) end
 end
-local function resolveColorSequence(s)
+function resolveColorSequence(s)
 	local inner = string.match(s, "%((.*)%)")
 	if not inner then return nil end
 	if string.find(inner, "ColorSequenceKeypoint", 1, true) then
@@ -813,14 +813,14 @@ local function resolveColorSequence(s)
 	if #colors == 1 then return ColorSequence.new(colors[1]) end
 	if #colors >= 2 then return ColorSequence.new(colors[1], colors[2]) end
 end
-local function resolveCFrame(s)
+function resolveCFrame(s)
 	local inner = string.match(s, "%((.*)%)")
 	local n = inner and numbers(inner) or {}
 	if #n == 3 then return CFrame.new(n[1], n[2], n[3]) end
 	if #n == 6 then return CFrame.new(n[1], n[2], n[3], n[4], n[5], n[6]) end
 	if #n == 12 then return CFrame.new(n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[9], n[10], n[11], n[12]) end
 end
-local function resolveEnum(s)
+function resolveEnum(s)
 	local cur = Enum
 	for _, part in ipairs(string.split(s, ".")) do
 		if part ~= "Enum" then
@@ -831,7 +831,7 @@ local function resolveEnum(s)
 	end
 	return cur
 end
-local function resolveValue(value)
+function resolveValue(value)
 	if type(value) == "number" or type(value) == "boolean" then return value end
 	if type(value) ~= "string" then return nil end
 	local v = tostring(value):gsub("^%s+", ""):gsub("%s+$", "")
@@ -852,9 +852,9 @@ local function resolveValue(value)
 	return v
 end
 
-local MAX_SPEC_DEPTH = 8
+MAX_SPEC_DEPTH = 8
 
-local function decodeSpec(content)
+function decodeSpec(content)
 	if type(content) ~= "string" or content == "" then return nil end
 	local okJson, specData = pcall(HttpService.JSONDecode, HttpService, content)
 	if not okJson or type(specData) ~= "table" then return nil end
@@ -862,7 +862,7 @@ local function decodeSpec(content)
 end
 
 -- Accepts "Vector3.new(x, y, z)" style strings or plain {x,y,z}/{[1],[2],[3]} tables.
-local function vec3OfValue(value)
+function vec3OfValue(value)
 	if type(value) == "string" then return resolveValue(value) end
 	if type(value) == "table" then
 		local x = tonumber(value.x ~= nil and value.x or value[1])
@@ -874,7 +874,7 @@ local function vec3OfValue(value)
 end
 
 -- SetAttribute only accepts Roblox attribute types; pre-check so we can report skips.
-local function attributeSafe(value)
+function attributeSafe(value)
 	local t = typeof(value)
 	if t == "number" or t == "boolean" or t == "string" or t == "UDim" or t == "UDim2"
 		or t == "BrickColor" or t == "Color3" or t == "Vector2" or t == "Vector3"
@@ -887,7 +887,7 @@ end
 
 -- Recursive spec tree: {className, name?, properties?, children?: [spec...]}
 -- Children make full UI trees natural (Frame > UICorner/UIStroke/UIListLayout/TextButton…).
-local function buildInstanceTree(specData, defaultClass, depth)
+function buildInstanceTree(specData, defaultClass, depth)
 	depth = depth or 0
 	if depth > MAX_SPEC_DEPTH then return nil, "spec tree too deep" end
 	local className = type(specData.className) == "string" and specData.className ~= "" and specData.className or defaultClass
@@ -919,7 +919,7 @@ local function buildInstanceTree(specData, defaultClass, depth)
 	return object
 end
 
-local function applyInstanceSpec(spec, parentPath, defaultClass)
+function applyInstanceSpec(spec, parentPath, defaultClass)
 	local specData = decodeSpec(spec)
 	if not specData then return false, "invalid instance spec (expect JSON {className, name?, properties, children?})" end
 	local parent = findPath(parentPath)
@@ -935,7 +935,7 @@ local function applyInstanceSpec(spec, parentPath, defaultClass)
 end
 
 -- configure_lighting: {properties:{ClockTime=14,...}, children:[{className:"Atmosphere", name?, properties:{...}}]}
-local function applyLightingSpec(targetPath, content)
+function applyLightingSpec(targetPath, content)
 	local spec = decodeSpec(content)
 	if not spec then return false, "configure_lighting expects JSON {properties?, children?}" end
 	local lighting = findPath(targetPath or "")
@@ -979,7 +979,7 @@ local function applyLightingSpec(targetPath, content)
 end
 
 -- create_terrain_region: {center:"Vector3.new(...)"|{x,y,z}, size:{x,y,z}|string, material?:name|enum, occupancy?:number}
-local function applyTerrainRegion(content)
+function applyTerrainRegion(content)
 	local spec = decodeSpec(content)
 	if not spec then return false, "create_terrain_region expects JSON {center, size, material?, occupancy?}" end
 	local terrain = workspace:FindFirstChildOfClass("Terrain")
@@ -1008,13 +1008,13 @@ local function applyTerrainRegion(content)
 	return true, "terrain filled (" .. tostring(material) .. ") at " .. tostring(centerVal) .. " size " .. tostring(sizeVal)
 end
 
-local CONSTRAINT_CLASSES = {
+CONSTRAINT_CLASSES = {
 	WeldConstraint = true, HingeConstraint = true, PrismaticConstraint = true,
 	CylindricalConstraint = true, BallSocketConstraint = true, SpringConstraint = true,
 	RopeConstraint = true, RodConstraint = true,
 }
 -- create_constraint: {className?, part0:"game...", part1:"game...", properties?:{...}}
-local function applyConstraintSpec(targetPath, content)
+function applyConstraintSpec(targetPath, content)
 	local spec = decodeSpec(content)
 	if not spec then return false, "create_constraint expects JSON {className?, part0, part1, properties?}" end
 	local className = type(spec.className) == "string" and spec.className or "WeldConstraint"
@@ -1052,7 +1052,7 @@ local function applyConstraintSpec(targetPath, content)
 	return true, "created " .. className .. " between " .. pathOf(part0) .. " and " .. pathOf(part1) .. note
 end
 
-local INSTANCE_OP_DEFAULTS = {
+INSTANCE_OP_DEFAULTS = {
 	create_animation = "Animation",
 	create_sound = "Sound",
 	create_vfx = "ParticleEmitter",
@@ -1060,7 +1060,7 @@ local INSTANCE_OP_DEFAULTS = {
 }
 
 -- set_attributes: {attributes:{Damage=25, Team="Red", HomePoint="CFrame.new(...)"?}}
-local function applyAttributesSpec(target, content)
+function applyAttributesSpec(target, content)
 	local spec = decodeSpec(content)
 	if not spec then return false, "set_attributes expects JSON {attributes:{name:value}}" end
 	local object = findPath(target)
@@ -1079,7 +1079,7 @@ local function applyAttributesSpec(target, content)
 end
 
 -- add_tags / remove_tags: {tags:["Enemy","Interactable"]}
-local function applyTagsSpec(target, content, add)
+function applyTagsSpec(target, content, add)
 	local spec = decodeSpec(content)
 	if not spec then return false, (add and "add_tags" or "remove_tags") .. " expects JSON {tags:[\"Tag\"]}" end
 	if not CollectionService then return false, "CollectionService unavailable in this Studio version" end
@@ -1103,7 +1103,7 @@ end
 
 -- create_keyframes: procedural KeyframeSequence — a real, playable animation that needs no uploaded asset id.
 -- Spec: {name?, looped?, priority?, keyframes:[{time:number, joints:{["HumanoidRootPart"]={cframe:"CFrame.new(...)"|[12 numbers], weight?:number}}}]}
-local function applyKeyframesSpec(target, content)
+function applyKeyframesSpec(target, content)
 	local spec = decodeSpec(content)
 	if not spec then return false, "create_keyframes expects JSON {keyframes:[{time, joints:{Joint={cframe}}}]}" end
 	local keyframeList = type(spec.keyframes) == "table" and spec.keyframes or {}
@@ -1157,7 +1157,7 @@ local function applyKeyframesSpec(target, content)
 	return true, "created KeyframeSequence " .. sequence.Name .. " (" .. #keyframeList .. " keyframes) under " .. pathOf(parent)
 end
 
-local function applyProposal(proposal)
+function applyProposal(proposal)
 	local op, target, content = proposal.operation, proposal.target, proposal.content
 	if op == "note" then return false, "note (not applied)" end
 	if op == "update_script" or op == "create_script" then
@@ -1261,7 +1261,7 @@ local function applyProposal(proposal)
 end
 
 -- Two-step armed apply bound to an individual plan card inside the chat.
-local function applyPlanCard(plan, button)
+function applyPlanCard(plan, button)
 	if busy then return end
 	if type(plan) ~= "table" or type(plan.changes) ~= "table" then setStatus("No plan on this card.", "bad"); return end
 	local changes = {}
@@ -1307,7 +1307,7 @@ local function applyPlanCard(plan, button)
 	end
 end
 
-local function applyPlanDirect(plan)
+function applyPlanDirect(plan)
 	if busy then showToast("Agents busy — wait a moment", "warn"); return end
 	if type(plan) ~= "table" or type(plan.changes) ~= "table" then setStatus("No plan on this card.", "bad"); return end
 	local changes = {}
@@ -1346,7 +1346,7 @@ local function applyPlanDirect(plan)
 	end
 end
 
-local function showApplyModal(plan)
+function showApplyModal(plan)
 	if type(plan) ~= "table" or type(plan.changes) ~= "table" then return end
 	pendingApplyPlan = plan
 	local list = {}
@@ -1361,7 +1361,7 @@ local function showApplyModal(plan)
 end
 
 -- ===== v2.1 unified-chat helpers =====
-local function escRich(s)
+function escRich(s)
 	local out = tostring(s)
 	out = out:gsub("&", "&amp;")
 	out = (out:gsub("<", "&lt;"))
@@ -1370,7 +1370,7 @@ local function escRich(s)
 end
 
 -- Tint game paths and `code spans` accent-blue for RichText labels.
-local function richHighlight(text)
+function richHighlight(text)
 	local out = escRich(text)
 	out = (out:gsub("`(.-)`", "<font color=\"#7fb0ff\">%1</font>"))
 	out = (out:gsub("(game%.[%w%.]+)", "<font color=\"#7fb0ff\"><u>%1</u></font>"))
@@ -1388,7 +1388,7 @@ function showToast(text, kind)
 	end)
 end
 
-local function codeSegments(text)
+function codeSegments(text)
 	local segments, pos, openIdx = {}, 1, nil
 	while true do
 		local start = string.find(text, "```", pos, true)
@@ -1410,8 +1410,8 @@ local function codeSegments(text)
 end
 -- Roblox has no plugin-accessible clipboard API, so we select the code in a
 -- focusable TextBox; Ctrl+C then works natively and never fails.
-local copyOverlay, copyBoxText
-local function showCopyOverlay(text)
+copyOverlay, copyBoxText = nil, nil
+function showCopyOverlay(text)
 	if not widget then return end
 	if not copyOverlay then
 		copyOverlay = round(ui("Frame", {Size = UDim2.new(1, -26, 0, 210), BackgroundColor3 = C.bg, BorderSizePixel = 0, Visible = false, Active = true}, chatArea or widget), 6)
@@ -1436,24 +1436,24 @@ local function showCopyOverlay(text)
 		end)
 	end)
 end
-local function copyCode(text)
+function copyCode(text)
 	local ok = pcall(showCopyOverlay, text)
 	setStatus(ok and "Code selected — press Ctrl+C to copy." or "Select the code block and copy it manually.", ok and "good" or "warn")
 end
-local function stripLangTag(text)
+function stripLangTag(text)
 	local first, rest = text:match("^([^\n]-)\n(.*)$")
 	if first and #first <= 16 and first:match("^%a+$") then return rest end
 	return text
 end
 -- ===== v2.1 unified chat renderer =====
-local suggestionRows = {}
-local suggestionIndex = 0
-local chipsRow, chipsHint
-local renderChips
-local pulseDot, modelPill
-local settingsDrawer
+suggestionRows = {}
+suggestionIndex = 0
+chipsRow, chipsHint = nil, nil
+renderChips = nil
+pulseDot, modelPill = nil, nil
+settingsDrawer = nil
 
-local OP_GLYPHS = {
+OP_GLYPHS = {
 	create_script = "+s", update_script = "~s", delete_script = "-",
 	create_instance = "+i", update_instance = "~i",
 	create_animation = "A", create_sound = "S", create_vfx = "V", create_ui = "U",
@@ -1462,9 +1462,9 @@ local OP_GLYPHS = {
 	reparent_instance = ">r", rename_instance = ">n", clone_instance = ">c",
 	create_keyframes = "K", note = "i",
 }
-local RISK_COLORS = { low = C.good, medium = C.warn, high = Color3.fromRGB(232, 140, 120), critical = C.bad }
+RISK_COLORS = { low = C.good, medium = C.warn, high = Color3.fromRGB(232, 140, 120), critical = C.bad }
 
-local function timeBadge(entry)
+function timeBadge(entry)
 	if type(entry.at) == "number" then
 		local ok, stamp = pcall(os.date, "%H:%M", entry.at / 1000)
 		if ok and type(stamp) == "string" then return " · " .. stamp end
@@ -1472,13 +1472,13 @@ local function timeBadge(entry)
 	return ""
 end
 
-local function highlightSuggestions()
+function highlightSuggestions()
 	for i, row in ipairs(suggestionRows) do
 		pcall(function() row.BackgroundColor3 = (i == suggestionIndex) and C.hover or C.panel end)
 	end
 end
 
-local function localSuggestions()
+function localSuggestions()
 	local out = {}
 	if type(currentPlan) == "table" and type(currentPlan.summary) == "string" then
 		out[#out + 1] = "Explain this plan step by step"
@@ -1677,7 +1677,7 @@ function renderChat()
 	pcall(function() if chatScroller then chatScroller.CanvasPosition = Vector2.new(0, chatScroller.AbsoluteCanvasSize.Y) end end)
 end
 
-local function syncFromServer()
+function syncFromServer()
 	if disconnected then return end
 	local ok, response = safe("GET", rootUrl() .. "/api/studio/chat?sessionId=" .. HttpService:UrlEncode(sessionId), nil, 1)
 	if not ok or not response then return end
@@ -1734,7 +1734,7 @@ local function syncFromServer()
 	renderChat()
 end
 
-local function pollConversation()
+function pollConversation()
 	if widget and widget.Enabled and not disconnected then
 		local ok = pcall(syncFromServer)
 		if not ok then warn("[LUA-X] conversation sync failed") end
@@ -1883,7 +1883,7 @@ function sendChat(textOverride)
 	if mode ~= "build" then setStatus("Chat answered.", "good") end
 end
 
-local settingsDrawer
+settingsDrawer = nil
 
 function renderChips()
 	if not chipsRow then return end
@@ -1907,7 +1907,7 @@ function renderChips()
 	end
 end
 
-local function buildWidget()
+function buildWidget()
 	if widget then return true end
 	local info = DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 620, 900, 480, 620)
 	local ok, result = pcall(function() return plugin:CreateDockWidgetPluginGuiAsync("LUAXStudio", info) end)
@@ -2277,7 +2277,7 @@ local function buildWidget()
 	return true
 end
 
-local function showErrorWidget(message)
+function showErrorWidget(message)
 	warn("[LUA-X] widget error: " .. tostring(message))
 	local errWidget = plugin:CreateDockWidgetPluginGui("LUAXError", DockWidgetPluginGuiInfo.new(Enum.InitialDockState.Float, false, true, 360, 180, 320, 160))
 	errWidget.Title = "LUA-X Studio · startup error"
