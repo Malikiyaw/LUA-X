@@ -1975,8 +1975,8 @@ function buildWidget()
 	ui("UIPadding", {PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10), PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12)}, chatScroller)
 
 	-- ===== Apply confirmation modal (bulletproof) =====
-	applyModal = ui("Frame", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BackgroundTransparency = 0.35, ZIndex = 20, Visible = false, Active = true}, root)
-	local modalCard = round(ui("Frame", {Position = UDim2.new(0.5, -155, 0.5, -90), Size = UDim2.new(0, 310, 0, 180), BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 21, Active = true}, applyModal), 12)
+	applyModal = ui("TextButton", {Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.fromRGB(10, 12, 18), BackgroundTransparency = 0.35, ZIndex = 20, Visible = false, Active = true, Text = "", AutoButtonColor = false}, root)
+	local modalCard = round(ui("TextButton", {Position = UDim2.new(0.5, -155, 0.5, -90), Size = UDim2.new(0, 310, 0, 180), BackgroundColor3 = C.panel, BorderSizePixel = 0, ZIndex = 21, Active = true, Text = "", AutoButtonColor = false}, applyModal), 12)
 	stroke(modalCard)
 	ui("UIPadding", {PaddingTop = UDim.new(0, 14), PaddingBottom = UDim.new(0, 14), PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14)}, modalCard)
 	applyModalTitle = ui("TextLabel", {Size = UDim2.new(1, 0, 0, 16), BackgroundTransparency = 1, Text = "Apply Build Plan?", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = C.text, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 21}, modalCard)
