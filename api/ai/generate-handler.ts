@@ -18,21 +18,22 @@ import {
 const DEFAULT_BASE = 'https://integrate.api.nvidia.com/v1';
 const CHAT_MODELS = [
   'meta/llama-3.3-70b-instruct',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'deepseek-ai/deepseek-v4-flash',
+  'moonshotai/kimi-k3',
+  'qwen/qwen3-next-80b-a3b-instruct',
+  'mistralai/mistral-nemotron',
   'nvidia/llama-3.1-nemotron-70b-instruct',
-  'meta/llama-3.1-8b-instruct',
   'nvidia/llama-3.1-nemotron-nano-8b-v1',
+  'meta/llama-3.1-8b-instruct',
+  'meta/llama-3.2-3b-instruct',
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
 ];
 const ARCHITECT_MODELS = CHAT_MODELS;
-const BUILDER_MODELS = [
-  'meta/llama-3.3-70b-instruct',
-  'nvidia/llama-3.1-nemotron-70b-instruct',
-  'meta/llama-3.1-8b-instruct',
-  'nvidia/llama-3.1-nemotron-nano-8b-v1',
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'nvidia/llama-3.3-nemotron-super-49b-v1',
-];
+const BUILDER_MODELS = CHAT_MODELS;
 const DEFAULT_VISION_MODEL = 'meta/llama-3.2-90b-vision-instruct';
 const MAX_BODY = 128 * 1024;
 const MODES = new Set(['chat', 'build', 'plan']);
@@ -1020,6 +1021,19 @@ export async function handleGenerate(request: Request): Promise<Response> {
     const history = await authoritativeHistory(body);
 
     if (mode === 'build' || mode === 'plan') {
+      const promptTrim = String(body.prompt ?? '').trim();
+      const isGreeting = promptTrim.length <= 12 && /^(hi|hello|hey|yo|hiya|ciao|bonjour|hola|sup|howdy)[!.\s]*$/i.test(promptTrim);
+      if (isGreeting) {
+        const sessionId = sessionIdOf(body);
+        const friendly = 'Hey! I\'m LUA-X — your twin-agent studio.\n\nTell me what to build (e.g. "/build a zombie chase game" or "make the sword feel good") and I\'ll generate a reviewable plan with concrete Luau, UI, VFX and config.\n\nTip: disable TWIN if you just want quick chat.';
+        if (sessionId) {
+          try {
+            await appendConversationMessage(sessionId, { role: 'user', content: promptTrim.slice(0, 12000), surface: surfaceOf(body), at: Date.now() });
+            await appendConversationMessage(sessionId, { role: 'assistant', content: friendly, surface: 'server', at: Date.now() });
+          } catch { /* ignore */ }
+        }
+        return json(200, { requestId: id, provider: 'nvidia', model: 'local-fallback', response: friendly, agentTrace: [], agents: { architect: 'skipped', builder: 'skipped' } }, { 'x-request-id': id });
+      }
       const trace: AgentTraceEvent[] = [];
       try {
         const { plan, model } = await runTwinAgent(body, apiKeys, id, trace);
@@ -1138,32 +1152,49 @@ export async function handleGenerate(request: Request): Promise<Response> {
         ...(plan ? { plan } : {}),
       }, { 'x-request-id': id });
     } catch (error) {
-      lastMessage = error instanceof Error ? error.message : 'NVIDIA request failed.';
-      lastStatus = error instanceof ModelError ? error.status : 502;
-      const sessionId = sessionIdOf(body);
-      if (sessionId) {
-        try {
-          await appendConversationMessage(sessionId, {
-            role: 'user',
-            content: String(body.prompt ?? '').trim().slice(0, 12000),
-            surface: surfaceOf(body),
-            at: Date.now(),
-          });
-          await appendConversationMessage(sessionId, {
-            role: 'assistant',
-            content: `Generation failed: ${lastMessage.slice(0, 12000)}`,
-            surface: 'server',
-            at: Date.now(),
-          });
-        } catch { /* ignore */ }
+        lastMessage = error instanceof Error ? error.message : 'NVIDIA request failed.';
+        lastStatus = error instanceof ModelError ? error.status : 502;
+        const isGone = lastMessage.includes('410') || lastMessage.includes('deprecated') || lastStatus === 410;
+        // Graceful fallback for chat when NVIDIA is 410 — keep Studio usable for greetings/small talk
+        if (isGone) {
+          const promptTrim = String(body.prompt ?? '').trim().toLowerCase();
+          const isSimple = promptTrim.length <= 40 && /^(hi|hello|hey|yo|test|ping|help|\?)/.test(promptTrim);
+          const friendly = isSimple
+            ? `Hey! LUA-X Studio is connected (Place ${String((body as Record<string, unknown>).projectId ?? 'unknown')}).\n\nNVIDIA backend is temporarily returning 410 Gone (account needs Public API Endpoints enabled at build.nvidia.com). Try again in a minute or set AGENT_MODE=single with a fallback model like openai/gpt-oss-120b, then Redeploy. Meanwhile, what do you want to build?`
+            : `NVIDIA backend returned 410 Gone — all tried models are deprecated or your org needs "Public API Endpoints" enabled at https://build.nvidia.com (Organization → Settings). Admin fix: Vercel → Settings → Environment Variables → set NVIDIA_MODEL=openai/gpt-oss-120b (or meta/llama-3.2-3b-instruct) and Redeploy. Detail: ${lastMessage.slice(0, 300)}`;
+          const sessionId = sessionIdOf(body);
+          if (sessionId) {
+            try {
+              await appendConversationMessage(sessionId, { role: 'user', content: String(body.prompt ?? '').trim().slice(0, 12000), surface: surfaceOf(body), at: Date.now() });
+              await appendConversationMessage(sessionId, { role: 'assistant', content: friendly, surface: 'server', at: Date.now() });
+            } catch { /* ignore */ }
+          }
+          return json(200, { requestId: id, provider: 'nvidia', response: friendly, retryable: true, detail: lastMessage, hint: '410 Gone — enable Public API Endpoints or change NVIDIA_MODEL' }, { 'x-request-id': id });
+        }
+        const sessionId = sessionIdOf(body);
+        if (sessionId) {
+          try {
+            await appendConversationMessage(sessionId, {
+              role: 'user',
+              content: String(body.prompt ?? '').trim().slice(0, 12000),
+              surface: surfaceOf(body),
+              at: Date.now(),
+            });
+            await appendConversationMessage(sessionId, {
+              role: 'assistant',
+              content: `Generation failed: ${lastMessage.slice(0, 12000)}`,
+              surface: 'server',
+              at: Date.now(),
+            });
+          } catch { /* ignore */ }
+        }
+        return json(lastStatus >= 500 ? 502 : lastStatus, {
+          error: 'LUA-X could not generate a response right now.',
+          detail: lastMessage,
+          requestId: id,
+          retryable: true,
+        }, { 'x-request-id': id });
       }
-      return json(lastStatus >= 500 ? 502 : lastStatus, {
-        error: 'LUA-X could not generate a response right now.',
-        detail: lastMessage,
-        requestId: id,
-        retryable: true,
-      }, { 'x-request-id': id });
-    }
   } catch (error) {
     return json(400, { error: error instanceof Error ? error.message : 'Invalid request.', requestId: id }, { 'x-request-id': id });
   }

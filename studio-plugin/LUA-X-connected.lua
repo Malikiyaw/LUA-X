@@ -1752,7 +1752,9 @@ function sendChat(textOverride)
 		mode = "build"
 		text = (string.sub(text, 7):gsub("^%s+", ""))
 	elseif twinMode then
-		mode = "build"
+		local low = string.lower(text)
+		local isGreeting = #text <= 12 and string.match(low, "^(hi|hello|hey|yo|hiya|ciao|bonjour|hola|sup|howdy)[!%.%s]*$")
+		if not isGreeting then mode = "build" end
 	end
 	if #text < 2 then return end
 	table.insert(chatHistory, {role = "user", text = text, at = DateTime.now().UnixTimestampMillis})

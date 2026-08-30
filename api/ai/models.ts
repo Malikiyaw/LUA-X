@@ -2,20 +2,23 @@ export const config = { runtime: 'nodejs' };
 
 const BASE = 'https://integrate.api.nvidia.com/v1';
 const CANDIDATES = [
+  'meta/llama-3.3-70b-instruct',
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'deepseek-ai/deepseek-v4-flash',
+  'moonshotai/kimi-k3',
+  'qwen/qwen3-next-80b-a3b-instruct',
+  'mistralai/mistral-nemotron',
+  'nvidia/llama-3.1-nemotron-70b-instruct',
+  'nvidia/llama-3.1-nemotron-nano-8b-v1',
+  'meta/llama-3.1-8b-instruct',
+  'meta/llama-3.2-3b-instruct',
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   'nvidia/llama-3.3-nemotron-super-49b-v1.5',
   'nvidia/llama-3.3-nemotron-super-49b-v1',
-  'nvidia/llama-3.1-nemotron-70b-instruct',
-  'nvidia/llama-3.3-nemotron-70b-instruct',
-  'nvidia/llama-3.1-nemotron-nano-8b-v1',
   'nvidia/mistral-nemo-12b-instruct',
-  'nvidia/gemma-2-27b',
-  'nvidia/phi-3-mini-128k-instruct',
-  'meta/llama-3.3-70b-instruct',
-  'meta/llama-3.1-8b-instruct',
   'qwen/qwen2.5-72b-instruct',
   'deepseek-ai/deepseek-r1',
-  'nvidia/llama-3.3-70b-instruct',
-  'nvidia/llama-3.1-8b-instruct',
 ];
 
 function keys(): string[] {
