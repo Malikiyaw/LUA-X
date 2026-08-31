@@ -15,12 +15,13 @@
   <nav class="top-nav" id="top-nav">
     <div class="nav-inner">
       <div class="nav-brand">★ LUA-X</div>
-      <div class="nav-links">
-        <a class="nav-link" href="#hero">Workspace</a>
-        <a class="nav-link" href="#agents">Agents</a>
-        <a class="nav-link" href="#canvas-stage">Canvas</a>
-        <a class="nav-link" href="#docs">Docs</a>
-      </div>
+       <div class="nav-links">
+         <a class="nav-link" href="#hero">Workspace</a>
+         <a class="nav-link" href="#agents">Agents</a>
+         <a class="nav-link" href="#canvas-stage">Canvas</a>
+         <a class="nav-link" href="#ui-studio">UI Studio</a>
+         <a class="nav-link" href="#docs">Docs</a>
+       </div>
        <div class="nav-actions">
          <button class="pill ghost" id="connect-now" type="button">◎ Connect Studio</button>
          <button class="pill dark" id="new-project-btn" type="button">+ New Project</button>
@@ -54,15 +55,16 @@
   </section>
 
   <div class="workspace-shell" id="workspace-shell">
-    <aside class="left-rail" id="left-rail">
-      <button class="rail-btn active" data-target="#hero" type="button" title="Home">🏠</button>
-      <button class="rail-btn" data-target="#chat-feed" type="button" title="Chat">💬</button>
-      <button class="rail-btn" data-target="#suggestions-row" type="button" title="Prompts">⚡</button>
-      <button class="rail-btn" data-target="#agents" type="button" title="Agents">🤖</button>
-      <button class="rail-btn" data-target="#canvas-stage" type="button" title="Canvas">▦</button>
-      <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
-      <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
-    </aside>
+     <aside class="left-rail" id="left-rail">
+       <button class="rail-btn active" data-target="#hero" type="button" title="Home">🏠</button>
+       <button class="rail-btn" data-target="#chat-feed" type="button" title="Chat">💬</button>
+       <button class="rail-btn" data-target="#suggestions-row" type="button" title="Prompts">⚡</button>
+       <button class="rail-btn" data-target="#agents" type="button" title="Agents">🤖</button>
+       <button class="rail-btn" data-target="#canvas-stage" type="button" title="Canvas">▦</button>
+       <button class="rail-btn" data-target="#ui-studio" type="button" title="UI">🎨</button>
+       <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
+       <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
+     </aside>
 
     <main class="canvas-col" id="canvas-col">
       <div class="canvas-stage" id="canvas-stage">
@@ -91,8 +93,81 @@
         </div>
       </div>
 
-      <div class="thread-feed-wrap">
-        <div class="chat-feed" id="chat-feed">
+       <!-- UI STUDIO - Phase 2: beats ForgeGUI (reference-guided, theme tokens, parity score) -->
+       <section class="ui-studio" id="ui-studio">
+         <div class="ui-studio-head">
+           <div>
+             <h2 class="ui-title">UI Studio <span class="badge green" id="ui-parity-badge">Parity 0/100</span></h2>
+             <p class="ui-sub">ForgeGUI-grade sets, theme tokens, responsive rules — validated live. Push via twin agents to Studio.</p>
+           </div>
+           <div class="ui-head-actions">
+             <input type="file" id="ui-ref-input" accept="image/*" class="hidden">
+             <button class="pill ghost" id="ui-ref-btn" type="button">📎 Style Ref</button>
+             <button class="pill ghost" id="ui-export-btn" type="button">⤓ Export create_ui</button>
+             <button class="pill primary" id="ui-generate-btn" type="button">✨ Generate with AI</button>
+             <button class="pill white" id="ui-push-btn" type="button">⬢ Push to Studio</button>
+           </div>
+         </div>
+         <div class="ui-studio-grid">
+           <div class="ui-palette">
+             <div class="panel-head">Component Library</div>
+             <div class="palette-grid" id="ui-palette-grid">
+               <button class="palette-item" data-kind="button" type="button">Button<small>states + disabled</small></button>
+               <button class="palette-item" data-kind="frame" type="button">Card / Panel<small>container + hover lift</small></button>
+               <button class="palette-item" data-kind="scroll" type="button">List / Grid<small>UIList/UIGrid</small></button>
+               <button class="palette-item" data-kind="text" type="button">Toast<small>enter/exit tween</small></button>
+               <button class="palette-item" data-kind="frame" data-template="modal" type="button">Modal<small>dim + focus trap</small></button>
+               <button class="palette-item" data-kind="frame" data-template="shop" type="button">Shop Grid<small>slots + drag</small></button>
+               <button class="palette-item" data-kind="frame" data-template="hud" type="button">HUD Bar<small>flash + heal</small></button>
+               <button class="palette-item" data-kind="input" type="button">Settings Row<small>slider/toggle</small></button>
+             </div>
+             <div class="panel-head" style="margin-top:14px">Tree <button class="ghost-button small" id="ui-clear-btn" type="button">Clear</button></div>
+             <div class="ui-tree" id="ui-tree"></div>
+             <div class="panel-head" style="margin-top:14px">Theme Tokens <span class="muted" style="font-weight:400">colors/radii/spacing/motion</span></div>
+             <div class="theme-grid" id="ui-theme-grid"></div>
+             <button class="ghost-button small" id="ui-add-token" type="button">+ Add token</button>
+           </div>
+           <div class="ui-preview-col">
+             <div class="ui-preview-toolbar">
+               <span class="muted">Preview — phone / tablet / desktop (responsive rules live)</span>
+               <span class="muted" id="ui-ref-preview-label"></span>
+             </div>
+             <div class="ui-preview-wrap">
+               <div class="ui-preview" id="ui-preview"></div>
+               <img id="ui-ref-preview" class="hidden" style="max-width:100%;border-radius:8px;border:1px solid var(--hairline);margin-top:10px">
+             </div>
+             <div class="ui-validation">
+               <div class="panel-head">Validation <span class="badge" id="ui-issues-count">0 issues</span></div>
+               <ul class="validation-list" id="ui-validation-list"></ul>
+             </div>
+           </div>
+           <div class="ui-props">
+             <div class="panel-head">Props <span class="muted" id="ui-selected-id">none</span></div>
+             <div class="props-form" id="ui-props-form">
+               <label>Kind <select id="ui-prop-kind"><option value="frame">frame</option><option value="screen">screen</option><option value="button">button</option><option value="text">text</option><option value="image">image</option><option value="input">input</option><option value="scroll">scroll</option><option value="template">template</option></select></label>
+               <label>Name <input id="ui-prop-name" type="text" placeholder="Root"></label>
+               <label>Layout <select id="ui-prop-layout"><option value="">absolute</option><option value="list">list</option><option value="grid">grid</option><option value="page">page</option></select></label>
+               <label>CornerRadius <input id="ui-prop-radius" type="number" min="0" max="40" placeholder="8"></label>
+               <label>Padding <input id="ui-prop-padding" type="number" min="0" placeholder="8"></label>
+               <label>Transparency <input id="ui-prop-trans" type="number" min="0" max="1" step="0.05" placeholder="0"></label>
+               <label>TextSize <input id="ui-prop-textsize" type="number" min="1" placeholder="14"></label>
+               <label>colorToken <input id="ui-prop-token" type="text" placeholder="primary"></label>
+               <label>ParentId <input id="ui-prop-parent" type="text" placeholder="root"></label>
+               <button class="primary-button small" id="ui-save-props" type="button">Save</button>
+               <button class="ghost-button small" id="ui-delete-comp" type="button">Delete</button>
+             </div>
+             <div class="panel-head" style="margin-top:14px">Responsive Rules</div>
+             <div id="ui-responsive-list" style="display:flex;flex-direction:column;gap:6px"></div>
+             <div style="display:flex;gap:6px;margin-top:6px"><input id="ui-responsive-input" type="text" placeholder="stack below 420px" style="flex:1"><button class="ghost-button small" id="ui-add-responsive" type="button">Add</button></div>
+             <div class="panel-head" style="margin-top:14px">Actions</div>
+             <label>onClick type <input id="ui-prop-action" type="text" placeholder="openShop / buyItem"></label>
+             <div style="font:11px var(--font);color:var(--faint);margin-top:8px">States: buttons auto-get disabled per <code>validateScreen</code>. Tokens drive colors — edit tokens not hex.</div>
+           </div>
+         </div>
+       </section>
+
+       <div class="thread-feed-wrap">
+         <div class="chat-feed" id="chat-feed">
           <div class="msg assistant center" id="greeting-card">
             <div class="msg-time">1:40</div>
             <div class="msg-title">Shaping the AI Chat Experience</div>

@@ -256,6 +256,204 @@ function drawConnections(){
 }
 window.addEventListener('resize', drawConnections);
 
+// ===== UI STUDIO - Phase 2 (beats ForgeGUI) =====
+let uiScreen = {
+  id: 'lua-x-shop',
+  name: 'LUA-X Shop HUD',
+  rootId: 'root',
+  components: [
+    { id: 'root', kind: 'screen', name: 'Root', layout: 'list', style: { padding: 16, spacing: 10 } },
+    { id: 'header', kind: 'frame', name: 'Header', parentId: 'root', layout: 'list', style: { cornerRadius: 12, padding: 12, colorToken: 'surface' }, children: ['title', 'buy'] },
+    { id: 'title', kind: 'text', name: 'Title', parentId: 'header', style: { textSize: 18, colorToken: 'primary' } },
+    { id: 'buy', kind: 'button', name: 'Buy', parentId: 'header', style: { cornerRadius: 10, padding: 8, colorToken: 'primary' }, states: [{ state: 'disabled', enabled: false }] },
+  ],
+  theme: { tokens: { primary: '#3B82F6', surface: '#1C1C1F', gap: 8, radius: 12 } },
+  responsive: { rules: ['stack below 420px', 'grid 2col above 720px'] }
+};
+let uiSelectedId = 'root';
+let uiRefDataUrl = null;
+
+function uiValidate(screen){
+  const issues=[];
+  if(!screen.id.trim()||!screen.name.trim()) issues.push({severity:'error',code:'SCREEN_IDENTITY',message:'Screen id and name required.'});
+  const ids=new Set(); const names=new Set();
+  for(const c of screen.components){
+    if(!c.id.trim()||!c.name.trim()) issues.push({severity:'error',code:'COMPONENT_IDENTITY',message:'Every component needs id+name',componentId:c.id});
+    if(ids.has(c.id)) issues.push({severity:'error',code:'DUPLICATE_COMPONENT',message:`Duplicate id: ${c.id}`,componentId:c.id}); ids.add(c.id);
+    const lower=c.name.trim().toLowerCase(); if(lower && names.has(lower)) issues.push({severity:'warning',code:'DUPLICATE_NAME',message:`Duplicate name: ${c.name}`,componentId:c.id}); else if(lower) names.add(lower);
+    if(c.parentId && c.parentId!==c.id && !screen.components.some(p=>p.id===c.parentId)) issues.push({severity:'error',code:'MISSING_PARENT',message:`Parent ${c.parentId} missing`,componentId:c.id});
+    if(c.style?.transparency!==undefined && (c.style.transparency<0||c.style.transparency>1)) issues.push({severity:'error',code:'TRANSPARENCY_RANGE',message:'Transparency 0-1',componentId:c.id});
+    if(c.style?.textSize!==undefined && c.style.textSize<=0) issues.push({severity:'error',code:'TEXT_SIZE',message:'textSize >0',componentId:c.id});
+    if(c.style?.cornerRadius!==undefined && (c.style.cornerRadius<0||c.style.cornerRadius>40)) issues.push({severity:'warning',code:'CORNER_RADIUS',message:'cornerRadius 0-40',componentId:c.id});
+    if(c.style?.colorToken && !screen.theme.tokens[c.style.colorToken]) issues.push({severity:'warning',code:'UNKNOWN_TOKEN',message:`token ${c.style.colorToken} missing`,componentId:c.id});
+  }
+  if(!ids.has(screen.rootId)) issues.push({severity:'error',code:'MISSING_ROOT',message:`Root ${screen.rootId} missing`});
+  // depth >6
+  const parentMap=new Map(screen.components.map(c=>[c.id,c.parentId]));
+  for(const c of screen.components){ let d=0; let cur=c.id; const seen=new Set(); while(cur && parentMap.get(cur) && !seen.has(cur) && d<20){ seen.add(cur); cur=parentMap.get(cur); d+=1;} if(d>6) issues.push({severity:'warning',code:'DEPTH_EXCEEDED',message:`${c.id} depth ${d}>6`,componentId:c.id});}
+  if(Object.keys(screen.theme.tokens).length===0) issues.push({severity:'warning',code:'THEME_TOKENS_EMPTY',message:'theme.tokens empty — define palette/radii/spacing'});
+  if(screen.responsive.rules.length===0 && screen.components.length>3) issues.push({severity:'warning',code:'RESPONSIVE_RULES_MISSING',message:'Add responsive rules for multi-device'});
+  const states=new Map(); for(const c of screen.components) for(const s of c.states??[]){ const set=states.get(c.id)??new Set(); set.add(s.state); states.set(c.id,set); }
+  for(const c of screen.components) if(c.kind==='button' && !(states.get(c.id)?.has('disabled'))) issues.push({severity:'warning',code:'BUTTON_DISABLED_STATE',message:'Buttons need disabled state',componentId:c.id});
+  if(screen.components.filter(c=>c.kind==='button').length>3 && !screen.components.some(c=>c.kind==='frame' && c.layout==='list')) issues.push({severity:'warning',code:'LAYOUT_GROUPING',message:'Use Frame list/grid to group buttons (ForgeGUI parity)'});
+  return issues;
+}
+function uiParity(screen){
+  const issues=uiValidate(screen); const err=issues.filter(i=>i.severity==='error').length; const warn=issues.filter(i=>i.severity==='warning').length;
+  let score=100 - err*15 - warn*4; if(Object.keys(screen.theme.tokens).length>=4) score+=5; if(screen.responsive.rules.length>0) score+=5;
+  return { score: Math.max(0,Math.min(100,score)), issues };
+}
+function uiRender(){
+  const badge=$('#ui-parity-badge'); const list=$('#ui-validation-list'); const count=$('#ui-issues-count'); const tree=$('#ui-tree'); const themeGrid=$('#ui-theme-grid'); const preview=$('#ui-preview'); const selLabel=$('#ui-selected-id');
+  const parity=uiParity(uiScreen);
+  if(badge){ badge.textContent=`Parity ${parity.score}/100`; badge.className=`badge ${parity.score>=80?'green':parity.score>=60?'':'bad'}`; }
+  if(count) count.textContent=`${parity.issues.length} issues`;
+  if(list){ list.innerHTML=parity.issues.length? parity.issues.map(i=>`<li class="${esc(i.severity)}"><b>${esc(i.code)}</b> — ${esc(i.message)}${i.componentId?` <span style="opacity:.6">[${esc(i.componentId)}]</span>`:''}</li>`).join('') : `<li style="opacity:.6">No issues — ForgeGUI parity ready</li>`; }
+  if(tree){
+    tree.innerHTML=uiScreen.components.map(c=>`<div class="ui-tree-row ${c.id===uiSelectedId?'active':''}" data-id="${esc(c.id)}"><span>${esc(c.name)} <span style="opacity:.6">(${esc(c.kind)})</span></span><span style="opacity:.6">${esc(c.id)}</span></div>`).join('');
+    tree.querySelectorAll('.ui-tree-row').forEach(el=> el.addEventListener('click',()=>{ uiSelectedId=el.getAttribute('data-id'); uiRender(); uiFillProps(); }));
+  }
+  if(themeGrid){
+    themeGrid.innerHTML=Object.entries(uiScreen.theme.tokens).map(([k,v])=>`<div class="theme-row"><input value="${esc(k)}" data-k="${esc(k)}" class="theme-key" placeholder="token"><input value="${esc(String(v))}" data-k="${esc(k)}" class="theme-val" placeholder="#3B82F6 or 8"><button class="ghost-button small theme-del" data-k="${esc(k)}" type="button">×</button></div>`).join('');
+    themeGrid.querySelectorAll('.theme-del').forEach(b=> b.addEventListener('click',()=>{ const k=b.getAttribute('data-k'); if(k) { delete uiScreen.theme.tokens[k]; uiRender(); }}));
+    themeGrid.querySelectorAll('.theme-key').forEach(inp=> inp.addEventListener('change',()=>{ const old=inp.getAttribute('data-k'); const ne=inp.value.trim(); if(!ne||ne===old) return; const v=uiScreen.theme.tokens[old]; delete uiScreen.theme.tokens[old]; uiScreen.theme.tokens[ne]=v; uiSelectedId=ne; uiRender(); }));
+    themeGrid.querySelectorAll('.theme-val').forEach(inp=> inp.addEventListener('change',()=>{ const k=inp.getAttribute('data-k'); if(k) { uiScreen.theme.tokens[k]=inp.value.trim(); uiRender(); }}));
+  }
+  if(preview){
+    const byId=new Map(uiScreen.components.map(c=>[c.id,c]));
+    function renderNode(id, depth=0){
+      const c=byId.get(id); if(!c) return '';
+      const kids=(c.children||[]).map(cid=> byId.get(cid)).filter(Boolean);
+      // also find parentId implicit children
+      const implicit=uiScreen.components.filter(x=>x.parentId===id && !c.children?.includes(x.id));
+      const all=[...kids, ...implicit];
+      const isList=c.layout==='list'; const isGrid=c.layout==='grid';
+      if(c.kind==='button') return `<div class="preview-node button" data-preview-id="${esc(c.id)}" style="${c.style?.cornerRadius?`border-radius:${c.style.cornerRadius}px`:''}">${esc(c.name)}</div>`;
+      if(c.kind==='text') return `<div class="preview-node" data-preview-id="${esc(c.id)}" style="font-weight:600">${esc(c.name)}</div>`;
+      if(c.kind==='screen' || c.kind==='frame'){
+        const cls=isList?'frame-list':isGrid?'frame-grid':'';
+        const inner=all.map(ch=> renderNode(ch.id, depth+1)).join('') || `<span style="opacity:.5">Empty ${esc(c.name)}</span>`;
+        return `<div class="preview-node ${esc(cls)}" data-preview-id="${esc(c.id)}"><div style="font:600 11px var(--font);opacity:.6">${esc(c.name)} · ${esc(c.kind)} · ${esc(c.layout||'absolute')}</div><div style="margin-top:6px;display:${isGrid?'grid':isList?'flex':'block'};${isList?'flex-direction:column':''};gap:8px">${inner}</div></div>`;
+      }
+      return `<div class="preview-node" data-preview-id="${esc(c.id)}">${esc(c.name)} <span style="opacity:.6">${esc(c.kind)}</span></div>`;
+    }
+    preview.innerHTML=renderNode(uiScreen.rootId);
+    preview.querySelectorAll('[data-preview-id]').forEach(el=> el.addEventListener('click',()=>{ uiSelectedId=el.getAttribute('data-preview-id'); uiRender(); uiFillProps(); }));
+  }
+  if(selLabel) selLabel.textContent=uiSelectedId;
+  // responsive list
+  const rl=$('#ui-responsive-list'); if(rl){ rl.innerHTML=uiScreen.responsive.rules.map((r,i)=>`<div style="display:flex;gap:6px;align-items:center;background:var(--field);border:1px solid var(--hairline);border-radius:6px;padding:4px 6px"><span style="flex:1;font:11px var(--font)">${esc(r)}</span><button class="ghost-button small" data-idx="${i}" type="button">×</button></div>`).join(''); rl.querySelectorAll('button[data-idx]').forEach(b=> b.addEventListener('click',()=>{ const i=parseInt(b.getAttribute('data-idx')||'0',10); uiScreen.responsive.rules.splice(i,1); uiRender(); })); }
+}
+function uiFillProps(){
+  const c=uiScreen.components.find(x=>x.id===uiSelectedId); if(!c) return;
+  $('#ui-prop-kind').value=c.kind; $('#ui-prop-name').value=c.name||''; $('#ui-prop-layout').value=c.layout||''; $('#ui-prop-radius').value=c.style?.cornerRadius??''; $('#ui-prop-padding').value=c.style?.padding??''; $('#ui-prop-trans').value=c.style?.transparency??''; $('#ui-prop-textsize').value=c.style?.textSize??''; $('#ui-prop-token').value=c.style?.colorToken||''; $('#ui-prop-parent').value=c.parentId||''; $('#ui-prop-action').value=c.action?.type||'';
+}
+function uiSaveProps(){
+  const c=uiScreen.components.find(x=>x.id===uiSelectedId); if(!c) return;
+  const kind=$('#ui-prop-kind').value; const name=$('#ui-prop-name').value.trim()||c.name; const layout=$('#ui-prop-layout').value||undefined;
+  const radius=$('#ui-prop-radius').value; const padding=$('#ui-prop-padding').value; const trans=$('#ui-prop-trans').value; const tsize=$('#ui-prop-textsize').value; const token=$('#ui-prop-token').value.trim()||undefined; const parent=$('#ui-prop-parent').value.trim()||undefined; const act=$('#ui-prop-action').value.trim()||undefined;
+  c.kind=kind; c.name=name; if(layout) c.layout=layout; else delete c.layout;
+  c.style=c.style||{}; if(radius) c.style.cornerRadius=parseFloat(radius); else delete c.style.cornerRadius;
+  if(padding) c.style.padding=parseFloat(padding); else delete c.style.padding;
+  if(trans) c.style.transparency=parseFloat(trans); else delete c.style.transparency;
+  if(tsize) c.style.textSize=parseFloat(tsize); else delete c.style.textSize;
+  if(token) c.style.colorToken=token; else delete c.style.colorToken;
+  if(parent) c.parentId=parent; else delete c.parentId;
+  if(act) c.action={type:act}; else delete c.action;
+  uiRender();
+}
+function uiAddComponent(kind, template){
+  const id=`${kind}_${Date.now().toString(36).slice(-4)}`;
+  const base={ id, kind, name: kind==='button'?'New Button':kind==='frame'?'Card':kind.charAt(0).toUpperCase()+kind.slice(1), parentId: uiSelectedId||'root', style:{ cornerRadius:8, padding:8 }, states: kind==='button'?[{state:'disabled',enabled:false}]:undefined };
+  if(template==='shop') { base.name='Shop Grid'; base.layout='grid'; base.style={cornerRadius:12,padding:12}; }
+  if(template==='modal') { base.name='Modal'; base.layout='list'; }
+  if(template==='hud') { base.name='HUD Bar'; base.layout='list'; base.kind='frame'; }
+  uiScreen.components.push(base);
+  // maintain children for parent frame
+  const parent=uiScreen.components.find(x=>x.id===base.parentId); if(parent && (parent.kind==='frame'||parent.kind==='screen')){ parent.children=parent.children||[]; if(!parent.children.includes(id)) parent.children.push(id); }
+  uiSelectedId=id; uiRender(); uiFillProps(); showToast(`Added ${kind} — parity ${uiParity(uiScreen).score}`);
+}
+function uiExportCreateUi(){
+  // Build create_ui recursive JSON as BUILDER expects (className tree)
+  const map=new Map(uiScreen.components.map(c=>[c.id,c]));
+  const tokenCss=(t)=> uiScreen.theme.tokens[t]||t;
+  function toRobloxProps(c){
+    const p={};
+    if(c.style?.cornerRadius!==undefined) p.CornerRadius=`UDim.new(0,${c.style.cornerRadius})`; // will be child UICorner but include for parity
+    if(c.style?.transparency!==undefined) p.BackgroundTransparency=c.style.transparency;
+    if(c.style?.padding!==undefined) p.Padding=`UDim.new(0,${c.style.padding})`;
+    if(c.style?.colorToken) { const v=tokenCss(c.style.colorToken); if(typeof v==='string' && v.startsWith('#')){ const hex=v.replace('#',''); const r=parseInt(hex.slice(0,2),16); const g=parseInt(hex.slice(2,4),16); const b=parseInt(hex.slice(4,6),16); p.BackgroundColor3=`Color3.fromRGB(${r},${g},${b})`; } }
+    if(c.style?.textSize!==undefined) p.TextSize=c.style.textSize;
+    return p;
+  }
+  function buildNode(id){
+    const c=map.get(id); if(!c) return null;
+    const classMap={ screen:'ScreenGui', frame:'Frame', button:'TextButton', text:'TextLabel', image:'ImageLabel', input:'TextBox', scroll:'ScrollingFrame', template:'Frame' };
+    const children=(c.children||[]).map(cid=> buildNode(cid)).filter(Boolean);
+    // implicit parentId children
+    const implicit=uiScreen.components.filter(x=>x.parentId===id && !c.children?.includes(x.id)).map(x=> buildNode(x.id)).filter(Boolean);
+    const all=[...children, ...implicit];
+    // add UICorner/UIListLayout children for fidelity
+    const extra=[]; if(c.style?.cornerRadius!==undefined) extra.push({className:'UICorner',name:'Corner',properties:{CornerRadius:`UDim.new(0,${c.style.cornerRadius})`}}); 
+    if(c.layout==='list') extra.push({className:'UIListLayout',name:'List',properties:{Padding:`UDim.new(0,${c.style?.spacing??8})`,FillDirection:'Vertical',SortOrder:'LayoutOrder'}});
+    if(c.layout==='grid') extra.push({className:'UIGridLayout',name:'Grid',properties:{CellPadding:`UDim2.new(0,8,0,8)`,CellSize:`UDim2.new(0,120,0,120)`}});
+    if(c.style?.padding!==undefined) extra.push({className:'UIPadding',name:'Pad',properties:{PaddingTop:`UDim.new(0,${c.style.padding})`,PaddingBottom:`UDim.new(0,${c.style.padding})`,PaddingLeft:`UDim.new(0,${c.style.padding})`,PaddingRight:`UDim.new(0,${c.style.padding})`}});
+    return { className: classMap[c.kind]||'Frame', name:c.name, properties: toRobloxProps(c), children:[...extra, ...all] };
+  }
+  const tree=buildNode(uiScreen.rootId);
+  return JSON.stringify(tree, null, 2);
+}
+async function uiGenerateWithAI(){
+  const specPreview=uiScreen.components.slice(0,8).map(c=> `${c.kind}:${c.name} parent=${c.parentId||'root'} token=${c.style?.colorToken||'-'}`).join('; ');
+  const tokens=Object.entries(uiScreen.theme.tokens).map(([k,v])=> `${k}=${v}`).join(', ');
+  const rules=uiScreen.responsive.rules.join('; ');
+  const parity=uiParity(uiScreen).score;
+  const hint=uiRefDataUrl?`Reference image attached — derive palette/radii from it. `:''; 
+  const prompt=`${hint}Create UI shop with theme tokens [${tokens}] — parity target ${parity}/100. Responsive: [${rules}]. Existing spec [${specPreview}]. Build complete screen: ScreenGui with Frame list/grid grouping (ForgeGUI parity), ThemeTokens module (colors/fonts/radii/spacing), button disabled states, HUD/Shop grid where needed. Use concrete Color3.fromRGB/UDim2 values from tokens.`;
+  // Use vision attach if ref present
+  if(uiRefDataUrl) pendingImageDataUrl=uiRefDataUrl;
+  chatInput.value=prompt; await sendChat();
+}
+async function uiPushToStudio(){
+  if(!studioConnected || !studioSessionId){ showToast('Connect Studio first — ◎ Connect Studio'); return; }
+  const spec=uiExportCreateUi();
+  // Validate before push
+  const issues=uiValidate(uiScreen).filter(i=>i.severity==='error');
+  if(issues.length){ showToast(`Fix ${issues.length} errors before push — parity ${uiParity(uiScreen).score}`); return; }
+  // Push via direct command: we store spec as apply result visible to AI, then AI can claim but immediate push uses Studio apply path
+  // Send as build command with create_ui json — plugin will apply via applyInstanceSpec/create_ui
+  try{
+    await postJson('/api/studio/command', { sessionId: studioSessionId, type: 'build', prompt: `create_ui spec:\n${spec.slice(0,8000)}` });
+    showToast('Pushed to Studio queue — plugin will apply create_ui');
+  }catch{ showToast('Push failed — check Studio is LIVE'); }
+}
+$('#ui-save-props')?.addEventListener('click', uiSaveProps);
+$('#ui-delete-comp')?.addEventListener('click', ()=>{ const idx=uiScreen.components.findIndex(c=>c.id===uiSelectedId); if(idx>=0){ const removed=uiScreen.components.splice(idx,1)[0]; // clean children refs
+  for(const c of uiScreen.components) if(c.children) c.children=c.children.filter(id=> id!==removed.id);
+  uiSelectedId=uiScreen.rootId; uiRender(); uiFillProps(); }});
+$('#ui-add-token')?.addEventListener('click', ()=>{ const k=prompt('Token name (e.g. primary)'); if(!k) return; const v=prompt('Value (#hex or number)', '#3B82F6'); if(v===null) return; uiScreen.theme.tokens[k.trim()]=v.trim(); uiRender(); });
+$('#ui-add-responsive')?.addEventListener('click', ()=>{ const inp=$('#ui-responsive-input'); const v=inp.value.trim(); if(!v) return; uiScreen.responsive.rules.push(v); inp.value=''; uiRender(); });
+$('#ui-clear-btn')?.addEventListener('click', ()=>{ if(!confirm('Clear all components?')) return; uiScreen.components=[{id:'root',kind:'screen',name:'Root',layout:'list',style:{padding:16}}]; uiScreen.rootId='root'; uiSelectedId='root'; uiRender(); uiFillProps(); });
+$('#ui-palette-grid')?.addEventListener('click', (e)=>{ const btn=e.target.closest('[data-kind]'); if(!btn) return; const kind=btn.getAttribute('data-kind'); const tmpl=btn.getAttribute('data-template'); uiAddComponent(kind, tmpl); });
+$('#ui-export-btn')?.addEventListener('click', ()=>{ const spec=uiExportCreateUi(); const blob=new Blob([spec],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${uiScreen.id}.create_ui.json`; a.click(); URL.revokeObjectURL(url); showToast('Exported create_ui.json'); });
+$('#ui-generate-btn')?.addEventListener('click', uiGenerateWithAI);
+$('#ui-push-btn')?.addEventListener('click', uiPushToStudio);
+$('#ui-ref-btn')?.addEventListener('click', ()=> $('#ui-ref-input').click());
+$('#ui-ref-input')?.addEventListener('change', async()=>{
+  const f=$('#ui-ref-input').files?.[0]; if(!f) return;
+  const reader=new FileReader(); reader.onload=()=>{
+    uiRefDataUrl=String(reader.result);
+    const img=$('#ui-ref-preview'); if(img){ img.src=uiRefDataUrl; img.classList.remove('hidden'); }
+    const label=$('#ui-ref-preview-label'); if(label) label.textContent=`Ref: ${f.name} — palette will be sampled on Generate`;
+    // Sample dominant colors into tokens (simple canvas sampled)
+    try{
+      const c=document.createElement('canvas'); const ctx=c.getContext('2d'); const im=new Image(); im.onload=()=>{ c.width=64; c.height=64; ctx.drawImage(im,0,0,64,64); const data=ctx.getImageData(0,0,64,64).data; const buckets=new Map(); for(let i=0;i<data.length;i+=16){ const r=data[i],g=data[i+1],b=data[i+2]; const key=`#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`; buckets.set(key,(buckets.get(key)||0)+1); } const top=[...buckets.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3).map(e=>e[0]); if(top[0]) uiScreen.theme.tokens.primary=top[0]; if(top[1]) uiScreen.theme.tokens.surface=top[1]; if(top[2]) uiScreen.theme.tokens.accent=top[2]; uiRender(); showToast(`Style ref applied — primary ${top[0]}`); }; im.src=uiRefDataUrl;
+    }catch{}
+  }; reader.readAsDataURL(f);
+});
+// init
+setTimeout(()=>{ uiRender(); uiFillProps(); }, 300);
+
 // Left rail handlers
 function scrollToTarget(target){
   const el=document.querySelector(target); if(!el) return;

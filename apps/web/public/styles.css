@@ -167,6 +167,43 @@ code{font-family:ui-monospace,Consolas,monospace; font-size:.92em; background:va
 /* Grid lines decoration */
 .canvas-grid::before{content:""; position:absolute; inset:0; background-image:radial-gradient(circle, rgba(255,255,255,.04) 1px, transparent 1px); background-size:22px 22px; pointer-events:none; z-index:0; border-radius:0 0 12px 12px}
 
+/* UI Studio - Phase 2 */
+.ui-studio{background:var(--bg); border:1px solid var(--hairline); border-radius:16px; overflow:hidden}
+.ui-studio-head{display:flex; justify-content:space-between; gap:16px; padding:14px 16px; border-bottom:1px solid var(--hairline); flex-wrap:wrap; align-items:center}
+.ui-title{font:700 16px var(--font); margin:0; display:flex; gap:10px; align-items:center}
+.ui-sub{font:12px/1.4 var(--font); color:var(--muted); margin:4px 0 0}
+.ui-head-actions{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.ui-studio-grid{display:grid; grid-template-columns:220px 1fr 280px; gap:0; min-height:520px}
+.ui-palette{border-right:1px solid var(--hairline); padding:12px; overflow:auto; max-height:720px}
+.ui-preview-col{padding:12px; overflow:auto; display:flex; flex-direction:column; gap:12px; min-width:0}
+.ui-props{border-left:1px solid var(--hairline); padding:12px; overflow:auto; max-height:720px}
+.palette-grid{display:grid; grid-template-columns:1fr 1fr; gap:6px}
+.palette-item{background:var(--field); border:1px solid var(--hairline); border-radius:8px; padding:8px; font:600 11px var(--font); color:var(--text); cursor:pointer; text-align:left}
+.palette-item small{display:block; font:400 10px var(--font); color:var(--faint); margin-top:2px}
+.palette-item:hover{border-color:var(--accent)}
+.ui-tree{font:12px/1.5 var(--font); display:flex; flex-direction:column; gap:4px}
+.ui-tree-row{display:flex; justify-content:space-between; align-items:center; background:var(--field); border:1px solid var(--hairline); border-radius:6px; padding:4px 6px; cursor:pointer}
+.ui-tree-row.active{border-color:var(--accent); box-shadow:var(--glow)}
+.theme-grid{display:flex; flex-direction:column; gap:6px}
+.theme-row{display:flex; gap:6px; align-items:center}
+.theme-row input{flex:1; background:var(--field); border:1px solid var(--hairline); color:var(--text); border-radius:6px; padding:4px 6px; font:11px var(--font)}
+.ui-preview-wrap{background:radial-gradient(600px 300px at 50% 0%, rgba(60,70,110,.12), transparent), var(--bg-deep); border:1px solid var(--hairline); border-radius:12px; padding:12px; min-height:360px}
+.ui-preview-toolbar{display:flex; justify-content:space-between; font:11px var(--font); color:var(--faint)}
+.ui-preview{display:grid; gap:8px}
+.preview-node{background:var(--panel); border:1px solid var(--hairline); border-radius:8px; padding:10px; font:12px var(--font)}
+.preview-node.button{background:linear-gradient(135deg,var(--accent),var(--accent-hover)); color:#fff; border:none; cursor:pointer; text-align:center; font-weight:600}
+.preview-node.frame-list{display:flex; flex-direction:column; gap:8px}
+.preview-node.frame-grid{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.validation-list{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px}
+.validation-list li{font:11px/1.4 var(--font); padding:6px 8px; border-radius:6px; border:1px solid var(--hairline)}
+.validation-list li.error{background:rgba(224,106,106,.08); border-color:rgba(224,106,106,.3); color:#e06a6a}
+.validation-list li.warning{background:rgba(255,200,60,.08); border-color:rgba(255,200,60,.25); color:#d9b44a}
+.props-form{display:flex; flex-direction:column; gap:8px}
+.props-form label{display:flex; flex-direction:column; gap:4px; font:11px var(--font); color:var(--muted)}
+.props-form input,.props-form select{background:var(--field); border:1px solid var(--hairline); color:var(--text); border-radius:6px; padding:6px 8px; font:12px var(--font)}
+@media(max-width:1100px){.ui-studio-grid{grid-template-columns:1fr} .ui-palette,.ui-props{border:none; border-top:1px solid var(--hairline)}}
+
+
 /* Responsive */
 @media(max-width:1100px){
   .workspace-shell{grid-template-columns:1fr; padding:0 12px}
