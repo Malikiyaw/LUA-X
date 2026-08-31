@@ -1023,6 +1023,246 @@ $('#world-push')?.addEventListener('click', async()=>{
 });
 setTimeout(worldRender, 600);
 
+// ===== AUTONOMOUS / FUSION / CLOUD + HARDENING - Phase 9-11 =====
+let autoSession=null; // BuildSession
+let fusionSession={id:`workspace-${webSessionId}`, projectId: webSessionId, status:'idle', activeSurface:'project', items:[]};
+let cloudProjects=JSON.parse(localStorage.getItem('lua_x_cloud_projects')||'null')||[{id: webSessionId, name:'LUA-X Demo', ownerId:'local-user', members:[{userId:'local-user',role:'owner'}], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()}];
+let cloudActiveId=cloudProjects[0].id;
+let hardeningAudits=JSON.parse(localStorage.getItem('lua_x_hardening_audits')||'[]');
+let rateBucket={key:`web:${webSessionId}`, limit:60, windowMs:60000, used:0, windowStartedAt:Date.now()};
+
+function autoSave(){ try{ localStorage.setItem('lua_x_auto_session', JSON.stringify(autoSession)); localStorage.setItem('lua_x_cloud_projects', JSON.stringify(cloudProjects)); localStorage.setItem('lua_x_hardening_audits', JSON.stringify(hardeningAudits)); }catch{} }
+function autoCreateGoal(){
+  const desc=$('#auto-goal-desc').value.trim()||'Build game';
+  const pri=$('#auto-goal-priority').value;
+  const critRaw=$('#auto-goal-criteria').value.trim();
+  const criteria=critRaw? critRaw.split(',').map(s=> s.trim()).filter(Boolean) : ['survives playtest'];
+  const goal={id:`goal-${Date.now().toString(36)}`, description:desc, priority:pri, acceptanceCriteria:criteria};
+  autoSession={id:`build-${goal.id}`, goal, status:'draft', plan:undefined, events:[], repairAttempts:0, maxRepairAttempts:3};
+  return goal;
+}
+function autoPlan(){
+  const goal=autoSession? autoSession.goal : autoCreateGoal();
+  if(!autoSession) autoSession={id:`build-${goal.id}`, goal, status:'draft', events:[], repairAttempts:0, maxRepairAttempts:3};
+  // Build plan from work list or generate default
+  const workList= autoSession.plan?.work?.length ? autoSession.plan.work : [];
+  let work=workList;
+  if(!work.length){
+    // default from current plan or criteria: create 3 work items with dependencies
+    const base=goal.acceptanceCriteria.slice(0,4);
+    work=[
+      {id:`w Arch`, kind:'architecture', title:`Architecture — ${goal.description.slice(0,30)}`, description:'Decompose brief + data model', dependsOn:[], risk:'low', acceptanceCriteria:[base[0]||'architecture ok']},
+      {id:`w code`, kind:'code', title:'Code systems', description:'Luau scripts', dependsOn:['w Arch'], risk:'high', acceptanceCriteria:[base[1]||'code ok']},
+      {id:`w verify`, kind:'verification', title:'Verification', description:'Playtest + evidence', dependsOn:['w code'], risk:'medium', acceptanceCriteria:[base[2]||'verify ok']},
+    ];
+  }
+  // validate duplicate/self/missing deps like autonomous-engine
+  const ids=new Set(work.map(w=> w.id));
+  for(const w of work){ if(work.filter(x=> x.id===w.id).length>1) { showToast(`Duplicate ${w.id}`); return; } for(const d of w.dependsOn) if(!ids.has(d)) { showToast(`Missing dep ${d} for ${w.id}`); return; } if(w.dependsOn.includes(w.id)){ showToast(`Self dep ${w.id}`); return; }}
+  const plan={id:`plan-${Date.now().toString(36)}`, goalId:goal.id, work, generatedAt:new Date().toISOString()};
+  autoSession={...autoSession, plan, status:'awaiting_approval', events:[...autoSession.events, {at:new Date().toISOString(), status:'awaiting_approval', message:'Build plan prepared — awaiting approval'}]};
+  auditPush('autonomous_plan', plan.id); hardeningAudit('autonomous_plan', true);
+  autoRender(); fusionRender(); showToast(`Plan ${plan.work.length} items — awaiting approval`);
+}
+function autoRender(){
+  const badge=$('#auto-status-badge'); const goalIdEl=$('#auto-goal-id'); const workCount=$('#auto-work-count'); const eventsCount=$('#auto-events-count');
+  const workListEl=$('#auto-work-list'); const eventsEl=$('#auto-events-list');
+  if(!autoSession){
+    if(badge) badge.textContent='draft'; if(goalIdEl) goalIdEl.textContent='—';
+    if(workListEl) workListEl.innerHTML='<li style="opacity:.6">No goal — describe and Plan</li>'; return;
+  }
+  if(badge){ badge.textContent=autoSession.status; badge.className=`badge ${autoSession.status==='completed'?'green':autoSession.status==='blocked'||autoSession.status==='failed'?'bad':''}`; }
+  if(goalIdEl) goalIdEl.textContent=autoSession.goal.id.slice(0,12);
+  if(workCount) workCount.textContent=String(autoSession.plan? autoSession.plan.work.length : 0);
+  if(eventsCount) eventsCount.textContent=String(autoSession.events.length);
+  if(workListEl){
+    const completed=new Set(autoSession.events.filter(e=> e.status==='executing' && e.workItemId).map(e=> e.workItemId));
+    const nextIds=new Set((autoSession.plan? autoSession.plan.work.filter(w=> !completed.has(w.id) && w.dependsOn.every(d=> completed.has(d))).map(w=> w.id):[]));
+    workListEl.innerHTML= autoSession.plan? autoSession.plan.work.map(w=>{
+      const isNext=nextIds.has(w.id); const done=completed.has(w.id);
+      return `<li class="${done?'passed': isNext?'pending':''}"><div style="display:flex;justify-content:space-between"><span><b>${esc(w.title)}</b> <span style="opacity:.6">${esc(w.kind)} · ${esc(w.risk)}</span> ${isNext?'<span class="badge green">next</span>': done?'<span class="badge green">done</span>':''}</span><span style="opacity:.6">${esc(w.id)}</span></div><div style="font:11px var(--font);opacity:.7">${esc(w.description)} ${w.dependsOn.length?`→ depends on ${esc(w.dependsOn.join(', '))}`:''}</div><div style="font:10px var(--font);opacity:.6">${esc(w.acceptanceCriteria.join(' · '))}</div></li>`;
+    }).join('') : '<li style="opacity:.6">No plan</li>';
+  }
+  if(eventsEl) eventsEl.innerHTML=autoSession.events.length? autoSession.events.slice(-12).reverse().map(e=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(e.status)}</b> ${esc(e.workItemId||'')}</span><span style="opacity:.6">${new Date(e.at).toLocaleTimeString()}</span></div><div style="font:11px var(--font);opacity:.7">${esc(e.message)}</div></li>`).join('') : '<li style="opacity:.6">No events</li>';
+  // sync verify repair pill with auto repairAttempts
+  const rp=$('#verify-repair-pill'); if(rp) rp.textContent=`repair ${autoSession? autoSession.repairAttempts: repairAttempts}/${autoSession? autoSession.maxRepairAttempts: MAX_REPAIR}`;
+}
+function autoApprove(){ if(!autoSession || autoSession.status!=='awaiting_approval'){ showToast('No plan awaiting approval'); return; } autoSession={...autoSession, status:'executing', events:[...autoSession.events, {at:new Date().toISOString(), status:'executing', message:'Approved — execution started'}]}; auditPush('autonomous_approved', autoSession.plan.id); autoRender(); }
+function autoExecute(){
+  if(!autoSession || !autoSession.plan){ showToast('Plan first'); return; }
+  if(autoSession.status==='awaiting_approval') autoApprove();
+  if(autoSession.status!=='executing'){ showToast(`Cannot execute from ${autoSession.status}`); return; }
+  // simulate executing each next
+  const completed=new Set(autoSession.events.filter(e=> e.workItemId).map(e=> e.workItemId));
+  const next=autoSession.plan.work.filter(w=> !completed.has(w.id) && w.dependsOn.every(d=> completed.has(d)));
+  if(!next.length){ showToast('No executable work — verifying'); autoSession={...autoSession, status:'verifying', events:[...autoSession.events, {at:new Date().toISOString(), status:'verifying', message:'All work done — verifying'}]}; autoRender(); return; }
+  const w=next[0];
+  autoSession={...autoSession, events:[...autoSession.events, {at:new Date().toISOString(), status:'executing', workItemId:w.id, message:`Executing ${w.title} (${w.kind})`} ]};
+  auditPush('work_executing', w.id);
+  // queue to Studio if connected
+  if(studioConnected && studioSessionId){
+    postJson('/api/studio/command', {sessionId: studioSessionId, type:'build', prompt:`autonomous ${w.kind}: ${w.title} — ${w.description}`});
+  }
+  autoRender();
+  // auto verify after last
+  if(completed.size+1 >= autoSession.plan.work.length){
+    setTimeout(()=>{ autoSession={...autoSession, status:'verifying', events:[...autoSession.events, {at:new Date().toISOString(), status:'verifying', message:'Build work complete — collecting evidence'}]}; autoRender(); }, 800);
+  }
+}
+function autoRepair(){
+  if(!autoSession){ showToast('No session'); return; }
+  if(autoSession.repairAttempts >= autoSession.maxRepairAttempts){ autoSession={...autoSession, status:'blocked', events:[...autoSession.events, {at:new Date().toISOString(), status:'blocked', message:'Repair limit reached — blocked'}]}; autoRender(); showToast('Blocked — max repairs'); return; }
+  autoSession={...autoSession, status:'repairing', repairAttempts: autoSession.repairAttempts+1, events:[...autoSession.events, {at:new Date().toISOString(), status:'repairing', message:`Repair ${autoSession.repairAttempts+1}/${autoSession.maxRepairAttempts}`}]};
+  autoRender(); showToast(`Repair ${autoSession.repairAttempts}/${autoSession.maxRepairAttempts}`);
+}
+function autoComplete(){
+  if(!autoSession){ showToast('No session'); return; }
+  // evidence from verifyRun
+  const ev= verifyRun? verifyRun.results.flatMap(r=> r.evidence.map(e=> e.summary)) : ['manual completion'];
+  if(!ev.length){ showToast('Evidence required — verify first'); return; }
+  autoSession={...autoSession, status:'completed', events:[...autoSession.events, {at:new Date().toISOString(), status:'completed', message:'Completed with evidence', evidence: ev.slice(0,5)}]};
+  auditPush('autonomous_completed', autoSession.id); hardeningAudit('autonomous_completed', true);
+  // also snapshot
+  snapshotPush(`auto-${autoSession.goal.id.slice(0,6)} completed`);
+  autoRender(); fusionRender(); showToast('Autonomous completed — evidence-backed');
+}
+$('#auto-plan-btn')?.addEventListener('click', ()=>{ if(!autoSession) autoCreateGoal(); autoPlan(); });
+$('#auto-approve-btn')?.addEventListener('click', autoApprove);
+$('#auto-execute-btn')?.addEventListener('click', autoExecute);
+$('#auto-complete-btn')?.addEventListener('click', autoComplete);
+$('#auto-repair-btn')?.addEventListener('click', autoRepair);
+$('#auto-add-work')?.addEventListener('click', ()=>{
+  if(!autoSession) autoCreateGoal();
+  const title=$('#auto-work-title').value.trim(); if(!title) return;
+  const kind=$('#auto-work-kind').value;
+  const work={id:`w ${title.slice(0,12)}_${Date.now().toString(36).slice(-3)}`, kind, title, description:title, dependsOn:[], risk:'low', acceptanceCriteria:[title]};
+  if(!autoSession.plan) autoPlan();
+  autoSession.plan.work.push(work); autoSave(); autoRender();
+  $('#auto-work-title').value='';
+});
+
+// Fusion workspace
+function fusionRender(){
+  const surfEl=$('#fusion-surfaces'), statusEl=$('#fusion-status'), idEl=$('#fusion-id'), itemsEl=$('#fusion-items-list'), countEl=$('#fusion-items-count');
+  const routeRes=$('#fusion-route-result');
+  const surfaces=['code','animation','ui','world','project','verification','chat'];
+  if(surfEl) surfEl.innerHTML=surfaces.map(s=> `<span class="badge ${s===fusionSession.activeSurface?'green':''}" data-surf="${s}" style="cursor:pointer">${s}</span>`).join('');
+  surfEl?.querySelectorAll('[data-surf]').forEach(el=> el.addEventListener('click',()=>{ fusionSession.activeSurface=el.getAttribute('data-surf'); fusionSession.status='working'; autoSave(); fusionRender(); }));
+  if(idEl) idEl.textContent=fusionSession.id.slice(0,16);
+  if(countEl) countEl.textContent=String(fusionSession.items.length);
+  if(statusEl) statusEl.textContent=`${fusionSession.status} · active: ${fusionSession.activeSurface} · ${fusionSession.projectId.slice(0,8)}`;
+  if(itemsEl) itemsEl.innerHTML=fusionSession.items.length? fusionSession.items.map(it=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(it.title)}</b> <span style="opacity:.6">${esc(it.surface)} → ${esc(it.target||'—')}</span></span><span style="opacity:.6">${it.dirty?'●':''} ${esc(it.id.slice(0,6))}</span></div></li>`).join('') : '<li style="opacity:.6">No items — add or route task</li>';
+  // active surfaces from auto plan
+  if(autoSession && autoSession.plan){
+    const surfs=[...new Set(autoSession.plan.work.map(w=> w.kind==='code'?'code': w.kind==='ui'?'ui': w.kind==='world'?'world': w.kind==='animation'?'animation': w.kind==='verification'?'verification':'project'))];
+    if(routeRes) routeRes.textContent=`Auto routes: ${surfs.join(', ')} (next: ${fusionSession.activeSurface})`;
+  }
+}
+function fusionAddItem(){
+  const title=$('#fusion-item-title').value.trim(); if(!title) return;
+  const surf=$('#fusion-item-surface').value;
+  const item={id:`item-${Date.now().toString(36)}`, surface:surf, title, target:`game.${surf}.*`, dirty:true};
+  fusionSession.items.push(item); $('#fusion-item-title').value=''; fusionRender(); auditPush('fusion_item', item.id);
+}
+function fusionRoute(){
+  const prompt=$('#fusion-task-prompt').value.trim(); if(!prompt) return;
+  const surfaces=prompt.toLowerCase().includes('ui')?['ui']: prompt.toLowerCase().includes('world')?['world']: prompt.toLowerCase().includes('anim')?['animation']: prompt.toLowerCase().includes('verify')?['verification']:['project','code'];
+  const routed=[...new Set(surfaces)];
+  $('#fusion-route-result').textContent=`Routes: ${routed.join(', ')} → active ${routed[0]}`;
+  fusionSession.activeSurface=routed[0]; fusionSession.status='planning'; fusionRender();
+}
+function fusionPush(){
+  if(!studioConnected || !studioSessionId){ showToast('Connect Studio first'); return; }
+  const prompt=$('#fusion-task-prompt').value.trim()||fusionSession.items[0]?.title||'fusion task';
+  postJson('/api/studio/command', {sessionId: studioSessionId, type:'build', prompt:`fusion ${fusionSession.activeSurface}: ${prompt}`});
+  showToast(`Pushed to ${fusionSession.activeSurface}`);
+}
+$('#fusion-add-item')?.addEventListener('click', fusionAddItem);
+$('#fusion-route-btn')?.addEventListener('click', fusionRoute);
+$('#fusion-push-btn')?.addEventListener('click', fusionPush);
+
+// Cloud + Hardening
+function cloudRender(){
+  const badge=$('#cloud-project-badge'), membersCount=$('#cloud-members-count'), membersList=$('#cloud-members-list');
+  const proj=cloudProjects.find(p=> p.id===cloudActiveId) || cloudProjects[0];
+  if(badge) badge.textContent=proj? `${proj.id.slice(0,8)} · ${proj.name}`:'—';
+  if(membersCount) membersCount.textContent=String(proj? proj.members.length:0);
+  if(membersList) membersList.innerHTML=proj? proj.members.map(m=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(m.userId)}</b> <span class="badge">${esc(m.role)}</span></span><span style="opacity:.6">rank ${esc(String({owner:5,admin:4,developer:3,designer:2,reviewer:1,viewer:0}[m.role]??0))}</span></div></li>`).join(''):'';
+  // health
+  const healthEl=$('#cloud-health-badge'); if(healthEl){
+    const deps={orchestrator:'up', execution:'up', verification:'up', autonomous: autoSession? (autoSession.status==='completed'?'up':'degraded'):'up', fusion: fusionSession.status==='working'?'up':'up', cloud:'up', hardening:'up', studio: studioConnected?'up':'down'};
+    const ok=Object.values(deps).every(v=> v==='up');
+    healthEl.textContent=`health ${ok?'ok':'degraded'}`; healthEl.className=`badge ${ok?'green':'bad'}`;
+    const hStatus=$('#hardening-status'); if(hStatus) hStatus.textContent=`Health: ${ok?'ok':'degraded'} · ${Object.entries(deps).map(([k,v])=> `${k}:${v}`).join(' ')} · ${new Date().toLocaleTimeString()}`;
+  }
+  const auditBadge=$('#hardening-audit-badge'); if(auditBadge) auditBadge.textContent=`audit ${hardeningAudits.length}`;
+}
+function hardeningAudit(action, success){
+  const rec={id:`audit-${Date.now().toString(36)}`, projectId: cloudActiveId, actorId:'local-user', action, success, requestId:`req-${Math.random().toString(36).slice(2,8)}`, at:new Date().toISOString()};
+  hardeningAudits.unshift(rec); if(hardeningAudits.length>50) hardeningAudits.length=50; autoSave(); cloudRender();
+}
+$('#cloud-create-btn')?.addEventListener('click', ()=>{
+  const id=$('#cloud-project-id').value.trim()||`proj-${Date.now().toString(36)}`;
+  const name=$('#cloud-project-name').value.trim()||'New Project';
+  let proj=cloudProjects.find(p=> p.id===id);
+  if(!proj){ proj={id, name, ownerId:'local-user', members:[{userId:'local-user',role:'owner'}], createdAt:new Date().toISOString(), updatedAt:new Date().toISOString()}; cloudProjects.unshift(proj); }
+  else { proj.name=name; proj.updatedAt=new Date().toISOString(); }
+  cloudActiveId=proj.id; fusionSession.projectId=id; fusionSession.id=`workspace-${id}`; autoSave(); cloudRender(); fusionRender(); showToast(`Project ${id} selected`);
+  auditPush('cloud_project', id); hardeningAudit('cloud_project', true);
+});
+$('#cloud-snap-btn')?.addEventListener('click', ()=> snapshotPush(`cloud ${cloudActiveId.slice(0,6)}`));
+$('#cloud-add-member')?.addEventListener('click', ()=>{
+  const uid=$('#cloud-member-id').value.trim(); if(!uid) return; const role=$('#cloud-member-role').value;
+  const proj=cloudProjects.find(p=> p.id===cloudActiveId); if(!proj) return;
+  // check admin
+  const actor=proj.members.find(m=> m.userId==='local-user'); if(!actor || !['owner','admin'].includes(actor.role)){ showToast('Admin required'); hardeningAudit('add_member', false); return; }
+  if(proj.members.some(m=> m.userId===uid)){ showToast('Member exists'); return; }
+  proj.members.push({userId:uid, role}); proj.updatedAt=new Date().toISOString(); $('#cloud-member-id').value=''; autoSave(); cloudRender(); auditPush('add_member', `${uid}:${role}`); hardeningAudit('add_member', true);
+});
+$('#hardening-check')?.addEventListener('click', ()=>{
+  const risk=$('#hardening-risk').value; const kind=$('#hardening-kind').value; const destructive=$('#hardening-destructive').checked; const requiresApproval=$('#hardening-approval').checked;
+  const principal={userId:'local-user', projectId:cloudActiveId, role: cloudProjects.find(p=> p.id===cloudActiveId)?.members.find(m=> m.userId==='local-user')?.role||'viewer', authenticated:true};
+  const reqRank={read:'viewer', write:'developer', delete:'admin', execute:'developer', publish:'admin', secret:'admin'};
+  const ROLE_RANK={owner:5,admin:4,developer:3,designer:2,reviewer:1,viewer:0}; const riskRank={low:0,medium:1,high:2,critical:3};
+  let allowed=true; let reason='authorized';
+  if(ROLE_RANK[principal.role] < ROLE_RANK[reqRank[kind]]) { allowed=false; reason='insufficient_permission'; }
+  else if(destructive && riskRank[risk]>=2 && !requiresApproval){ allowed=false; reason='approval_required'; }
+  const resEl=$('#hardening-result'); if(resEl) resEl.textContent=`${allowed?'✓ allowed':'✗ denied'} — ${reason} (role ${principal.role} → ${kind} needs ${reqRank[kind]})`;
+  hardeningAudit(`authorize_${kind}_${risk}`, allowed); showToast(allowed?'Authorized':'Denied — '+reason);
+});
+$('#rate-consume')?.addEventListener('click', ()=>{
+  const now=Date.now(); if(now - rateBucket.windowStartedAt >= rateBucket.windowMs){ rateBucket.used=0; rateBucket.windowStartedAt=now; }
+  if(rateBucket.used >= rateBucket.limit){ $('#rate-remaining').textContent=`rate 0/${rateBucket.limit} BLOCKED`; hardeningAudit('rate_blocked', false); showToast('Rate blocked'); }
+  else { rateBucket.used+=1; $('#rate-remaining').textContent=`rate ${rateBucket.limit-rateBucket.used}/${rateBucket.limit}`; hardeningAudit('rate_consume', true); }
+  if(rateBucket.used>=rateBucket.limit) rateBucket.used=rateBucket.limit;
+});
+$('#retry-demo')?.addEventListener('click', ()=>{
+  const policy={maxAttempts:5, baseDelayMs:200, maxDelayMs:5000};
+  const delays=[1,2,3,4,5].map(a=> Math.min(policy.maxDelayMs, policy.baseDelayMs * 2**(a-1)));
+  const resEl=$('#hardening-result'); if(resEl) resEl.textContent=`Retry delays: ${delays.join('ms, ')}ms (exp backoff capped ${policy.maxDelayMs})`;
+  showToast(`Retry demo: ${delays[0]}ms → ${delays[4]}ms`);
+});
+// hook generate to auto-create autonomous goal
+const _origCsSetFromPlan2=csSetFromPlan;
+csSetFromPlan=function(plan,pipeline){
+  _origCsSetFromPlan2(plan,pipeline);
+  // auto create autonomous goal from plan summary
+  if(!autoSession || autoSession.status==='completed' || autoSession.status==='blocked'){
+    const goal={id:`goal-${Date.now().toString(36)}`, description:plan.summary.slice(0,120), priority: plan.risks.length?'high':'medium', acceptanceCriteria:plan.acceptanceCriteria.slice(0,4)};
+    autoSession={id:`build-${goal.id}`, goal, status:'draft', plan:undefined, events:[], repairAttempts:0, maxRepairAttempts:3};
+    // create work from plan changes + verification
+    const work=plan.changes.slice(0,5).map((c,i)=> ({id:`w${i+1}_${c.operation}`, kind: c.operation.includes('ui')?'ui': c.operation.includes('animation')?'animation': c.operation.includes('world')?'world': c.operation.includes('instance')?'world':'code', title:`${c.operation} ${c.target.slice(0,30)}`, description:c.reason.slice(0,80), dependsOn: i>0? [`w${i}_${plan.changes[i-1].operation}`]:[], risk:c.risk, acceptanceCriteria:[plan.acceptanceCriteria[i]||c.reason]}));
+    if(work.length){ autoSession.plan={id:`plan-${Date.now().toString(36)}`, goalId:goal.id, work, generatedAt:new Date().toISOString()}; autoSession.status='awaiting_approval'; autoSession.events.push({at:new Date().toISOString(), status:'awaiting_approval', message:'Auto plan from AI pipeline'}); }
+  }
+  // also create fusion items from changes
+  (plan.changes||[]).slice(0,4).forEach(c=>{
+    const surf=c.operation.includes('ui')?'ui': c.operation.includes('animation')?'animation': c.operation.includes('world')?'world': c.operation.includes('create_script')?'code':'project';
+    fusionSession.items.push({id:`item-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,4)}`, surface:surf, title:`${c.operation} ${c.target}`, target:c.target, dirty:true});
+  });
+  autoRender(); fusionRender(); cloudRender();
+};
+setTimeout(()=>{ autoRender(); fusionRender(); cloudRender(); }, 700);
+
 // Left rail handlers
 
 // Left rail handlers

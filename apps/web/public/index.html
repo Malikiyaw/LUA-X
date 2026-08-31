@@ -24,6 +24,7 @@
           <a class="nav-link" href="#change-studio">Changes</a>
           <a class="nav-link" href="#anim-studio">Anim</a>
           <a class="nav-link" href="#world-studio">World</a>
+          <a class="nav-link" href="#autonomous-studio">Cloud</a>
           <a class="nav-link" href="#docs">Docs</a>
        </div>
        <div class="nav-actions">
@@ -70,6 +71,7 @@
         <button class="rail-btn" data-target="#change-studio" type="button" title="Changes">◐</button>
         <button class="rail-btn" data-target="#anim-studio" type="button" title="Anim">🎬</button>
         <button class="rail-btn" data-target="#world-studio" type="button" title="World">🌎</button>
+        <button class="rail-btn" data-target="#autonomous-studio" type="button" title="Cloud">☁</button>
         <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
        <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
      </aside>
@@ -362,6 +364,65 @@
               <div class="panel-head" style="margin-top:12px">Preview (top-down)</div>
               <div id="world-preview" style="background:var(--field);border:1px solid var(--hairline);border-radius:8px;height:260px;position:relative;overflow:hidden"></div>
               <div style="font:11px var(--font);color:var(--faint);margin-top:6px">Surgical edits: “add tower near village” preserves village. Terrain via <code>FillRegion</code> + noise.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- AUTONOMOUS / FUSION / CLOUD + HARDENING - Phase 9-11 -->
+        <section class="verify-studio" id="autonomous-studio">
+          <div class="ui-studio-head">
+            <div>
+              <h2 class="ui-title">Autonomous / Fusion / Cloud <span class="badge" id="auto-status-badge">draft</span> <span class="badge" id="fusion-surface-badge">project</span> <span class="badge" id="cloud-health-badge">health —</span></h2>
+              <p class="ui-sub">Goal → dependency work plan → approval → executing → verifying → repairing → evidence. Fusion surfaces route, cloud teams own, hardening gates.</p>
+            </div>
+            <div class="ui-head-actions">
+              <button class="pill ghost" id="auto-plan-btn" type="button">◐ Plan</button>
+              <button class="pill ghost" id="auto-approve-btn" type="button">✓ Approve</button>
+              <button class="pill ghost" id="auto-execute-btn" type="button">▶ Execute</button>
+              <button class="pill primary" id="auto-complete-btn" type="button">✓ Complete</button>
+              <button class="pill ghost" id="auto-repair-btn" type="button">↻ Repair</button>
+            </div>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-col">
+              <div class="panel-head">Goal & Work Plan <span class="badge" id="auto-goal-id">—</span></div>
+              <div class="props-form">
+                <label>Goal <textarea id="auto-goal-desc" rows="2" placeholder="Build a zombie chase game with shop and HUD">Build a zombie chase game with shop and HUD — survive waves, earn coins, buy gear.</textarea></label>
+                <label>Priority <select id="auto-goal-priority"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="critical">critical</option></select></label>
+                <label>Criteria (comma) <input id="auto-goal-criteria" type="text" value="zombies chase, shop buys, HUD updates, no errors"></label>
+              </div>
+              <div class="panel-head" style="margin-top:12px">Work Items <span class="badge" id="auto-work-count">0</span> <span class="muted" style="font-weight:400">dependsOn → next executable</span></div>
+              <ul class="verify-list" id="auto-work-list" style="max-height:360px;overflow:auto"></ul>
+              <div style="display:flex;gap:6px;margin-top:6px"><input id="auto-work-title" type="text" placeholder="Work: shop system" style="flex:1"><select id="auto-work-kind"><option value="code">code</option><option value="ui">ui</option><option value="world">world</option><option value="animation">animation</option><option value="architecture">architecture</option><option value="security">security</option></select><button class="ghost-button small" id="auto-add-work" type="button">Add</button></div>
+              <div class="panel-head" style="margin-top:8px">Events <span class="badge" id="auto-events-count">0</span></div>
+              <ul class="verify-list" id="auto-events-list" style="max-height:160px;overflow:auto"></ul>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Fusion Workspace <span class="muted" id="fusion-id">—</span></div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap" id="fusion-surfaces"></div>
+              <div class="verify-status" id="fusion-status">Idle — waiting for goal.</div>
+              <div class="panel-head" style="margin-top:12px">Items <span class="badge" id="fusion-items-count">0</span></div>
+              <ul class="verify-list" id="fusion-items-list" style="max-height:240px;overflow:auto"></ul>
+              <div style="display:flex;gap:6px;margin-top:6px"><input id="fusion-item-title" type="text" placeholder="Item: ShopHUD · target game.StarterGui.Shop" style="flex:1"><select id="fusion-item-surface"><option value="ui">ui</option><option value="code">code</option><option value="world">world</option><option value="animation">animation</option><option value="verification">verification</option><option value="project">project</option><option value="chat">chat</option></select><button class="ghost-button small" id="fusion-add-item" type="button">Add</button></div>
+              <div class="panel-head" style="margin-top:12px">Unified Task</div>
+              <div style="display:flex;gap:6px"><input id="fusion-task-prompt" type="text" placeholder="Prompt to route across surfaces" style="flex:1"><button class="ghost-button small" id="fusion-route-btn" type="button">Route</button><button class="pill ghost" id="fusion-push-btn" type="button">Push</button></div>
+              <div class="verify-status" id="fusion-route-result" style="margin-top:6px">Routes: —</div>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Cloud Project <span class="badge" id="cloud-project-badge">—</span></div>
+              <div class="props-form">
+                <label>Project <input id="cloud-project-id" type="text" value="lua-x-demo"></label>
+                <label>Name <input id="cloud-project-name" type="text" value="LUA-X Demo"></label>
+              </div>
+              <div style="display:flex;gap:6px;margin-top:6px"><button class="ghost-button small" id="cloud-create-btn" type="button">Create/Select</button><button class="ghost-button small" id="cloud-snap-btn" type="button">Snapshot</button></div>
+              <div class="panel-head" style="margin-top:12px">Members <span class="badge" id="cloud-members-count">0</span> <span class="muted" style="font-weight:400">owner>admin>developer…viewer</span></div>
+              <ul class="verify-list" id="cloud-members-list"></ul>
+              <div style="display:flex;gap:6px;margin-top:6px"><input id="cloud-member-id" type="text" placeholder="userId" style="flex:1"><select id="cloud-member-role"><option value="viewer">viewer</option><option value="developer" selected>developer</option><option value="admin">admin</option><option value="owner">owner</option></select><button class="ghost-button small" id="cloud-add-member" type="button">Add</button></div>
+              <div class="panel-head" style="margin-top:12px">Hardening <span class="badge" id="hardening-audit-badge">audit 0</span></div>
+              <div class="verify-status" id="hardening-status">Health: —</div>
+              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select id="hardening-risk"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="critical">critical</option></select><select id="hardening-kind"><option value="write">write</option><option value="read">read</option><option value="delete">delete</option><option value="execute">execute</option><option value="publish">publish</option></select><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="hardening-destructive"> destructive</label><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="hardening-approval"> requiresApproval</label><button class="ghost-button small" id="hardening-check" type="button">Check auth</button></div>
+              <div class="verify-status" id="hardening-result" style="margin-top:6px">Not checked</div>
+              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><span class="status-pill" id="rate-remaining">rate —</span><button class="ghost-button small" id="rate-consume" type="button">Consume rate</button><button class="ghost-button small" id="retry-demo" type="button">Retry delay demo</button></div>
             </div>
           </div>
         </section>
