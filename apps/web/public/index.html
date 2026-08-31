@@ -3,540 +3,104 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#020308">
-  <meta name="color-scheme" content="dark">
-  <meta name="description" content="LUA-X — AI-native Roblox Studio development with twin AI agents, mesh, vision.">
+  <meta name="theme-color" content="#F2F2F3">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="LUA-X — AI-native Roblox development workspace.">
   <title>LUA-X — AI-Native Roblox Studio</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <nav class="top-nav" id="top-nav">
-    <div class="nav-inner">
-      <div class="nav-brand">★ LUA-X</div>
-       <div class="nav-links">
-         <a class="nav-link" href="#hero">Workspace</a>
-         <a class="nav-link" href="#agents">Agents</a>
-         <a class="nav-link" href="#canvas-stage">Canvas</a>
-          <a class="nav-link" href="#ui-studio">UI Studio</a>
-          <a class="nav-link" href="#verify-studio">Verify</a>
-          <a class="nav-link" href="#change-studio">Changes</a>
-          <a class="nav-link" href="#anim-studio">Anim</a>
-          <a class="nav-link" href="#world-studio">World</a>
-          <a class="nav-link" href="#autonomous-studio">Cloud</a>
-          <a class="nav-link" href="#docs">Docs</a>
-       </div>
-       <div class="nav-actions">
-         <button class="pill ghost" id="connect-now" type="button">◎ Connect Studio</button>
-         <button class="pill dark" id="new-project-btn" type="button">+ New Project</button>
-         <a class="pill white" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
-       </div>
-      <button class="nav-rail-toggle" id="nav-rail-toggle" type="button">☰</button>
-    </div>
-  </nav>
-
-  <section class="hero" id="hero">
-    <div class="hero-inner">
-      <h1>AI-native Roblox Studio</h1>
-      <p class="hero-sub">Twin ARCHITECT + BUILDER agents, mesh generation, vision attach — from prompt to place in seconds.</p>
-      <div class="hero-ctas">
-        <button class="pill primary" id="hero-start-btn" type="button">Start in Studio →</button>
-        <button class="pill ghost" id="hero-docs-btn" type="button">Read Docs</button>
-        <button class="pill ghost" id="hero-desktop-btn" type="button">npx @lua-x/desktop-bridge</button>
-      </div>
-       <div class="stats-strip">
-         <div class="stat"><span class="stat-num" id="stat-sync">74%</span> <span class="stat-label">Sync</span></div>
-         <div class="stat"><span class="stat-num">2</span> <span class="stat-label">Keys pooled</span></div>
-         <div class="stat"><span class="stat-num" id="stat-studio">Studio offline</span> <span class="stat-label">Studio</span></div>
-         <div class="stat"><span class="stat-num" id="stat-session">—</span> <span class="stat-label">Session</span></div>
-       </div>
-       <div class="waiting-box hidden" id="waiting-box" style="margin:18px auto 0;max-width:520px;background:var(--field);border:1px solid var(--hairline);border-radius:12px;padding:14px;text-align:left">
-         <div style="font:700 12px var(--font);color:var(--text)" id="waiting-title">Connecting…</div>
-         <div style="font:12px/1.5 var(--font);color:var(--muted);margin-top:6px" id="waiting-steps">Request <code>—</code> — open plugin to claim.</div>
-         <div style="font:11px var(--font);color:var(--faint);margin-top:8px">Plugin → LUA-X → heartbeat auto-claims within 4s. Keep Studio open with a Place loaded.</div>
-       </div>
-    </div>
-  </section>
-
-  <div class="workspace-shell" id="workspace-shell">
-     <aside class="left-rail" id="left-rail">
-       <button class="rail-btn active" data-target="#hero" type="button" title="Home">🏠</button>
-       <button class="rail-btn" data-target="#chat-feed" type="button" title="Chat">💬</button>
-       <button class="rail-btn" data-target="#suggestions-row" type="button" title="Prompts">⚡</button>
-       <button class="rail-btn" data-target="#agents" type="button" title="Agents">🤖</button>
-       <button class="rail-btn" data-target="#canvas-stage" type="button" title="Canvas">▦</button>
-        <button class="rail-btn" data-target="#ui-studio" type="button" title="UI">🎨</button>
-         <button class="rail-btn" data-target="#verify-studio" type="button" title="Verify">✓</button>
-        <button class="rail-btn" data-target="#change-studio" type="button" title="Changes">◐</button>
-        <button class="rail-btn" data-target="#anim-studio" type="button" title="Anim">🎬</button>
-        <button class="rail-btn" data-target="#world-studio" type="button" title="World">🌎</button>
-        <button class="rail-btn" data-target="#autonomous-studio" type="button" title="Cloud">☁</button>
-        <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
-       <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
-     </aside>
-
-    <main class="canvas-col" id="canvas-col">
-      <div class="canvas-stage" id="canvas-stage">
-        <div class="canvas-bar" id="canvas-bar">
-          <span class="agent-card active" id="agents">ARCHITECT <span class="badge green">active</span> · <span id="arch-body">Analyzing request and project context…</span></span>
-          <span class="agent-card" id="build-agent">BUILDER <span class="badge">idle</span> · <span id="build-body">Waiting handoff…</span></span>
-          <span class="agent-card mini">Market Research <span class="badge green">75%</span> · 124 data points · Token 12.4K</span>
-          <span class="agent-card mini">Legal Compliance <span class="badge">in progress</span></span>
-        </div>
-        <div class="canvas-grid">
-          <svg id="canvas-connections" xmlns="http://www.w3.org/2000/svg"></svg>
-          <div class="node center" id="central-task">
-            <div class="node-badge">6 active agents</div>
-            <div class="node-title" id="central-title">Plan the successful launch of our AI product in the European market.</div>
-            <div id="canvas-thinking">Dessin is thinking…</div>
-            <button class="ghost-button small" id="see-steps" type="button">See steps</button>
-          </div>
-          <div class="node" id="node-arch">
-            <div class="node-title">ARCHITECT</div>
-            <small id="arch-model">—</small>
-          </div>
-          <div class="node" id="node-build">
-            <div class="node-title">BUILDER</div>
-            <small id="build-model"></small>
-          </div>
-        </div>
-      </div>
-
-       <!-- UI STUDIO - Phase 2: beats ForgeGUI (reference-guided, theme tokens, parity score) -->
-       <section class="ui-studio" id="ui-studio">
-         <div class="ui-studio-head">
-           <div>
-             <h2 class="ui-title">UI Studio <span class="badge green" id="ui-parity-badge">Parity 0/100</span></h2>
-             <p class="ui-sub">ForgeGUI-grade sets, theme tokens, responsive rules — validated live. Push via twin agents to Studio.</p>
-           </div>
-           <div class="ui-head-actions">
-             <input type="file" id="ui-ref-input" accept="image/*" class="hidden">
-             <button class="pill ghost" id="ui-ref-btn" type="button">📎 Style Ref</button>
-             <button class="pill ghost" id="ui-export-btn" type="button">⤓ Export create_ui</button>
-             <button class="pill primary" id="ui-generate-btn" type="button">✨ Generate with AI</button>
-             <button class="pill white" id="ui-push-btn" type="button">⬢ Push to Studio</button>
-           </div>
-         </div>
-         <div class="ui-studio-grid">
-           <div class="ui-palette">
-             <div class="panel-head">Component Library</div>
-             <div class="palette-grid" id="ui-palette-grid">
-               <button class="palette-item" data-kind="button" type="button">Button<small>states + disabled</small></button>
-               <button class="palette-item" data-kind="frame" type="button">Card / Panel<small>container + hover lift</small></button>
-               <button class="palette-item" data-kind="scroll" type="button">List / Grid<small>UIList/UIGrid</small></button>
-               <button class="palette-item" data-kind="text" type="button">Toast<small>enter/exit tween</small></button>
-               <button class="palette-item" data-kind="frame" data-template="modal" type="button">Modal<small>dim + focus trap</small></button>
-               <button class="palette-item" data-kind="frame" data-template="shop" type="button">Shop Grid<small>slots + drag</small></button>
-               <button class="palette-item" data-kind="frame" data-template="hud" type="button">HUD Bar<small>flash + heal</small></button>
-               <button class="palette-item" data-kind="input" type="button">Settings Row<small>slider/toggle</small></button>
-             </div>
-             <div class="panel-head" style="margin-top:14px">Tree <button class="ghost-button small" id="ui-clear-btn" type="button">Clear</button></div>
-             <div class="ui-tree" id="ui-tree"></div>
-             <div class="panel-head" style="margin-top:14px">Theme Tokens <span class="muted" style="font-weight:400">colors/radii/spacing/motion</span></div>
-             <div class="theme-grid" id="ui-theme-grid"></div>
-             <button class="ghost-button small" id="ui-add-token" type="button">+ Add token</button>
-           </div>
-           <div class="ui-preview-col">
-             <div class="ui-preview-toolbar">
-               <span class="muted">Preview — phone / tablet / desktop (responsive rules live)</span>
-               <span class="muted" id="ui-ref-preview-label"></span>
-             </div>
-             <div class="ui-preview-wrap">
-               <div class="ui-preview" id="ui-preview"></div>
-               <img id="ui-ref-preview" class="hidden" style="max-width:100%;border-radius:8px;border:1px solid var(--hairline);margin-top:10px">
-             </div>
-             <div class="ui-validation">
-               <div class="panel-head">Validation <span class="badge" id="ui-issues-count">0 issues</span></div>
-               <ul class="validation-list" id="ui-validation-list"></ul>
-             </div>
-           </div>
-           <div class="ui-props">
-             <div class="panel-head">Props <span class="muted" id="ui-selected-id">none</span></div>
-             <div class="props-form" id="ui-props-form">
-               <label>Kind <select id="ui-prop-kind"><option value="frame">frame</option><option value="screen">screen</option><option value="button">button</option><option value="text">text</option><option value="image">image</option><option value="input">input</option><option value="scroll">scroll</option><option value="template">template</option></select></label>
-               <label>Name <input id="ui-prop-name" type="text" placeholder="Root"></label>
-               <label>Layout <select id="ui-prop-layout"><option value="">absolute</option><option value="list">list</option><option value="grid">grid</option><option value="page">page</option></select></label>
-               <label>CornerRadius <input id="ui-prop-radius" type="number" min="0" max="40" placeholder="8"></label>
-               <label>Padding <input id="ui-prop-padding" type="number" min="0" placeholder="8"></label>
-               <label>Transparency <input id="ui-prop-trans" type="number" min="0" max="1" step="0.05" placeholder="0"></label>
-               <label>TextSize <input id="ui-prop-textsize" type="number" min="1" placeholder="14"></label>
-               <label>colorToken <input id="ui-prop-token" type="text" placeholder="primary"></label>
-               <label>ParentId <input id="ui-prop-parent" type="text" placeholder="root"></label>
-               <button class="primary-button small" id="ui-save-props" type="button">Save</button>
-               <button class="ghost-button small" id="ui-delete-comp" type="button">Delete</button>
-             </div>
-             <div class="panel-head" style="margin-top:14px">Responsive Rules</div>
-             <div id="ui-responsive-list" style="display:flex;flex-direction:column;gap:6px"></div>
-             <div style="display:flex;gap:6px;margin-top:6px"><input id="ui-responsive-input" type="text" placeholder="stack below 420px" style="flex:1"><button class="ghost-button small" id="ui-add-responsive" type="button">Add</button></div>
-             <div class="panel-head" style="margin-top:14px">Actions</div>
-             <label>onClick type <input id="ui-prop-action" type="text" placeholder="openShop / buyItem"></label>
-             <div style="font:11px var(--font);color:var(--faint);margin-top:8px">States: buttons auto-get disabled per <code>validateScreen</code>. Tokens drive colors — edit tokens not hex.</div>
-           </div>
-         </div>
-       </section>
-
-        <!-- VERIFY & PLAYTEST - Phase 3: evidence-backed, bounded repair -->
-        <section class="verify-studio" id="verify-studio">
-          <div class="ui-studio-head">
-            <div>
-              <h2 class="ui-title">Verify & Playtest <span class="badge" id="verify-badge">No run yet</span> <span class="badge green hidden" id="verify-evidence-badge">Evidence 0</span></h2>
-              <p class="ui-sub">Acceptance criteria → tests → evidence → failure classification → bounded repair (max 3). Play harness pulls Studio console.</p>
-            </div>
-            <div class="ui-head-actions">
-              <button class="pill ghost" id="verify-run-static" type="button">▸ Run static checks</button>
-              <button class="pill ghost" id="verify-mark-pass" type="button">✓ Mark passed</button>
-              <button class="pill ghost" id="verify-request-repair" type="button">↻ Request repair</button>
-              <button class="pill primary" id="verify-push-verify" type="button">⬢ Verify in Studio</button>
-            </div>
-          </div>
-          <div class="verify-grid">
-            <div class="verify-col">
-              <div class="panel-head">Acceptance Criteria <span class="badge" id="verify-criteria-count">0</span></div>
-              <ul class="verify-list" id="verify-criteria-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Tests <span class="badge" id="verify-tests-count">0</span> <span class="muted" style="font-weight:400">static / playtest / integration</span></div>
-              <ul class="verify-list" id="verify-tests-list"></ul>
-              <div style="display:flex;gap:6px;margin-top:8px"><input id="verify-new-test" type="text" placeholder="Add test: verify coin pickup debounce" style="flex:1"><button class="ghost-button small" id="verify-add-test" type="button">Add</button></div>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Run <span class="muted" id="verify-run-id">—</span></div>
-              <div class="verify-status" id="verify-status">No verification run yet. Generate via chat (build mode) to auto-fill.</div>
-              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap"><span class="status-pill" id="verify-passed-pill">passed: —</span><span class="status-pill" id="verify-blocked-pill">blocked: —</span><span class="status-pill" id="verify-missing-pill">missing: —</span><span class="status-pill" id="verify-repair-pill">repair 0/3</span></div>
-              <div class="panel-head" style="margin-top:12px">Evidence <button class="ghost-button small" id="verify-add-evidence" type="button">+ console</button></div>
-              <ul class="verify-list" id="verify-evidence-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Failures → Repair Plan</div>
-              <ul class="verify-list" id="verify-failures-list"></ul>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Playtest Harness <span class="status-pill" id="playtest-status">idle</span></div>
-              <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="pill primary" id="playtest-start" type="button">▶ Play</button><button class="pill ghost" id="playtest-run" type="button">▶ Run</button><button class="pill ghost" id="playtest-stop" type="button">■ Stop</button><button class="pill ghost" id="playtest-refresh" type="button">↻ Refresh</button></div>
-              <div class="verify-status" id="playtest-detail" style="margin-top:8px">No playtest yet.</div>
-              <div class="panel-head" style="margin-top:12px">Console / Logs <button class="ghost-button small" id="playtest-console" type="button">Fetch console</button></div>
-              <pre class="verify-log" id="playtest-log" style="max-height:240px;overflow:auto;background:var(--field);border:1px solid var(--hairline);border-radius:8px;padding:8px;font:11px/1.4 ui-monospace"></pre>
-              <div style="font:11px var(--font);color:var(--faint);margin-top:6px">Stub passes after 800ms on server if Studio not connected — real logs via <code>get_console_output</code> when LIVE.</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- CHANGE SET + SNAPSHOTS + AUDIT - Phase 4: safe execution -->
-        <section class="verify-studio" id="change-studio">
-          <div class="ui-studio-head">
-            <div>
-              <h2 class="ui-title">Change Set & Safe Execution <span class="badge" id="cs-badge">No set yet</span> <span class="badge hidden" id="cs-risk-badge">risk —</span></h2>
-              <p class="ui-sub">Deterministic IDs · stale-write protection · approval gates · snapshots · audit trail. Pro-team safe mutation.</p>
-            </div>
-            <div class="ui-head-actions">
-              <button class="pill ghost" id="cs-dryrun" type="button">◐ Dry-run</button>
-              <button class="pill ghost" id="cs-approve" type="button">✓ Approve</button>
-              <button class="pill primary" id="cs-apply" type="button">⬢ Apply to Studio</button>
-              <button class="pill ghost" id="cs-snapshot" type="button">⎘ Snapshot</button>
-            </div>
-          </div>
-          <div class="verify-grid">
-            <div class="verify-col">
-              <div class="panel-head">Change Set <span class="muted" id="cs-id">—</span></div>
-              <div class="verify-status" id="cs-summary">No change set yet. Generate via chat (build mode) to review.</div>
-              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><span class="status-pill" id="cs-count">0 ops</span><span class="status-pill" id="cs-approval-pill">approval: —</span><span class="status-pill" id="cs-delete-pill">delete: disabled</span><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="cs-allow-delete"> allow delete</label></div>
-              <div class="panel-head" style="margin-top:12px">Operations</div>
-              <ul class="verify-list" id="cs-ops-list"></ul>
-              <div style="display:flex;gap:6px;margin-top:8px"><input id="cs-new-op-target" type="text" placeholder="game.ServerScriptService.Foo" style="flex:1"><button class="ghost-button small" id="cs-add-op" type="button">Add op</button></div>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Evidence <span class="badge" id="cs-evidence-count">0</span></div>
-              <ul class="verify-list" id="cs-evidence-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Stale-write Check <span class="badge" id="cs-stale-badge">ok</span></div>
-              <div class="verify-status" id="cs-stale-status">No pending stale check. Replace ops with expectedHash will be verified via <code>readScript</code> before apply.</div>
-              <div style="display:flex;gap:6px;margin-top:8px"><input id="cs-expected-hash" type="text" placeholder="expectedHash for selected op" style="flex:1"><button class="ghost-button small" id="cs-set-hash" type="button">Set</button></div>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Snapshots <span class="badge" id="snap-count">0</span> <button class="ghost-button small" id="snap-refresh" type="button">Refresh</button></div>
-              <ul class="verify-list" id="snap-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Audit Trail <span class="badge" id="audit-count">0</span></div>
-              <ul class="verify-list" id="audit-list" style="max-height:220px;overflow:auto"></ul>
-            </div>
-          </div>
-        </section>
-
-        <!-- ANIMATION STUDIO - Phase 5: rig, timeline, markers -->
-        <section class="verify-studio" id="anim-studio">
-          <div class="ui-studio-head">
-            <div>
-              <h2 class="ui-title">Animation Studio <span class="badge" id="anim-valid-badge">invalid</span> <span class="badge green hidden" id="anim-markers-badge">markers 0</span></h2>
-              <p class="ui-sub">Intent → pose sequence → timing map → keyframes → markers → verify. R15/R6 rig aware, loop control, style.</p>
-            </div>
-            <div class="ui-head-actions">
-              <button class="pill ghost" id="anim-add-kf" type="button">+ Keyframe</button>
-              <button class="pill ghost" id="anim-loop-toggle" type="button">Loop: off</button>
-              <button class="pill ghost" id="anim-export" type="button">⤓ Export clip</button>
-              <button class="pill primary" id="anim-generate" type="button">✨ Generate with AI</button>
-              <button class="pill white" id="anim-push" type="button">⬢ Push to Studio</button>
-            </div>
-          </div>
-          <div class="verify-grid">
-            <div class="verify-col">
-              <div class="panel-head">Intent</div>
-              <div class="props-form">
-                <label>Name <input id="anim-name" type="text" value="Sprint Cycle"></label>
-                <label>Action <input id="anim-action" type="text" value="sprint loop with arm swing"></label>
-                <label>Rig <select id="anim-rig"><option value="R15">R15</option><option value="R6">R6</option><option value="unknown">unknown</option></select></label>
-                <label>Duration <input id="anim-duration" type="number" min="0.05" max="60" step="0.1" value="1.2"></label>
-                <label>Style <input id="anim-style" type="text" placeholder="snappy, heavy, anime"></label>
-              </div>
-              <div class="panel-head" style="margin-top:12px">Markers <button class="ghost-button small" id="anim-add-marker" type="button">+ Add</button></div>
-              <div id="anim-markers-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
-              <div style="display:flex;gap:6px;margin-top:6px"><input id="anim-marker-input" type="text" placeholder="footstep / hit" style="flex:1"></div>
-              <div class="panel-head" style="margin-top:12px">Validation</div>
-              <ul class="verify-list" id="anim-issues"></ul>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Timeline <span class="muted" id="anim-timeline-label">1.2s · 0 kf</span></div>
-              <div style="background:var(--field);border:1px solid var(--hairline);border-radius:8px;padding:10px;min-height:300px;overflow:auto">
-                <div id="anim-timeline" style="position:relative;height:220px;background:var(--bg-deep);border:1px solid var(--hairline);border-radius:8px;overflow:hidden"></div>
-                <div style="display:flex;gap:6px;margin-top:8px"><button class="ghost-button small" id="anim-heavier" type="button">Heavier</button><button class="ghost-button small" id="anim-snappier" type="button">Snappier</button><button class="ghost-button small" id="anim-smoother" type="button">Smoother</button><button class="ghost-button small" id="anim-less-robotic" type="button">Less robotic</button></div>
-              </div>
-              <div class="panel-head" style="margin-top:12px">Keyframes</div>
-              <ul class="verify-list" id="anim-kf-list"></ul>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Keyframe Editor <span class="muted" id="anim-kf-id">none</span></div>
-              <div class="props-form" id="anim-kf-form">
-                <label>Time <input id="anim-kf-time" type="number" min="0" step="0.05" placeholder="0.0"></label>
-                <label>Joints JSON <textarea id="anim-kf-joints" rows="6" placeholder='{"HumanoidRootPart":{"cframe":"CFrame.new(0,0,0)"}}' style="background:var(--field);border:1px solid var(--hairline);border-radius:6px;padding:6px;color:var(--text);font:11px ui-monospace"></textarea></label>
-                <div style="display:flex;gap:6px"><button class="primary-button small" id="anim-save-kf" type="button">Save</button><button class="ghost-button small" id="anim-del-kf" type="button">Delete</button></div>
-              </div>
-              <div style="font:11px var(--font);color:var(--faint);margin-top:8px">Procedural fallback: if rig missing, Studio push emits TweenService code. Markers sync to hit/sound/VFX per choreography timeline.</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- WORLD STUDIO - Phase 6: zones, landmarks, budgets, streaming -->
-        <section class="verify-studio" id="world-studio">
-          <div class="ui-studio-head">
-            <div>
-              <h2 class="ui-title">World Studio <span class="badge" id="world-valid-badge">invalid</span> <span class="badge green hidden" id="world-stats-badge">stats 0</span></h2>
-              <p class="ui-sub">Zones · landmarks · paths · budgets · streaming · palette. Performance-aware placement plan, not whole-map regen.</p>
-            </div>
-            <div class="ui-head-actions">
-              <button class="pill ghost" id="world-add-asset" type="button">+ Asset</button>
-              <button class="pill ghost" id="world-add-zone" type="button">+ Zone</button>
-              <button class="pill ghost" id="world-add-landmark" type="button">+ Landmark</button>
-              <button class="pill ghost" id="world-export" type="button">⤓ Export spec</button>
-              <button class="pill primary" id="world-generate" type="button">✨ Generate with AI</button>
-              <button class="pill white" id="world-push" type="button">⬢ Push to Studio</button>
-            </div>
-          </div>
-          <div class="verify-grid">
-            <div class="verify-col">
-              <div class="panel-head">World Spec <span class="muted" id="world-id">—</span></div>
-              <div class="props-form">
-                <label>Id <input id="world-spec-id" type="text" value="island-01"></label>
-                <label>Name <input id="world-spec-name" type="text" value="Island Beach"></label>
-                <label>Mood <input id="world-mood" type="text" value="tropical"></label>
-                <label>Density <select id="world-density"><option value="sparse">sparse</option><option value="balanced" selected>balanced</option><option value="dense">dense</option></select></label>
-              </div>
-              <div class="panel-head" style="margin-top:12px">Assets <span class="badge" id="world-assets-count">0</span></div>
-              <ul class="verify-list" id="world-assets-list" style="max-height:240px;overflow:auto"></ul>
-              <div class="panel-head" style="margin-top:8px">Budget <span class="muted" style="font-weight:400">maxInstances/lights</span></div>
-              <div class="props-form">
-                <label>maxInstances <input id="world-budget-instances" type="number" min="0" placeholder="500"></label>
-                <label>maxLights <input id="world-budget-lights" type="number" min="0" placeholder="20"></label>
-                <label>Streaming <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="world-streaming"> enabled</label></label>
-                <label>Regions (comma) <input id="world-regions" type="text" placeholder="beach, village, peak"></label>
-              </div>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Zones <span class="badge" id="world-zones-count">0</span></div>
-              <ul class="verify-list" id="world-zones-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Landmarks <span class="badge" id="world-landmarks-count">0</span></div>
-              <ul class="verify-list" id="world-landmarks-list"></ul>
-              <div class="panel-head" style="margin-top:12px">Paths</div>
-              <ul class="verify-list" id="world-paths-list"></ul>
-              <div style="display:flex;gap:6px;margin-top:6px"><input id="world-path-input" type="text" placeholder="nodeId position 0,0,0 neighbors" style="flex:1"><button class="ghost-button small" id="world-add-path" type="button">Add node</button></div>
-              <div class="panel-head" style="margin-top:12px">Palette Tokens</div>
-              <div class="theme-grid" id="world-palette-grid"></div>
-              <button class="ghost-button small" id="world-add-token" type="button">+ Token</button>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Validation</div>
-              <ul class="verify-list" id="world-issues"></ul>
-              <div class="panel-head" style="margin-top:12px">Stats</div>
-              <div class="verify-status" id="world-stats"></div>
-              <div class="panel-head" style="margin-top:12px">Preview (top-down)</div>
-              <div id="world-preview" style="background:var(--field);border:1px solid var(--hairline);border-radius:8px;height:260px;position:relative;overflow:hidden"></div>
-              <div style="font:11px var(--font);color:var(--faint);margin-top:6px">Surgical edits: “add tower near village” preserves village. Terrain via <code>FillRegion</code> + noise.</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- AUTONOMOUS / FUSION / CLOUD + HARDENING - Phase 9-11 -->
-        <section class="verify-studio" id="autonomous-studio">
-          <div class="ui-studio-head">
-            <div>
-              <h2 class="ui-title">Autonomous / Fusion / Cloud <span class="badge" id="auto-status-badge">draft</span> <span class="badge" id="fusion-surface-badge">project</span> <span class="badge" id="cloud-health-badge">health —</span></h2>
-              <p class="ui-sub">Goal → dependency work plan → approval → executing → verifying → repairing → evidence. Fusion surfaces route, cloud teams own, hardening gates.</p>
-            </div>
-            <div class="ui-head-actions">
-              <button class="pill ghost" id="auto-plan-btn" type="button">◐ Plan</button>
-              <button class="pill ghost" id="auto-approve-btn" type="button">✓ Approve</button>
-              <button class="pill ghost" id="auto-execute-btn" type="button">▶ Execute</button>
-              <button class="pill primary" id="auto-complete-btn" type="button">✓ Complete</button>
-              <button class="pill ghost" id="auto-repair-btn" type="button">↻ Repair</button>
-            </div>
-          </div>
-          <div class="verify-grid">
-            <div class="verify-col">
-              <div class="panel-head">Goal & Work Plan <span class="badge" id="auto-goal-id">—</span></div>
-              <div class="props-form">
-                <label>Goal <textarea id="auto-goal-desc" rows="2" placeholder="Build a zombie chase game with shop and HUD">Build a zombie chase game with shop and HUD — survive waves, earn coins, buy gear.</textarea></label>
-                <label>Priority <select id="auto-goal-priority"><option value="low">low</option><option value="medium" selected>medium</option><option value="high">high</option><option value="critical">critical</option></select></label>
-                <label>Criteria (comma) <input id="auto-goal-criteria" type="text" value="zombies chase, shop buys, HUD updates, no errors"></label>
-              </div>
-              <div class="panel-head" style="margin-top:12px">Work Items <span class="badge" id="auto-work-count">0</span> <span class="muted" style="font-weight:400">dependsOn → next executable</span></div>
-              <ul class="verify-list" id="auto-work-list" style="max-height:360px;overflow:auto"></ul>
-              <div style="display:flex;gap:6px;margin-top:6px"><input id="auto-work-title" type="text" placeholder="Work: shop system" style="flex:1"><select id="auto-work-kind"><option value="code">code</option><option value="ui">ui</option><option value="world">world</option><option value="animation">animation</option><option value="architecture">architecture</option><option value="security">security</option></select><button class="ghost-button small" id="auto-add-work" type="button">Add</button></div>
-              <div class="panel-head" style="margin-top:8px">Events <span class="badge" id="auto-events-count">0</span></div>
-              <ul class="verify-list" id="auto-events-list" style="max-height:160px;overflow:auto"></ul>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Fusion Workspace <span class="muted" id="fusion-id">—</span></div>
-              <div style="display:flex;gap:4px;flex-wrap:wrap" id="fusion-surfaces"></div>
-              <div class="verify-status" id="fusion-status">Idle — waiting for goal.</div>
-              <div class="panel-head" style="margin-top:12px">Items <span class="badge" id="fusion-items-count">0</span></div>
-              <ul class="verify-list" id="fusion-items-list" style="max-height:240px;overflow:auto"></ul>
-              <div style="display:flex;gap:6px;margin-top:6px"><input id="fusion-item-title" type="text" placeholder="Item: ShopHUD · target game.StarterGui.Shop" style="flex:1"><select id="fusion-item-surface"><option value="ui">ui</option><option value="code">code</option><option value="world">world</option><option value="animation">animation</option><option value="verification">verification</option><option value="project">project</option><option value="chat">chat</option></select><button class="ghost-button small" id="fusion-add-item" type="button">Add</button></div>
-              <div class="panel-head" style="margin-top:12px">Unified Task</div>
-              <div style="display:flex;gap:6px"><input id="fusion-task-prompt" type="text" placeholder="Prompt to route across surfaces" style="flex:1"><button class="ghost-button small" id="fusion-route-btn" type="button">Route</button><button class="pill ghost" id="fusion-push-btn" type="button">Push</button></div>
-              <div class="verify-status" id="fusion-route-result" style="margin-top:6px">Routes: —</div>
-            </div>
-            <div class="verify-col">
-              <div class="panel-head">Cloud Project <span class="badge" id="cloud-project-badge">—</span></div>
-              <div class="props-form">
-                <label>Project <input id="cloud-project-id" type="text" value="lua-x-demo"></label>
-                <label>Name <input id="cloud-project-name" type="text" value="LUA-X Demo"></label>
-              </div>
-              <div style="display:flex;gap:6px;margin-top:6px"><button class="ghost-button small" id="cloud-create-btn" type="button">Create/Select</button><button class="ghost-button small" id="cloud-snap-btn" type="button">Snapshot</button></div>
-              <div class="panel-head" style="margin-top:12px">Members <span class="badge" id="cloud-members-count">0</span> <span class="muted" style="font-weight:400">owner>admin>developer…viewer</span></div>
-              <ul class="verify-list" id="cloud-members-list"></ul>
-              <div style="display:flex;gap:6px;margin-top:6px"><input id="cloud-member-id" type="text" placeholder="userId" style="flex:1"><select id="cloud-member-role"><option value="viewer">viewer</option><option value="developer" selected>developer</option><option value="admin">admin</option><option value="owner">owner</option></select><button class="ghost-button small" id="cloud-add-member" type="button">Add</button></div>
-              <div class="panel-head" style="margin-top:12px">Hardening <span class="badge" id="hardening-audit-badge">audit 0</span></div>
-              <div class="verify-status" id="hardening-status">Health: —</div>
-              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select id="hardening-risk"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option><option value="critical">critical</option></select><select id="hardening-kind"><option value="write">write</option><option value="read">read</option><option value="delete">delete</option><option value="execute">execute</option><option value="publish">publish</option></select><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="hardening-destructive"> destructive</label><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="hardening-approval"> requiresApproval</label><button class="ghost-button small" id="hardening-check" type="button">Check auth</button></div>
-              <div class="verify-status" id="hardening-result" style="margin-top:6px">Not checked</div>
-              <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><span class="status-pill" id="rate-remaining">rate —</span><button class="ghost-button small" id="rate-consume" type="button">Consume rate</button><button class="ghost-button small" id="retry-demo" type="button">Retry delay demo</button></div>
-            </div>
-          </div>
-        </section>
-
-        <div class="thread-feed-wrap">
-         <div class="chat-feed" id="chat-feed">
-          <div class="msg assistant center" id="greeting-card">
-            <div class="msg-time">1:40</div>
-            <div class="msg-title">Shaping the AI Chat Experience</div>
-            <div class="msg-body">During the meeting, the project vision was presented: to design a modern, intuitive, and trustworthy AI chat interface that emphasizes <b>usability</b> and <b>intelligent interaction</b>. Key design principles discussed include accessibility, conversational flow, and visual cues that <em>enhance user confidence in AI-driven responses</em>. The project scope was outlined, covering the creation of initial wireframes, visual concepts, and UI components specific to chat-based interactions.</div>
-            <button class="reply-pill" data-prompt="Reply to Shaping the AI Chat Experience">↩ Reply</button>
-          </div>
-          <div id="thread-feed"></div>
-          <div class="thinking hidden" id="thinking-row"><span class="spinner"></span> <span id="thinking-text">Getting a detailed report…</span></div>
-          <div class="takeaways-card hidden" id="takeaways-card">
-            <div class="takeaways-head">Key Takeaways <span class="muted">• 2</span></div>
-            <ol class="takeaways-list">
-              <li>The experience should scale from onboarding demos to advanced workflows without increasing complexity for the user.</li>
-              <li>The chat should serve as a primary interface for user interaction, prioritizing simplicity.</li>
-            </ol>
-            <div class="results-foot">12 results · <span id="arch-body2">Analyzing request and project context…</span> · <span id="build-body2">Waiting handoff…</span> · <span id="arch-model2">—</span> <span id="build-model2"></span></div>
-          </div>
-          <div id="agent-feed" class="agent-feed hidden"></div>
-        </div>
-
-        <div class="suggestions-row" id="suggestions-row">
-          <button class="chip" data-prompt="How should AI show uncertainty?">→ How should AI show uncertainty?</button>
-          <button class="chip primary" data-prompt="Which UI elements build trust in AI responses?">→ Which UI elements build trust in AI responses?</button>
-          <button class="chip" data-prompt="What signals make AI responses feel reliable?">→ What signals make AI responses feel reliable?</button>
-        </div>
-
-        <div class="quick-prompts" id="quick-prompts">
-          <button class="chip small" data-prompt="Build an obby with checkpoints">🏁 Obby</button>
-          <button class="chip small" data-prompt="Make a terrain island with beach">🏝 Terrain</button>
-          <button class="chip small" data-prompt="Create a UI shop with buy button">🛒 Shop UI</button>
-          <button class="chip small" data-prompt="Generate a mesh car with image reference">🧊 Mesh</button>
-          <a class="chip small" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
-        </div>
-      </div>
-    </main>
-
-    <aside class="chat-panel" id="chat-panel">
-      <div class="floating-card" id="floating-card">
-        <div class="card-head">
-          <div class="head-left">
-            <button class="head-title" id="new-chat-btn" type="button">New AI chat <span class="chev">▾</span></button>
-            <span class="status-dot" id="studio-pulse" title="Studio"></span>
-          </div>
-          <div class="head-center">
-            <label class="personalize"><span>Personilize</span><span class="toggle" id="personalize-toggle" role="switch" aria-checked="true"></span></label>
-          </div>
-          <div class="head-icons">
-            <span class="status-pill small hidden" id="ai-status">AI —</span>
-            <span class="model-label small hidden" id="model-label"></span>
-            <button class="icon-btn" id="open-settings" type="button" title="Settings">⋯</button>
-            <button class="icon-btn" id="close-card" type="button" title="Close">×</button>
-          </div>
-        </div>
-        <div class="composer">
-          <div class="composer-bar">
-            <button class="icon-btn small" id="vision-btn" type="button" title="Attach image">＋</button>
-            <input type="file" id="image-input" accept="image/*" class="hidden">
-            <div class="input-wrap">
-              <textarea id="chat-input" rows="1" placeholder="Ask AI anything"></textarea>
-              <div class="input-pills">
-                <span class="collab-token hidden" id="collab-token">kevin x louise <button type="button" id="clear-collab">×</button></span>
-              </div>
-            </div>
-            <button class="send-btn" id="send-btn" type="button">↑</button>
-          </div>
-          <div class="composer-meta">
-            <span class="model-pill"><span id="composer-model">Gemini 3 Pro</span> <span class="globe">🌐</span></span>
-            <span class="latency-chip hidden" id="latency-chip">Bridge — ms</span>
-            <span class="chip small hidden" id="twin-pill">TWIN ON</span>
-            <label class="hidden"><input type="checkbox" id="use-vision" checked></label>
-            <span class="hint">ESC to close <span class="kbd">●</span></span>
-          </div>
-        </div>
-         <div class="status-row small" id="status-row">
-           <span class="status-pill small" id="backend-status">Checking…</span>
-           <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
-           <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
-         </div>
-         <div class="status-row small" id="diagnostics-row" style="border-top:none;padding-top:0;gap:12px;flex-wrap:wrap">
-           <span class="status-pill small" id="check-backend">API —</span>
-           <span class="status-pill small" id="check-ai">AI —</span>
-           <span class="status-pill small" id="check-session">Session —</span>
-           <small id="plugin-meta" style="color:var(--faint)">v2.2.0 · checking…</small>
-         </div>
-      </div>
-      <dialog id="settings-dialog" class="settings-dialog">
-        <form method="dialog" class="panel narrow">
-          <div class="panel-head"><strong>API access (per-user)</strong><span>Bearer token</span></div>
-          <input id="token-input" type="password" placeholder="LUA-X API token" autocomplete="off">
-          <div class="plugin-actions">
-            <button class="primary-button" id="save-token" type="button">Save Token</button>
-            <button class="ghost-button" id="clear-token" type="button">Clear</button>
-            <button class="ghost-button" value="cancel" type="submit">Close</button>
-          </div>
-          <div class="install-note" id="token-note">Per-user — sent on every /api/ai/generate. Leave blank if public.</div>
-          <div class="install-note">Desktop proxy: <code>npx @lua-x/desktop-bridge --token &lt;token&gt;</code> (mcp.bat/StudioMCP)</div>
-        </form>
-      </dialog>
-      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="orbita-app" id="workspace-shell">
+    <aside class="orbita-sidebar" id="left-rail" aria-label="LUA-X workspace">
+      <button class="orbita-logo" data-target="#chat-feed" title="LUA-X" type="button">★</button>
+      <button class="orbita-rail active" data-target="#chat-feed" title="Chat" type="button">◌</button>
+      <button class="orbita-rail" data-target="#ui-studio" title="UI Studio" type="button">▧</button>
+      <button class="orbita-rail" data-target="#verify-studio" title="Verify" type="button">✓</button>
+      <button class="orbita-rail" data-target="#change-studio" title="Changes" type="button">◐</button>
+      <button class="orbita-rail" data-target="#anim-studio" title="Animation" type="button">◫</button>
+      <button class="orbita-rail" data-target="#world-studio" title="World" type="button">◇</button>
+      <button class="orbita-rail" data-target="#autonomous-studio" title="Cloud" type="button">☁</button>
+      <div class="orbita-rail-spacer"></div>
+      <button class="orbita-rail" data-target="#settings-dialog" title="Configuration" type="button">⚙</button>
+      <button class="orbita-rail" id="rail-docs" title="Docs" type="button">?</button>
+      <div class="rail-upgrade" title="LUA-X Pro">↗</div>
     </aside>
+    <main class="orbita-main">
+      <header class="orbita-header">
+        <div class="orbita-product">
+          <span>LUA-X GPT Plus</span>
+          <span class="orbita-status" id="ai-status">AI —</span>
+        </div>
+        <div class="orbita-header-actions">
+          <span class="orbita-connection"><span class="status-dot offline" id="studio-pulse"></span><span id="studio-label">Studio offline</span></span>
+          <button class="orbita-action" id="open-settings" type="button">Configuration ⚙</button>
+          <button class="orbita-action" id="share-session" type="button">Share ↑</button>
+          <button class="orbita-action dark" id="new-chat-btn" type="button">New Chat ↗</button>
+          <button class="orbita-action mobile" id="nav-rail-toggle" type="button">☰</button>
+        </div>
+      </header>
+      <section class="orbita-content" id="hero">
+        <div class="orbita-chat-wrap">
+          <div class="session-strip" id="studio-status-card">
+            <div>
+              <div class="eyebrow">LUA-X WORKSPACE</div>
+              <div class="session-title"><span id="twin-pill">Twin AI</span> <span id="latency-chip" class="hidden">Bridge —</span></div>
+              <div class="session-detail" id="studio-detail">Connect via the Roblox Studio plugin to make changes live.</div>
+            </div>
+            <button class="text-link" id="connect-now" type="button">Connect Studio →</button>
+          </div>
+          <div class="chat-feed" id="chat-feed">
+            <div class="thread-feed" id="thread-feed"></div>
+            <div class="starter-state">
+              <div class="starter-mark">★</div>
+              <h1>What should LUA-X build?</h1>
+              <p>Describe a Roblox feature, bug, UI, animation, world change, or verification task.</p>
+              <div class="starter-grid" id="suggestions-row">
+                <button class="starter-card" type="button" data-prompt="Build a clean inventory UI with item slots and sorting.">Build an inventory UI</button>
+                <button class="starter-card" type="button" data-prompt="Create a round system with lobby, countdown and winner detection.">Create a round system</button>
+                <button class="starter-card" type="button" data-prompt="Inspect the current project and find risky or broken scripts.">Inspect project health</button>
+                <button class="starter-card" type="button" data-prompt="Verify the current project and prepare evidence for the latest change set.">Verify the latest change</button>
+              </div>
+            </div>
+          </div>
+          <div class="orbita-composer">
+            <textarea id="chat-input" rows="2" placeholder="Ask LUA-X to build, inspect, verify, or repair something…"></textarea>
+            <div class="composer-row">
+              <div class="composer-left">
+                <label class="select-pill">AI Source <span id="composer-model">AI · checking…</span></label>
+                <span class="micro-status" id="backend-status">API offline</span>
+                <span class="micro-status" id="model-label"></span>
+              </div>
+              <div class="composer-actions">
+                <input id="image-input" type="file" accept="image/*" class="hidden">
+                <button class="icon-pill" id="vision-btn" type="button" title="Attach image">＋</button>
+                <label class="icon-pill" title="Use vision"><input id="use-vision" type="checkbox"> ◇</label>
+                <label class="icon-pill" title="Personalize"><input id="personalize-toggle" type="checkbox"> P</label>
+                <button class="send-btn" id="send-btn" type="button">Send</button>
+              </div>
+            </div>
+          </div>
+          <div class="orbita-footer">
+            <span id="verify-badge">No run yet</span><span id="cs-badge">Changes 0</span><span id="anim-valid-badge">Anim ready</span><span id="world-valid-badge">World ready</span><span id="auto-status-badge">draft</span>
+            <span class="footer-note">LUA-X may display inaccurate Luau, verify in Studio.</span>
+          </div>
+          <div class="waiting-box hidden" id="waiting-box"><strong id="waiting-title">Connecting…</strong><div id="waiting-steps">Request — — open Roblox Studio and let the plugin claim the session.</div></div>
+        </div>
+        <div class="orbita-details-stack">
+          <details id="agents-panel" class="orbita-details"><summary>Agent activity</summary><div class="details-body"><div class="agent-row" id="agents">ARCHITECT <span class="badge green">active</span> <span id="arch-body">Analyzing request and project context…</span><span id="arch-body2" class="hidden">—</span></div><div class="agent-row" id="build-agent">BUILDER <span class="badge">idle</span> <span id="build-body">Waiting handoff…</span><span id="build-body2" class="hidden">—</span></div><div class="agent-row" id="agent-activity-state">idle</div><div class="agent-feed hidden" id="agent-feed"></div><div class="agent-meta"><span id="arch-model">—</span><span id="build-model">—</span><span id="arch-model2" class="hidden">—</span><span id="build-model2" class="hidden">—</span></div></div></details>
+          <details id="canvas-stage" class="orbita-details"><summary>Project canvas</summary><div class="details-body canvas-stage-inner"><div class="canvas-bar" id="canvas-bar"><span class="agent-card active">ARCHITECT</span><span class="agent-card">BUILDER</span></div><div class="canvas-grid"><svg id="canvas-connections" xmlns="http://www.w3.org/2000/svg"></svg><div class="node center" id="central-task"><div class="node-badge">Project-aware orchestration</div><div class="node-title" id="central-title">Plan, build, verify, repair.</div><div id="canvas-thinking">LUA-X is ready.</div><button class="ghost-button small" id="see-steps" type="button">See steps</button></div><div class="node" id="node-arch"><div class="node-title">ARCHITECT</div><small id="arch-model">—</small></div><div class="node" id="node-build"><div class="node-title">BUILDER</div><small id="build-model">—</small></div></div></div></details>
+          <details id="ui-studio" class="orbita-details"><summary>UI Studio <span class="badge green" id="ui-parity-badge">Parity 0/100</span></summary><div class="details-body"><div class="tool-grid three"><div><div class="panel-head">Component Library</div><div class="palette-grid" id="ui-palette-grid"><button class="palette-item" data-kind="button" type="button">Button<small>states + disabled</small></button><button class="palette-item" data-kind="frame" type="button">Card / Panel<small>container</small></button><button class="palette-item" data-kind="scroll" type="button">List / Grid<small>UIList/UIGrid</small></button><button class="palette-item" data-kind="text" type="button">Toast<small>motion</small></button></div><div class="panel-head">Tree <button class="ghost-button small" id="ui-clear-btn" type="button">Clear</button></div><div class="ui-tree" id="ui-tree"></div><div class="panel-head">Theme Tokens</div><div class="theme-grid" id="ui-theme-grid"></div><button class="ghost-button small" id="ui-add-token" type="button">+ Add token</button></div><div><div class="panel-head">Preview</div><div class="ui-preview" id="ui-preview"></div><img id="ui-ref-preview" class="hidden" alt=""><div class="panel-head">Validation <span class="badge" id="ui-issues-count">0 issues</span></div><ul class="validation-list" id="ui-validation-list"></ul></div><div><div class="panel-head">Props <span class="muted" id="ui-selected-id">none</span></div><div class="props-form" id="ui-props-form"><label>Kind <select id="ui-prop-kind"><option>frame</option><option>screen</option><option>button</option><option>text</option><option>image</option><option>input</option><option>scroll</option><option>template</option></select></label><label>Name <input id="ui-prop-name" placeholder="Root"></label><label>Layout <select id="ui-prop-layout"><option value="">absolute</option><option value="list">list</option><option value="grid">grid</option><option value="page">page</option></select></label><label>CornerRadius <input id="ui-prop-radius" type="number" placeholder="8"></label><label>Padding <input id="ui-prop-padding" type="number" placeholder="8"></label><label>Transparency <input id="ui-prop-trans" type="number" step="0.05" placeholder="0"></label><label>TextSize <input id="ui-prop-textsize" type="number" placeholder="14"></label><label>colorToken <input id="ui-prop-token" placeholder="primary"></label><label>ParentId <input id="ui-prop-parent" placeholder="root"></label><button class="primary-button small" id="ui-save-props" type="button">Save</button><button class="ghost-button small" id="ui-delete-comp" type="button">Delete</button></div><div class="panel-head">Responsive Rules</div><div id="ui-responsive-list"></div><div class="inline-form"><input id="ui-responsive-input" placeholder="stack below 420px"><button class="ghost-button small" id="ui-add-responsive" type="button">Add</button></div><div class="panel-head">Actions</div><input id="ui-prop-action" placeholder="openShop / buyItem"></div></div><input type="file" id="ui-ref-input" accept="image/*" class="hidden"><div class="details-actions"><button class="pill ghost" id="ui-ref-btn" type="button">Style Ref</button><button class="pill ghost" id="ui-export-btn" type="button">Export create_ui</button><button class="pill primary" id="ui-generate-btn" type="button">Generate with AI</button><button class="pill white" id="ui-push-btn" type="button">Push to Studio</button></div></div></details>
+          <details id="verify-studio" class="orbita-details"><summary>Verify & Playtest <span class="badge" id="verify-evidence-badge">Evidence 0</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Acceptance Criteria <span class="badge" id="verify-criteria-count">0</span></div><ul class="verify-list" id="verify-criteria-list"></ul><div class="panel-head">Tests <span class="badge" id="verify-tests-count">0</span></div><ul class="verify-list" id="verify-tests-list"></ul></div><div><div class="panel-head">Evidence</div><ul class="verify-list" id="verify-evidence-list"></ul><div class="panel-head">Repair</div><div class="repair-row"><span id="verify-repair-pill">repair 0/3</span><button class="pill ghost" id="verify-request-repair" type="button">Request repair</button></div></div></div><div class="details-actions"><button class="pill ghost" id="verify-run-static" type="button">Run static checks</button><button class="pill ghost" id="verify-mark-pass" type="button">Mark passed</button><button class="pill primary" id="verify-push-verify" type="button">Verify in Studio</button></div></div></details>
+          <details id="change-studio" class="orbita-details"><summary>Changes & Rollback <span class="badge" id="cs-badge">Changes 0</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Change Set</div><div id="cs-summary">No change set yet.</div><ul id="cs-list"></ul></div><div><div class="panel-head">Review</div><div id="cs-risk">—</div><div id="cs-approval">Approval not required</div></div></div><div class="details-actions"><button class="pill ghost" id="cs-refresh" type="button">Refresh</button><button class="pill primary" id="cs-apply" type="button">Apply in Studio</button></div></div></details>
+          <details id="anim-studio" class="orbita-details"><summary>Animation Studio <span class="badge" id="anim-valid-badge">Anim ready</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Animation Timeline</div><div id="anim-timeline">No animation selected.</div><div id="anim-library"></div></div><div><div class="panel-head">Validation</div><div id="anim-validation"></div><div id="anim-issues"></div></div></div><div class="details-actions"><button class="pill ghost" id="anim-generate" type="button">Generate</button><button class="pill primary" id="anim-push" type="button">Push to Studio</button></div></div></details>
+          <details id="world-studio" class="orbita-details"><summary>World Studio <span class="badge" id="world-valid-badge">World ready</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Scene</div><div id="world-scene-tree"></div><div id="world-asset-list"></div></div><div><div class="panel-head">Validation</div><div id="world-validation"></div><div id="world-issues"></div></div></div><div class="details-actions"><button class="pill ghost" id="world-generate" type="button">Generate</button><button class="pill primary" id="world-push" type="button">Push to Studio</button></div></div></details>
+          <details id="autonomous-studio" class="orbita-details"><summary>Cloud & Autonomous <span class="badge" id="auto-status-badge">draft</span></summary><div class="details-body"><div class="tool-grid three"><div><div class="panel-head">Goal</div><label>Description <textarea id="auto-goal-desc" rows="3" placeholder="Build game"></textarea></label><label>Priority <select id="auto-goal-priority"><option>medium</option><option>high</option><option>low</option></select></label><label>Acceptance criteria <input id="auto-goal-criteria" placeholder="survives playtest"></label><div class="details-actions"><button class="pill primary" id="auto-plan" type="button">Plan</button><button class="pill ghost" id="auto-approve" type="button">Approve</button><button class="pill ghost" id="auto-execute" type="button">Execute</button><button class="pill ghost" id="auto-repair" type="button">Repair</button><button class="pill ghost" id="auto-complete" type="button">Complete</button></div></div><div><div class="panel-head">Work <span class="badge" id="auto-work-count">0</span></div><ul class="verify-list" id="auto-work-list"></ul><div class="panel-head">Events <span class="badge" id="auto-events-count">0</span></div><ul class="verify-list" id="auto-events-list"></ul><span id="auto-goal-id" class="hidden">—</span></div><div><div class="panel-head">Fusion / Cloud</div><div id="fusion-surface"></div><div id="fusion-items"></div><div class="panel-head">Cloud projects</div><div id="cloud-project-list"></div><button class="ghost-button small" id="cloud-snap-btn" type="button">Snapshot</button><div id="hardening-health"></div><div id="hardening-rate"></div><div id="hardening-audit"></div></div></div></div></details>
+          <details id="settings-dialog" class="orbita-details"><summary>Configuration</summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">AI</div><div id="check-ai">Checking…</div><div id="left-model">AI —</div></div><div><div class="panel-head">Backend</div><div id="check-backend">Checking…</div><div id="check-session">Waiting…</div></div></div><div class="tool-grid three"><div><span>Connection</span><strong id="row-connection">Waiting…</strong></div><div><span>Plugin</span><strong id="row-plugin">—</strong></div><div><span>Session</span><strong id="row-session">—</strong></div></div><div id="plugin-meta" class="muted"></div></div></details>
+        </div>
+      </section>
+    </main>
   </div>
-
-  <footer class="footer" id="docs">
-    <div class="footer-inner">
-      <span>LUA-X v2.2.0 — AI-native Roblox Studio</span>
-      <span class="footer-links"><a class="footer-link" href="#hero">Workspace</a> · <a class="footer-link" href="#agents">Agents</a> · <a class="footer-link" href="https://github.com/Malikiyaw/LUA-X" target="_blank">GitHub</a></span>
-    </div>
-  </footer>
-
-  <script src="/app.js" defer></script>
+  <div id="toast" class="toast"></div>
+  <script src="/app.js"></script>
 </body>
 </html>
