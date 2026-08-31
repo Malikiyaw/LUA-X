@@ -8,7 +8,7 @@ const HOST = process.env.HOST ?? '127.0.0.1';
 const PORT = Number(process.env.PORT ?? 3000);
 const API_BASE = (process.env.LUA_X_API_URL ?? (process.env.VERCEL ? 'https://lua-x-api.vercel.app' : 'http://127.0.0.1:4000')).replace(/\/+$/, '');
 const VERSION = '0.11.0-alpha';
-const PROXY_TIMEOUT_MS = 15000;
+const PROXY_TIMEOUT_MS = 90000;
 const PUBLIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '../public');
 
 const CONTENT_TYPES: Record<string, string> = {

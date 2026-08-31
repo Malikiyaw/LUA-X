@@ -21,10 +21,11 @@
         <a class="nav-link" href="#canvas-stage">Canvas</a>
         <a class="nav-link" href="#docs">Docs</a>
       </div>
-      <div class="nav-actions">
-        <button class="pill dark" id="new-project-btn" type="button">+ New Project</button>
-        <a class="pill white" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
-      </div>
+       <div class="nav-actions">
+         <button class="pill ghost" id="connect-now" type="button">◎ Connect Studio</button>
+         <button class="pill dark" id="new-project-btn" type="button">+ New Project</button>
+         <a class="pill white" href="/LUA-X.lua" download="LUA-X.lua">⬇ Plugin</a>
+       </div>
       <button class="nav-rail-toggle" id="nav-rail-toggle" type="button">☰</button>
     </div>
   </nav>
@@ -38,11 +39,17 @@
         <button class="pill ghost" id="hero-docs-btn" type="button">Read Docs</button>
         <button class="pill ghost" id="hero-desktop-btn" type="button">npx @lua-x/desktop-bridge</button>
       </div>
-      <div class="stats-strip">
-        <div class="stat"><span class="stat-num" id="stat-sync">74%</span> <span class="stat-label">Sync</span></div>
-        <div class="stat"><span class="stat-num">2</span> <span class="stat-label">Keys pooled</span></div>
-        <div class="stat"><span class="stat-num" id="stat-studio">Studio offline</span> <span class="stat-label">Studio</span></div>
-      </div>
+       <div class="stats-strip">
+         <div class="stat"><span class="stat-num" id="stat-sync">74%</span> <span class="stat-label">Sync</span></div>
+         <div class="stat"><span class="stat-num">2</span> <span class="stat-label">Keys pooled</span></div>
+         <div class="stat"><span class="stat-num" id="stat-studio">Studio offline</span> <span class="stat-label">Studio</span></div>
+         <div class="stat"><span class="stat-num" id="stat-session">—</span> <span class="stat-label">Session</span></div>
+       </div>
+       <div class="waiting-box hidden" id="waiting-box" style="margin:18px auto 0;max-width:520px;background:var(--field);border:1px solid var(--hairline);border-radius:12px;padding:14px;text-align:left">
+         <div style="font:700 12px var(--font);color:var(--text)" id="waiting-title">Connecting…</div>
+         <div style="font:12px/1.5 var(--font);color:var(--muted);margin-top:6px" id="waiting-steps">Request <code>—</code> — open plugin to claim.</div>
+         <div style="font:11px var(--font);color:var(--faint);margin-top:8px">Plugin → LUA-X → heartbeat auto-claims within 4s. Keep Studio open with a Place loaded.</div>
+       </div>
     </div>
   </section>
 
@@ -158,11 +165,17 @@
             <span class="hint">ESC to close <span class="kbd">●</span></span>
           </div>
         </div>
-        <div class="status-row small" id="status-row">
-          <span class="status-pill small" id="backend-status">Checking…</span>
-          <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
-          <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
-        </div>
+         <div class="status-row small" id="status-row">
+           <span class="status-pill small" id="backend-status">Checking…</span>
+           <span id="studio-label">Studio offline</span> <small id="studio-detail">open plugin or CLI proxy</small>
+           <span class="muted hidden" id="row-connection"></span><span class="hidden" id="row-plugin"></span><span class="hidden" id="row-session"></span>
+         </div>
+         <div class="status-row small" id="diagnostics-row" style="border-top:none;padding-top:0;gap:12px;flex-wrap:wrap">
+           <span class="status-pill small" id="check-backend">API —</span>
+           <span class="status-pill small" id="check-ai">AI —</span>
+           <span class="status-pill small" id="check-session">Session —</span>
+           <small id="plugin-meta" style="color:var(--faint)">v2.2.0 · checking…</small>
+         </div>
       </div>
       <dialog id="settings-dialog" class="settings-dialog">
         <form method="dialog" class="panel narrow">

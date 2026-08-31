@@ -3,7 +3,7 @@
   "filename": "LUA-X.lua",
   "version": "2.2.0",
   "source": "studio-plugin/LUA-X-connected.lua",
-  "sha256": "6819203c29cec63a271e44ff1ee4473cce982292515dc8757de4551c9d0add0d",
+  "sha256": "1ed62c60dfeab770277b675b1499e7c152ff89f562f364dee4ce3866d42a19c3",
   "minimumStudioVersion": "2024",
   "requiredVersion": "2.2.0"
 }

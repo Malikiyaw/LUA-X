@@ -89,7 +89,7 @@ export interface GenerationPipeline {
   readonly buildSession: BuildSession;
   readonly workspace: WorkspaceSession;
   readonly project: ProjectRecord;
-  readonly studio: { connected: false; bridge: RobloxMcpBridge };
+  readonly studio: { connected: boolean; bridge: RobloxMcpBridge };
   readonly capabilityChecks: {
     animation: { valid: boolean; issues: readonly string[] };
     ui: { valid: boolean; issues: readonly string[] };
@@ -342,7 +342,11 @@ function capabilityChecks(orchestration: OrchestrationResult, now: Date) {
   };
 }
 
-export function preparePipeline(request: AIRequest, plan: AIPlan, orchestration: OrchestrationResult, now = new Date()): GenerationPipeline {
+export type PipelineOptions = {
+  readonly studioConnected?: boolean;
+};
+
+export function preparePipeline(request: AIRequest, plan: AIPlan, orchestration: OrchestrationResult, now = new Date(), options: PipelineOptions = {}): GenerationPipeline {
   const projectId = request.projectId?.trim() || 'local';
   const activeSurfaces = surfacesForAgents(orchestration.brief.specialistAgents);
   const unifiedTask: UnifiedTask = {
@@ -386,6 +390,7 @@ export function preparePipeline(request: AIRequest, plan: AIPlan, orchestration:
     buildAutonomousPlan(orchestration),
   );
 
+  const studioConnected = options.studioConnected === true;
   const bridge = new RobloxMcpBridge({ transport: createNoopTransport(), requireConfirmation: true });
   const pipelineHealth = health({
     orchestrator: 'up',
@@ -395,7 +400,7 @@ export function preparePipeline(request: AIRequest, plan: AIPlan, orchestration:
     fusion: 'up',
     cloud: 'up',
     hardening: 'up',
-    studio: 'down',
+    studio: studioConnected ? 'up' : 'down',
   });
 
   return {
@@ -405,7 +410,7 @@ export function preparePipeline(request: AIRequest, plan: AIPlan, orchestration:
     buildSession,
     workspace,
     project,
-    studio: { connected: false, bridge },
+    studio: { connected: studioConnected, bridge },
     capabilityChecks: capabilityChecks(orchestration, now),
     health: pipelineHealth,
     mode: request.mode ?? 'build',

@@ -5,6 +5,18 @@ function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&l
 function delay(ms){return new Promise(r=>setTimeout(r,ms))}
 let toastTimer; function showToast(m){const t=$('#toast'); if(!t) return; t.textContent=m; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),3200)}
 async function resolveApiBase(){try{const r=await fetch('/api/config',{cache:'no-store'}); if(r.ok){const j=await r.json(); return j.apiBase||''}}catch{} return ''}
+const SESSION_KEY='lua_x_session_id';
+function getOrCreateSessionId(){
+  try{
+    let sid=null;
+    try{sid=localStorage.getItem(SESSION_KEY)}catch{}
+    if(sid && sid.trim().length>=8) return sid.trim().slice(0,100);
+    const fresh=(typeof crypto!=='undefined' && crypto.randomUUID) ? crypto.randomUUID() : `web_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+    try{localStorage.setItem(SESSION_KEY,fresh)}catch{}
+    return fresh;
+  }catch{ return `web_${Date.now().toString(36)}` }
+}
+let WEB_SESSION_ID=getOrCreateSessionId();
 const TOKEN_KEY='lua_x_api_token';
 function getToken(){try{return localStorage.getItem(TOKEN_KEY)||''}catch{return ''}}
 function saveToken(v){try{localStorage.setItem(TOKEN_KEY,v)}catch{}}
@@ -21,6 +33,7 @@ async function fetchDetailed(p,init={}){const s=Date.now(); try{const r=await fe
 let studioConnected=false, studioSessionId=null, studioPlaceName=null, studioPlaceId=null, studioPluginVersion=null, studioLastSeen=0;
 let requiredPluginVersion='2.2.0', bridgeUp=false, connectRequestId=null, pingSentAt=0, agentFeedLastAt=0, threadLastCount=-1;
 let chatBusy=false, twinOn=true, chatHistory=[];
+let webSessionId=WEB_SESSION_ID;
 const backendStatus=$('#backend-status'), aiStatus=$('#ai-status'), modelLabel=$('#model-label'), composerModel=$('#composer-model');
 const studioPulse=$('#studio-pulse'), studioLabel=$('#studio-label'), studioDetail=$('#studio-detail'), latencyChip=$('#latency-chip');
 const threadFeed=$('#thread-feed'), chatFeed=$('#chat-feed'), agentFeed=$('#agent-feed');
@@ -49,29 +62,71 @@ function renderStudio(s){
   const live=Boolean(s&&s.connected); studioConnected=live;
   if(live){
     studioSessionId=s.sessionId||studioSessionId; studioPlaceName=s.placeName||studioPlaceName; studioPlaceId=s.placeId||s.projectId||studioPlaceId; studioPluginVersion=s.pluginVersion||studioPluginVersion; studioLastSeen=s.lastSeenAt||Date.now();
+    if(studioSessionId) webSessionId=studioSessionId;
     if(studioPulse) studioPulse.className='status-dot online';
     if(studioLabel) studioLabel.textContent=`LIVE · ${studioPlaceName||'Roblox Studio'}`;
     if(studioDetail) studioDetail.textContent=`Place ${studioPlaceId||'?'} · v${studioPluginVersion||'?'} · ${Math.max(0,Math.round((Date.now()-studioLastSeen)/1000))}s ago`;
     const rc=$('#row-connection'); if(rc) rc.textContent='Connected'; const rp=$('#row-plugin'); if(rp) rp.textContent=studioPluginVersion?`v${studioPluginVersion}`:'—'; const rs=$('#row-session'); if(rs) rs.textContent=studioSessionId?`${String(studioSessionId).slice(0,8)}…`:'—';
     const cs=$('#check-session'); if(cs) cs.className='ok';
+    const ss=$('#stat-session'); if(ss) ss.textContent=studioSessionId?`${String(studioSessionId).slice(0,6)}…`:'LIVE';
+    const sessEl=$('#stat-session'); if(sessEl) sessEl.title=studioSessionId||'';
     if(pingSentAt && s.lastCommand && s.lastCommand.type==='ping' && s.lastCommand.at>=pingSentAt){ const ms=Math.max(1,s.lastCommand.at-pingSentAt); if(latencyChip){latencyChip.textContent=`Bridge ${ms} ms · LIVE`; latencyChip.classList.remove('hidden')} showToast(`Bridge ${ms}ms`)}
   } else {
     if(studioPulse) studioPulse.className='status-dot offline';
     if(studioLabel) studioLabel.textContent='Studio offline';
-    if(studioDetail) studioDetail.textContent='Connect via plugin or CLI proxy';
+    if(studioDetail) studioDetail.textContent='Connect via plugin or CLI proxy — click ◎ Connect Studio';
     const rc=$('#row-connection'); if(rc) rc.textContent='Waiting…';
     const cs=$('#check-session'); if(cs) cs.className='';
+    const ss=$('#stat-session'); if(ss) ss.textContent=webSessionId?`${String(webSessionId).slice(0,6)}…`:'—';
   }
 }
-async function refreshStudio(){const s=await fetchDetailed('/api/studio/status?projectId=web'); if(s.reached&&s.status===200&&s.body) renderStudio(s.body); else renderStudio({connected:false})}
+async function refreshStudio(){
+  // Prefer per-session status, fallback to project web for green dot
+  let s=null;
+  if(webSessionId){
+    s=await fetchDetailed(`/api/studio/status?projectId=web&clientId=${encodeURIComponent(String(webSessionId).slice(0,16))}`);
+    if(s.reached&&s.status===200&&s.body&&s.body.connected){ renderStudio(s.body); return }
+    const bySession=await fetchDetailed(`/api/studio/status?projectId=${encodeURIComponent(webSessionId)}`);
+    if(bySession.reached&&bySession.status===200&&bySession.body&&bySession.body.connected){ renderStudio(bySession.body); return }
+  }
+  s=await fetchDetailed('/api/studio/status?projectId=web');
+  if(s.reached&&s.status===200&&s.body) renderStudio(s.body); else renderStudio({connected:false})
+}
 
-// Connect flow
+// Connect flow — Phase 1: website session pairing (persistent webSessionId)
 let connectTimer=null, connectStartedAt=0;
-function finishConnect(ok){connectRequestId=null; clearInterval(connectTimer); connectTimer=null; const wb=$('#waiting-box'); if(wb) wb.classList.add('hidden'); if(ok) showToast('Studio connected')}
-async function connectNowFlow(){ if(studioConnected){showToast('Already connected');return} await ensureApiBase(); const h=await fetchDetailed('/api/health'); if(!h.reached||h.status!==200){showToast('Backend unreachable');return} const d=await postJson('/api/studio/connect',{projectId:'web'}); if(!d.ok||!d.body||!d.body.requestId){showToast('Connect failed');return} connectRequestId=d.body.requestId; const wb=$('#waiting-box'); if(wb) wb.classList.remove('hidden'); const wt=$('#waiting-title'); if(wt) wt.textContent='Connecting…'; const ws=$('#waiting-steps'); if(ws) ws.innerHTML=`Request <code>${esc(String(connectRequestId).slice(0,18))}…</code> — open plugin to claim.`; connectStartedAt=Date.now(); connectTimer=setInterval(refreshConnectStatus,1500); setTimeout(()=>{if(connectRequestId) {finishConnect(false); showToast('Timed out — is plugin running?')}},60000)}
-async function refreshConnectStatus(){ if(!connectRequestId) return; try{const c=await getJson(`/api/studio/connect/status?requestId=${encodeURIComponent(connectRequestId)}`); if(c.status==='fulfilled') finishConnect(true); else if(c.status==='expired'){finishConnect(false); showToast('Request expired')}}catch{}}
-async function pingStudio(){ if(!studioSessionId){showToast('Studio not connected');return} pingSentAt=Date.now(); try{await postJson('/api/studio/command',{sessionId:studioSessionId,type:'ping'})}catch{}}
-async function disconnectStudio(){ if(!studioSessionId) return; try{await postJson('/api/studio/disconnect',{sessionId:studioSessionId})}catch{} studioConnected=false; renderStudio({connected:false}); showToast('Disconnected')}
+function finishConnect(ok){
+  connectRequestId=null; clearInterval(connectTimer); connectTimer=null;
+  const wb=$('#waiting-box'); if(wb) wb.classList.add('hidden');
+  if(ok){ showToast('Studio connected — chat is live'); refreshStudio(); }
+}
+async function connectNowFlow(){
+  if(studioConnected){showToast('Already LIVE — just chat'); return}
+  await ensureApiBase();
+  const h=await fetchDetailed('/api/health'); if(!h.reached||h.status!==200){showToast('Backend unreachable — check Vercel env');return}
+  // Use persistent web session as projectId so plugin can claim it
+  const d=await postJson('/api/studio/connect',{projectId: webSessionId});
+  if(!d.ok||!d.body||!d.body.requestId){showToast('Connect failed — retry');return}
+  connectRequestId=d.body.requestId;
+  const wb=$('#waiting-box'); if(wb) wb.classList.remove('hidden');
+  const wt=$('#waiting-title'); if(wt) wt.textContent='Waiting for Studio…';
+  const ws=$('#waiting-steps'); if(ws) ws.innerHTML=`Request <code>${esc(String(connectRequestId).slice(0,18))}…</code> — session <code>${esc(String(webSessionId).slice(0,8))}…</code><br>Open Roblox Studio → place loaded → plugin LUA-X auto-claims in 4s.`;
+  connectStartedAt=Date.now();
+  connectTimer=setInterval(refreshConnectStatus,1500);
+  setTimeout(()=>{if(connectRequestId) {finishConnect(false); showToast('Timed out — is plugin running? Check LUA-X.lua is in Plugins & Studio restarted')}},60000)
+}
+async function refreshConnectStatus(){
+  if(!connectRequestId) return;
+  try{
+    const c=await getJson(`/api/studio/connect/status?requestId=${encodeURIComponent(connectRequestId)}`);
+    if(c.status==='fulfilled'){
+      if(c.sessionId) { webSessionId=c.sessionId; try{localStorage.setItem(SESSION_KEY, webSessionId)}catch{} }
+      finishConnect(true);
+    } else if(c.status==='expired'){finishConnect(false); showToast('Request expired — click Connect again')}
+  }catch{}
+}
+async function pingStudio(){ if(!studioSessionId){showToast('Studio not connected — click ◎ Connect Studio');return} pingSentAt=Date.now(); try{await postJson('/api/studio/command',{sessionId:studioSessionId,type:'ping'})}catch{}}
+async function disconnectStudio(){ if(!studioSessionId) return; try{await postJson('/api/studio/disconnect',{sessionId:studioSessionId})}catch{} studioConnected=false; studioSessionId=null; renderStudio({connected:false}); showToast('Disconnected')}
 
 // Agent canvas
 function renderAgentEvents(events){
@@ -153,7 +208,9 @@ async function sendChat(){
   const centralThinking=$('#canvas-thinking'); if(centralThinking) centralThinking.textContent='ARCHITECT thinking…';
   try{
     await ensureApiBase();
-    const body={ prompt: raw.replace(/^\/build\s*/,''), mode, projectId: studioPlaceId||'web', sessionId: studioSessionId||undefined, surface:'web' };
+    // Phase 1: always send persistent webSessionId so backend history + studio apply tie together
+    const effectiveSessionId = studioSessionId || webSessionId;
+    const body={ prompt: raw.replace(/^\/build\s*/,''), mode, projectId: studioPlaceId||webSessionId||'web', sessionId: effectiveSessionId, surface:'web' };
     if(pendingImageDataUrl && useVision && useVision.checked){
       body.context={ imageDataUrl: pendingImageDataUrl, wantsMesh: /mesh|model|generate/i.test(raw) };
     }
@@ -251,8 +308,11 @@ $('#open-settings')?.addEventListener('click',()=> $('#settings-dialog')?.showMo
 $('#save-token')?.addEventListener('click',()=>{ const v=$('#token-input').value.trim(); saveToken(v); showToast('Token saved'); });
 $('#clear-token')?.addEventListener('click',()=>{ clearToken(); const inp=$('#token-input'); if(inp) inp.value=''; showToast('Token cleared')});
 $('#new-chat-btn')?.addEventListener('click',()=>{ chatHistory=[]; const tf=$('#thread-feed'); if(tf) tf.innerHTML=''; renderSuggestions([]); showToast('New chat')});
-$('#connect-now')?.addEventListener('click', async function connectNowFlow(){ if(studioConnected){showToast('Already connected');return} await ensureApiBase(); const h=await fetchDetailed('/api/health'); if(!h.reached||h.status!==200){showToast('Backend unreachable');return} const d=await postJson('/api/studio/connect',{projectId:'web'}); if(!d.ok||!d.body||!d.body.requestId){showToast('Connect failed');return} let req=d.body.requestId; const wb=$('#waiting-box'); if(wb) wb.classList.remove('hidden'); let t=setInterval(async()=>{ try{const c=await getJson(`/api/studio/connect/status?requestId=${encodeURIComponent(req)}`); if(c.status==='fulfilled'){clearInterval(t); if(wb) wb.classList.add('hidden'); showToast('Studio connected')} else if(c.status==='expired'){clearInterval(t); showToast('Expired')} }catch{} },1500); setTimeout(()=>{clearInterval(t); const wb2=$('#waiting-box'); if(wb2) wb2.classList.add('hidden')},60000)});
-$('#hero-start-btn')?.addEventListener('click', ()=>{ const el=$('#chat-input'); if(el){el.focus(); showToast('Start typing — twin agents ready')}});
+$('#connect-now')?.addEventListener('click', connectNowFlow);
+$('#hero-start-btn')?.addEventListener('click', ()=>{
+  if(!studioConnected){ connectNowFlow(); }
+  const el=$('#chat-input'); if(el){el.focus(); showToast(studioConnected?'Twin agents ready — chat now':'Connecting… then chat');}
+});
 $('#hero-docs-btn')?.addEventListener('click', ()=>{ const el=$('#docs'); if(el) el.scrollIntoView({behavior:'smooth'})});
 $('#hero-desktop-btn')?.addEventListener('click', ()=>{ showToast('Desktop proxy: npx @lua-x/desktop-bridge --token <token>')});
 $('#new-project-btn')?.addEventListener('click', ()=>{ showToast('New project — start typing in the chat')});
@@ -263,9 +323,12 @@ $('#nav-rail-toggle')?.addEventListener('click',()=>{
   rail.classList.toggle('open', railMobileOpen);
 });
 
-// Boot
+// Boot — Phase 1: show persistent session immediately
 (async function init(){
   await ensureApiBase();
+  const ss=$('#stat-session'); if(ss) ss.textContent=webSessionId?`${String(webSessionId).slice(0,6)}…`:'—';
+  const rs=$('#row-session'); if(rs) rs.textContent=webSessionId?`${String(webSessionId).slice(0,8)}…`:'—';
+  const cs=$('#check-session'); if(cs) cs.textContent=`Session ${String(webSessionId).slice(0,8)}…`;
   try{const r=await fetch('/download/plugin-manifest.json',{cache:'no-store'}); if(r.ok){const m=await r.json(); const pm=$('#plugin-meta'); if(pm&&m.sha256) pm.textContent=`SHA-256 ${String(m.sha256).slice(0,16)}… · v${m.version||'?'}`}}catch{}
   const ti=$('#token-input'); if(ti) ti.value=getToken();
   await refreshHealth(); await refreshStudio();

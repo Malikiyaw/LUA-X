@@ -26,7 +26,7 @@ function resolveDefault(): { command: string; args: string[] } {
   return { command: '/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP', args: [] };
 }
 
-export class StdioMcpTransport implements { call(req: McpRequest): Promise<McpResponse>; close(): void } {
+export class StdioMcpTransport {
   private proc: ChildProcess | null = null;
   private buffer = '';
   private pending = new Map<string, { resolve: (v: McpResponse) => void; reject: (e: Error) => void }>();

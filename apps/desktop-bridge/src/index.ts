@@ -21,4 +21,4 @@ Runs: polls /api/studio/command and forwards to local Studio MCP via stdio (mcp.
 }
 
 console.log(`[lua-x] bridging ${apiBase} ${studioId ? `(studio ${studioId})` : ''} token ${token ? 'yes' : 'no (anonymous)'}...`);
-pollAndBridge({ apiBase, token, studioId });
+pollAndBridge({ apiBase, ...(token ? { token } : {}), ...(studioId ? { studioId } : {}) });
