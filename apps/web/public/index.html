@@ -2,59 +2,137 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#F2F2F3">
-  <meta name="color-scheme" content="light">
-  <meta name="description" content="LUA-X — AI-native Roblox development workspace.">
-  <title>LUA-X — AI-Native Roblox Studio</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0d12">
+  <meta name="description" content="LUA-X — AI agent workspace for Roblox Studio powered by native Studio MCP.">
+  <title>LUA-X — Roblox AI Agent Workspace</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="orbita-app" id="workspace-shell">
-    <aside class="orbita-sidebar" id="left-rail" aria-label="LUA-X workspace">
-      <button class="orbita-logo" data-target="#chat-feed" title="LUA-X" type="button">★</button>
-      <button class="orbita-rail active" data-target="#chat-feed" title="Chat" type="button">◌</button>
-      <button class="orbita-rail" data-target="#ui-studio" title="UI Studio" type="button">▧</button>
-      <button class="orbita-rail" data-target="#verify-studio" title="Verify" type="button">✓</button>
-      <button class="orbita-rail" data-target="#change-studio" title="Changes" type="button">◐</button>
-      <button class="orbita-rail" data-target="#anim-studio" title="Animation" type="button">◫</button>
-      <button class="orbita-rail" data-target="#world-studio" title="World" type="button">◇</button>
-      <button class="orbita-rail" data-target="#autonomous-studio" title="Cloud" type="button">☁</button>
-      <button class="orbita-rail" data-target="#download-section" title="Download Plugin" type="button">↓</button>
-      <div class="orbita-rail-spacer"></div>
-      <button class="orbita-rail" data-target="#settings-dialog" title="Configuration" type="button">⚙</button>
-      <button class="orbita-rail" id="rail-docs" title="Docs" type="button">?</button>
-      <div class="rail-upgrade" title="LUA-X Pro">↗</div>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">LUA<span>-X</span></div>
+      <div class="brand-sub">ROBLOX AGENT WORKSPACE</div>
+      <nav>
+        <button class="nav-item active" data-view="chat"><span>01</span>Chat</button>
+        <button class="nav-item" data-view="project"><span>02</span>Project</button>
+        <button class="nav-item" data-view="changes"><span>03</span>Changes</button>
+        <button class="nav-item" data-view="verify"><span>04</span>Verify</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <a class="nav-item link" href="/LUA-X.lua" download="LUA-X.lua"><span>↧</span>Legacy plugin</a>
+        <button class="nav-item" id="setup-nav"><span>05</span>Setup</button>
+      </div>
     </aside>
-    <main class="orbita-main">
-      <header class="orbita-header">
-        <div class="orbita-product"><span>LUA-X GPT Plus</span><span class="orbita-status" id="ai-status">AI —</span></div>
-        <div class="orbita-header-actions"><span class="orbita-connection"><span class="status-dot offline" id="studio-pulse"></span><span id="studio-label">Studio offline</span></span><button class="orbita-action" id="open-settings" type="button">Configuration ⚙</button><button class="orbita-action" id="share-session" type="button">Share ↑</button><a class="orbita-action" href="/LUA-X.lua" download="LUA-X.lua">Download Plugin ↓</a><button class="orbita-action dark" id="new-chat-btn" type="button">New Chat ↗</button><button class="orbita-action mobile" id="nav-rail-toggle" type="button">☰</button></div>
-      </header>
-      <section class="orbita-content" id="hero">
-        <div class="orbita-chat-wrap">
-          <div class="session-strip" id="studio-status-card"><div><div class="eyebrow">LUA-X WORKSPACE</div><div class="session-title"><span id="twin-pill">Twin AI</span> <span id="latency-chip" class="hidden">Bridge —</span></div><div class="session-detail" id="studio-detail">Connect via the Roblox Studio plugin to make changes live.</div></div><button class="text-link" id="connect-now" type="button">Connect Studio →</button></div>
-          <div class="chat-feed" id="chat-feed"><div class="thread-feed" id="thread-feed"></div><div class="starter-state"><div class="starter-mark">★</div><h1>What should LUA-X build?</h1><p>Describe a Roblox feature, bug, UI, animation, world change, or verification task.</p><div class="starter-grid" id="suggestions-row"><button class="starter-card" type="button" data-prompt="Build a clean inventory UI with item slots and sorting.">Build an inventory UI</button><button class="starter-card" type="button" data-prompt="Create a round system with lobby, countdown and winner detection.">Create a round system</button><button class="starter-card" type="button" data-prompt="Inspect the current project and find risky or broken scripts.">Inspect project health</button><button class="starter-card" type="button" data-prompt="Verify the current project and prepare evidence for the latest change set.">Verify the latest change</button></div></div></div>
-          <div class="orbita-composer"><textarea id="chat-input" rows="2" placeholder="Ask LUA-X to build, inspect, verify, or repair something…"></textarea><div class="composer-row"><div class="composer-left"><label class="select-pill">AI Source <span id="composer-model">AI · checking…</span></label><span class="micro-status" id="backend-status">API offline</span><span class="micro-status" id="model-label"></span><span class="hidden" id="stat-sync">0%</span><span class="hidden" id="stat-studio">Studio offline</span><span class="hidden" id="stat-session">—</span></div><div class="composer-actions"><input id="image-input" type="file" accept="image/*" class="hidden"><button class="icon-pill" id="vision-btn" type="button" title="Attach image">＋</button><label class="icon-pill" title="Use vision"><input id="use-vision" type="checkbox"> ◇</label><label class="icon-pill" title="Personalize"><input id="personalize-toggle" type="checkbox"> P</label><button class="send-btn" id="send-btn" type="button">Send</button></div></div></div>
-          <div class="orbita-footer"><span id="verify-badge">No run yet</span><span id="cs-badge">Changes 0</span><span id="anim-valid-badge">Anim ready</span><span id="world-valid-badge">World ready</span><span id="auto-status-badge">draft</span><span class="footer-note">LUA-X may display inaccurate Luau, verify in Studio.</span></div>
-          <div class="waiting-box hidden" id="waiting-box"><strong id="waiting-title">Connecting…</strong><div id="waiting-steps">Request — — open Roblox Studio and let the plugin claim the session.</div></div>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <div class="topbar-kicker">LOCAL AGENT / NATIVE MCP</div>
+          <h1 id="page-title">Build with your real Studio project</h1>
         </div>
-        <div class="orbita-details-stack">
-          <details id="download-section" class="orbita-details" open><summary>Download LUA-X</summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Roblox Studio Plugin</div><p class="muted">Install the current LUA-X plugin in your Roblox Studio Plugins folder.</p><a class="pill dark" href="/LUA-X.lua" download="LUA-X.lua">Download LUA-X.lua ↓</a></div><div><div class="panel-head">Local installer</div><p class="muted">Windows installer script is included in the repository for local setup.</p><a class="pill ghost" href="/Fix-LUA-X.bat" download="Fix-LUA-X.bat">Download Fix-LUA-X.bat ↓</a></div></div></div></details>
-          <details id="agents-panel" class="orbita-details"><summary>Agent activity</summary><div class="details-body"><div class="agent-row" id="agents">ARCHITECT <span class="badge green">active</span> <span id="arch-body">Analyzing request and project context…</span><span id="arch-body2" class="hidden">—</span></div><div class="agent-row" id="build-agent">BUILDER <span class="badge">idle</span> <span id="build-body">Waiting handoff…</span><span id="build-body2" class="hidden">—</span></div><div class="agent-row" id="agent-activity-state">idle</div><div class="agent-feed hidden" id="agent-feed"></div><div class="agent-meta"><span id="arch-model2">—</span><span id="build-model2">—</span></div></div></details>
-          <details id="canvas-stage" class="orbita-details"><summary>Project canvas</summary><div class="details-body canvas-stage-inner"><div class="canvas-bar" id="canvas-bar"><span class="agent-card active">ARCHITECT</span><span class="agent-card">BUILDER</span></div><div class="canvas-grid"><svg id="canvas-connections" xmlns="http://www.w3.org/2000/svg"></svg><div class="node center" id="central-task"><div class="node-badge">Project-aware orchestration</div><div class="node-title" id="central-title">Plan, build, verify, repair.</div><div id="canvas-thinking">LUA-X is ready.</div><button class="ghost-button small" id="see-steps" type="button">See steps</button></div><div class="node" id="node-arch"><div class="node-title">ARCHITECT</div><small id="arch-model">—</small></div><div class="node" id="node-build"><div class="node-title">BUILDER</div><small id="build-model">—</small></div></div></div></details>
-          <details id="ui-studio" class="orbita-details"><summary>UI Studio <span class="badge green" id="ui-parity-badge">Parity 0/100</span></summary><div class="details-body"><div class="tool-grid three"><div><div class="panel-head">Component Library</div><div class="palette-grid" id="ui-palette-grid"><button class="palette-item" data-kind="button" type="button">Button<small>states + disabled</small></button><button class="palette-item" data-kind="frame" type="button">Card / Panel<small>container</small></button><button class="palette-item" data-kind="scroll" type="button">List / Grid<small>UIList/UIGrid</small></button><button class="palette-item" data-kind="text" type="button">Toast<small>motion</small></button></div><div class="panel-head">Tree <button class="ghost-button small" id="ui-clear-btn" type="button">Clear</button></div><div class="ui-tree" id="ui-tree"></div><div class="panel-head">Theme Tokens</div><div class="theme-grid" id="ui-theme-grid"></div><button class="ghost-button small" id="ui-add-token" type="button">+ Add token</button></div><div><div class="panel-head">Preview</div><div class="ui-preview" id="ui-preview"></div><img id="ui-ref-preview" class="hidden" alt=""><div class="panel-head">Validation <span class="badge" id="ui-issues-count">0 issues</span></div><ul class="validation-list" id="ui-validation-list"></ul></div><div><div class="panel-head">Props <span class="muted" id="ui-selected-id">none</span></div><div class="props-form" id="ui-props-form"><label>Kind <select id="ui-prop-kind"><option>frame</option><option>screen</option><option>button</option><option>text</option><option>image</option><option>input</option><option>scroll</option><option>template</option></select></label><label>Name <input id="ui-prop-name" placeholder="Root"></label><label>Layout <select id="ui-prop-layout"><option value="">absolute</option><option value="list">list</option><option value="grid">grid</option><option value="page">page</option></select></label><label>CornerRadius <input id="ui-prop-radius" type="number" placeholder="8"></label><label>Padding <input id="ui-prop-padding" type="number" placeholder="8"></label><label>Transparency <input id="ui-prop-trans" type="number" step="0.05" placeholder="0"></label><label>TextSize <input id="ui-prop-textsize" type="number" placeholder="14"></label><label>colorToken <input id="ui-prop-token" placeholder="primary"></label><label>ParentId <input id="ui-prop-parent" placeholder="root"></label><button class="primary-button small" id="ui-save-props" type="button">Save</button><button class="ghost-button small" id="ui-delete-comp" type="button">Delete</button></div><div class="panel-head">Responsive Rules</div><div id="ui-responsive-list"></div><div class="inline-form"><input id="ui-responsive-input" placeholder="stack below 420px"><button class="ghost-button small" id="ui-add-responsive" type="button">Add</button></div><div class="panel-head">Actions</div><input id="ui-prop-action" placeholder="openShop / buyItem"></div></div><input type="file" id="ui-ref-input" accept="image/*" class="hidden"><div class="details-actions"><button class="pill ghost" id="ui-ref-btn" type="button">Style Ref</button><button class="pill ghost" id="ui-export-btn" type="button">Export create_ui</button><button class="pill primary" id="ui-generate-btn" type="button">Generate with AI</button><button class="pill white" id="ui-push-btn" type="button">Push to Studio</button></div></div></details>
-          <details id="verify-studio" class="orbita-details"><summary>Verify & Playtest <span class="badge" id="verify-evidence-badge">Evidence 0</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Acceptance Criteria <span class="badge" id="verify-criteria-count">0</span></div><ul class="verify-list" id="verify-criteria-list"></ul><div class="panel-head">Tests <span class="badge" id="verify-tests-count">0</span></div><ul class="verify-list" id="verify-tests-list"></ul></div><div><div class="panel-head">Evidence</div><ul class="verify-list" id="verify-evidence-list"></ul><div class="panel-head">Repair</div><div class="repair-row"><span id="verify-repair-pill">repair 0/3</span><button class="pill ghost" id="verify-request-repair" type="button">Request repair</button></div></div></div><div class="details-actions"><button class="pill ghost" id="verify-run-static" type="button">Run static checks</button><button class="pill ghost" id="verify-mark-pass" type="button">Mark passed</button><button class="pill primary" id="verify-push-verify" type="button">Verify in Studio</button></div></div></details>
-          <details id="change-studio" class="orbita-details"><summary>Changes & Rollback <span class="badge" id="cs-badge">Changes 0</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Change Set</div><div id="cs-summary">No change set yet.</div><ul id="cs-list"></ul></div><div><div class="panel-head">Review</div><div id="cs-risk">—</div><div id="cs-approval">Approval not required</div></div></div><div class="details-actions"><button class="pill ghost" id="cs-refresh" type="button">Refresh</button><button class="pill primary" id="cs-apply" type="button">Apply in Studio</button></div></div></details>
-          <details id="anim-studio" class="orbita-details"><summary>Animation Studio <span class="badge" id="anim-valid-badge">Anim ready</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Animation Timeline</div><div id="anim-timeline">No animation selected.</div><div id="anim-library"></div></div><div><div class="panel-head">Validation</div><div id="anim-validation"></div><div id="anim-issues"></div></div></div><div class="details-actions"><button class="pill ghost" id="anim-generate" type="button">Generate</button><button class="pill primary" id="anim-push" type="button">Push to Studio</button></div></div></details>
-          <details id="world-studio" class="orbita-details"><summary>World Studio <span class="badge" id="world-valid-badge">World ready</span></summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">Scene</div><div id="world-scene-tree"></div><div id="world-asset-list"></div></div><div><div class="panel-head">Validation</div><div id="world-validation"></div><div id="world-issues"></div></div></div><div class="details-actions"><button class="pill ghost" id="world-generate" type="button">Generate</button><button class="pill primary" id="world-push" type="button">Push to Studio</button></div></div></details>
-          <details id="autonomous-studio" class="orbita-details"><summary>Cloud & Autonomous <span class="badge" id="auto-status-badge">draft</span></summary><div class="details-body"><div class="tool-grid three"><div><div class="panel-head">Goal</div><label>Description <textarea id="auto-goal-desc" rows="3" placeholder="Build game"></textarea></label><label>Priority <select id="auto-goal-priority"><option>medium</option><option>high</option><option>low</option></select></label><label>Acceptance criteria <input id="auto-goal-criteria" placeholder="survives playtest"></label><div class="details-actions"><button class="pill primary" id="auto-plan" type="button">Plan</button><button class="pill ghost" id="auto-approve" type="button">Approve</button><button class="pill ghost" id="auto-execute" type="button">Execute</button><button class="pill ghost" id="auto-repair" type="button">Repair</button><button class="pill ghost" id="auto-complete" type="button">Complete</button></div></div><div><div class="panel-head">Work <span class="badge" id="auto-work-count">0</span></div><ul class="verify-list" id="auto-work-list"></ul><div class="panel-head">Events <span class="badge" id="auto-events-count">0</span></div><ul class="verify-list" id="auto-events-list"></ul><span id="auto-goal-id" class="hidden">—</span></div><div><div class="panel-head">Fusion / Cloud</div><div id="fusion-surface"></div><div id="fusion-items"></div><div class="panel-head">Cloud projects</div><div id="cloud-project-list"></div><button class="ghost-button small" id="cloud-snap-btn" type="button">Snapshot</button><div id="hardening-health"></div><div id="hardening-rate"></div><div id="hardening-audit"></div></div></div></div></details>
-          <details id="settings-dialog" class="orbita-details"><summary>Configuration</summary><div class="details-body"><div class="tool-grid two"><div><div class="panel-head">AI</div><div id="check-ai">Checking…</div><div id="left-model">AI —</div></div><div><div class="panel-head">Backend</div><div id="check-backend">Checking…</div><div id="check-session">Waiting…</div></div></div><div class="tool-grid three"><div><span>Connection</span><strong id="row-connection">Waiting…</strong></div><div><span>Plugin</span><strong id="row-plugin">—</strong></div><div><span>Session</span><strong id="row-session">—</strong></div></div><div id="plugin-meta" class="muted"></div></div></details>
+        <div class="topbar-actions">
+          <div class="connection" id="connection-badge"><span class="dot"></span><span id="connection-label">Studio offline</span></div>
+          <button class="button ghost" id="connect-button">Connect Studio</button>
+          <button class="button" id="new-chat">New chat</button>
+        </div>
+      </header>
+
+      <section class="workspace" id="view-chat">
+        <div class="chat-column">
+          <div class="intro" id="intro">
+            <div class="intro-label">LUA-X AGENT</div>
+            <h2>Tell it what to build, inspect, fix, or verify.</h2>
+            <p>The agent reads your live Roblox project through Studio's native MCP server, plans the change, and sends approved work back through the same bridge.</p>
+            <div class="quick-actions">
+              <button data-prompt="Inspect the current project and summarize the important systems.">Inspect project</button>
+              <button data-prompt="Find broken or suspicious scripts and explain what needs fixing.">Find problems</button>
+              <button data-prompt="Build a simple round system with an intermission and winner detection.">Build a round system</button>
+            </div>
+          </div>
+
+          <div class="messages" id="messages" aria-live="polite"></div>
+
+          <div class="composer-wrap">
+            <div class="composer-context" id="composer-context">No Studio context yet</div>
+            <textarea id="chat-input" rows="3" placeholder="Ask LUA-X to build or inspect something…"></textarea>
+            <div class="composer-footer">
+              <div class="composer-note">Plans are reviewable. Studio writes require local MCP.</div>
+              <button class="button primary" id="send-button">Send ↗</button>
+            </div>
+          </div>
+        </div>
+
+        <aside class="right-rail">
+          <section class="panel connection-panel">
+            <div class="panel-header"><span>Studio connection</span><span class="status-text" id="agent-state">offline</span></div>
+            <div class="status-card" id="studio-card">
+              <div class="status-main"><span class="big-dot" id="studio-dot"></span><div><strong id="studio-name">Roblox Studio</strong><small id="studio-place">Waiting for the local agent</small></div></div>
+              <button class="button small" id="ping-button">Ping Studio</button>
+            </div>
+            <div class="metric-grid">
+              <div><small>Target</small><strong id="studio-id">—</strong></div>
+              <div><small>Model</small><strong id="model-name">—</strong></div>
+              <div><small>Tools</small><strong id="tool-count">—</strong></div>
+              <div><small>Last sync</small><strong id="last-sync">—</strong></div>
+            </div>
+          </section>
+
+          <section class="panel tool-panel">
+            <div class="panel-header"><span>Agent activity</span><span class="status-text" id="activity-status">idle</span></div>
+            <div id="tool-feed" class="tool-feed"><div class="empty">No execution yet.</div></div>
+          </section>
+
+          <section class="panel context-panel">
+            <div class="panel-header"><span>Project context</span><button class="text-button" id="refresh-context">Refresh</button></div>
+            <div id="context-summary" class="context-summary">Connect the local agent to inspect the real Data Model and scripts.</div>
+            <pre id="context-preview" class="context-preview">—</pre>
+          </section>
+        </aside>
+      </section>
+
+      <section class="view hidden" id="view-project">
+        <div class="view-header"><div><div class="topbar-kicker">PROJECT</div><h2>Live Studio state</h2></div><button class="button" id="project-refresh">Refresh</button></div>
+        <div class="project-grid">
+          <section class="panel"><div class="panel-header"><span>Connected Studios</span><span id="projects-count">0</span></div><div id="studio-list" class="list"></div></section>
+          <section class="panel"><div class="panel-header"><span>Data Model snapshot</span></div><pre id="project-tree" class="code-view">—</pre></section>
+        </div>
+      </section>
+
+      <section class="view hidden" id="view-changes">
+        <div class="view-header"><div><div class="topbar-kicker">CHANGES</div><h2>Review before applying</h2></div></div>
+        <section class="panel"><div class="panel-header"><span>Latest plan</span><span id="change-count">0 changes</span></div><div id="plan-view" class="plan-view"><div class="empty">No plan yet. Ask LUA-X to build something.</div></div><div class="panel-footer"><button class="button primary" id="apply-latest" disabled>Apply in Studio</button></div></section>
+      </section>
+
+      <section class="view hidden" id="view-verify">
+        <div class="view-header"><div><div class="topbar-kicker">VERIFY</div><h2>Evidence, not guesses</h2></div><button class="button" id="verify-button">Run verification</button></div>
+        <div class="verify-grid">
+          <section class="panel"><div class="panel-header"><span>Acceptance criteria</span><span id="criteria-count">0</span></div><div id="criteria-list" class="list"></div></section>
+          <section class="panel"><div class="panel-header"><span>Latest Studio evidence</span></div><pre id="verification-output" class="code-view">No verification run.</pre></section>
+        </div>
+      </section>
+
+      <section class="setup-overlay hidden" id="setup-overlay">
+        <div class="setup-card">
+          <div class="topbar-kicker">FIRST RUN</div>
+          <h2>Connect LUA-X to native Roblox Studio MCP</h2>
+          <p>Roblox Studio hosts the MCP server locally. LUA-X's local agent is the MCP client that connects the web workspace to your open Studio session.</p>
+          <ol>
+            <li>Open Roblox Studio and a place.</li>
+            <li>Open <strong>Assistant → … → Manage MCP Servers</strong>.</li>
+            <li>Turn on <strong>Enable Studio as MCP server</strong>.</li>
+            <li>From this repo, run <code>npm run build --workspace=@lua-x/desktop-bridge</code>, then start the local agent with <code>node apps/desktop-bridge/dist/index.js</code>.</li>
+            <li>Return here and click <strong>Connect Studio</strong>.</li>
+          </ol>
+          <div class="setup-code"><code>cmd.exe /c %LOCALAPPDATA%\Roblox\mcp.bat</code><span>Windows</span></div>
+          <div class="setup-code"><code>/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP</code><span>macOS</span></div>
+          <div class="modal-actions"><button class="button ghost" id="close-setup">Close</button><button class="button primary" id="check-mcp">Check MCP</button></div>
+          <div id="setup-result" class="setup-result"></div>
         </div>
       </section>
     </main>
   </div>
-  <div id="toast" class="toast"></div>
+  <div class="toast" id="toast"></div>
   <script src="/app.js"></script>
 </body>
 </html>
