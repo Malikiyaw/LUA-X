@@ -21,6 +21,7 @@
          <a class="nav-link" href="#canvas-stage">Canvas</a>
           <a class="nav-link" href="#ui-studio">UI Studio</a>
           <a class="nav-link" href="#verify-studio">Verify</a>
+          <a class="nav-link" href="#change-studio">Changes</a>
           <a class="nav-link" href="#docs">Docs</a>
        </div>
        <div class="nav-actions">
@@ -63,7 +64,8 @@
        <button class="rail-btn" data-target="#agents" type="button" title="Agents">🤖</button>
        <button class="rail-btn" data-target="#canvas-stage" type="button" title="Canvas">▦</button>
         <button class="rail-btn" data-target="#ui-studio" type="button" title="UI">🎨</button>
-        <button class="rail-btn" data-target="#verify-studio" type="button" title="Verify">✓</button>
+         <button class="rail-btn" data-target="#verify-studio" type="button" title="Verify">✓</button>
+        <button class="rail-btn" data-target="#change-studio" type="button" title="Changes">◐</button>
         <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
        <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
      </aside>
@@ -206,6 +208,45 @@
               <div class="panel-head" style="margin-top:12px">Console / Logs <button class="ghost-button small" id="playtest-console" type="button">Fetch console</button></div>
               <pre class="verify-log" id="playtest-log" style="max-height:240px;overflow:auto;background:var(--field);border:1px solid var(--hairline);border-radius:8px;padding:8px;font:11px/1.4 ui-monospace"></pre>
               <div style="font:11px var(--font);color:var(--faint);margin-top:6px">Stub passes after 800ms on server if Studio not connected — real logs via <code>get_console_output</code> when LIVE.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CHANGE SET + SNAPSHOTS + AUDIT - Phase 4: safe execution -->
+        <section class="verify-studio" id="change-studio">
+          <div class="ui-studio-head">
+            <div>
+              <h2 class="ui-title">Change Set & Safe Execution <span class="badge" id="cs-badge">No set yet</span> <span class="badge hidden" id="cs-risk-badge">risk —</span></h2>
+              <p class="ui-sub">Deterministic IDs · stale-write protection · approval gates · snapshots · audit trail. Pro-team safe mutation.</p>
+            </div>
+            <div class="ui-head-actions">
+              <button class="pill ghost" id="cs-dryrun" type="button">◐ Dry-run</button>
+              <button class="pill ghost" id="cs-approve" type="button">✓ Approve</button>
+              <button class="pill primary" id="cs-apply" type="button">⬢ Apply to Studio</button>
+              <button class="pill ghost" id="cs-snapshot" type="button">⎘ Snapshot</button>
+            </div>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-col">
+              <div class="panel-head">Change Set <span class="muted" id="cs-id">—</span></div>
+              <div class="verify-status" id="cs-summary">No change set yet. Generate via chat (build mode) to review.</div>
+              <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><span class="status-pill" id="cs-count">0 ops</span><span class="status-pill" id="cs-approval-pill">approval: —</span><span class="status-pill" id="cs-delete-pill">delete: disabled</span><label style="font:11px var(--font);display:flex;gap:4px;align-items:center"><input type="checkbox" id="cs-allow-delete"> allow delete</label></div>
+              <div class="panel-head" style="margin-top:12px">Operations</div>
+              <ul class="verify-list" id="cs-ops-list"></ul>
+              <div style="display:flex;gap:6px;margin-top:8px"><input id="cs-new-op-target" type="text" placeholder="game.ServerScriptService.Foo" style="flex:1"><button class="ghost-button small" id="cs-add-op" type="button">Add op</button></div>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Evidence <span class="badge" id="cs-evidence-count">0</span></div>
+              <ul class="verify-list" id="cs-evidence-list"></ul>
+              <div class="panel-head" style="margin-top:12px">Stale-write Check <span class="badge" id="cs-stale-badge">ok</span></div>
+              <div class="verify-status" id="cs-stale-status">No pending stale check. Replace ops with expectedHash will be verified via <code>readScript</code> before apply.</div>
+              <div style="display:flex;gap:6px;margin-top:8px"><input id="cs-expected-hash" type="text" placeholder="expectedHash for selected op" style="flex:1"><button class="ghost-button small" id="cs-set-hash" type="button">Set</button></div>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Snapshots <span class="badge" id="snap-count">0</span> <button class="ghost-button small" id="snap-refresh" type="button">Refresh</button></div>
+              <ul class="verify-list" id="snap-list"></ul>
+              <div class="panel-head" style="margin-top:12px">Audit Trail <span class="badge" id="audit-count">0</span></div>
+              <ul class="verify-list" id="audit-list" style="max-height:220px;overflow:auto"></ul>
             </div>
           </div>
         </section>

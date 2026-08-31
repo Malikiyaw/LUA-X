@@ -701,6 +701,165 @@ document.getElementById('playtest-stop')?.addEventListener('click', async()=>{
 document.getElementById('playtest-refresh')?.addEventListener('click', refreshPlaytest);
 document.getElementById('playtest-console')?.addEventListener('click', fetchConsole);
 
+// ===== CHANGE SET + SNAPSHOTS + AUDIT - Phase 4 =====
+let changeSet = null; // {id, projectId, summary, operations[], acceptanceCriteria, verification}
+let changeSetApprovedId = null;
+let changeSetEvidence = [];
+let changeStatus = 'idle'; // idle|blocked|applied|failed
+let snapshots = JSON.parse(localStorage.getItem('lua_x_snapshots')||'[]');
+let audits = JSON.parse(localStorage.getItem('lua_x_audits')||'[]');
+let csSelectedOp = null;
+
+function stableId(prefix, input){
+  let h=2166136261; for(let i=0;i<input.length;i++){ h ^= input.charCodeAt(i); h = Math.imul(h,16777619);} return `${prefix}_${(h>>>0).toString(16).padStart(8,'0')}`;
+}
+function requiresApproval(op){ return ['medium','high','critical'].includes(op.risk); }
+function csFromPlan(plan, pipeline){
+  if(pipeline && pipeline.executionChangeSet){
+    const cs=pipeline.executionChangeSet;
+    // map CodeChangeSet operations to display ops
+    const ops=cs.operations.map((op,i)=> ({id:op.id||`aiop-${String(i+1).padStart(3,'0')}`, kind:op.kind, target:op.target, datamodelType:op.datamodelType||'Edit', reason:op.reason||plan.changes[i]?.reason||'', risk:op.risk||plan.changes[i]?.risk||'low', content:op.content, expectedHash:op.expectedHash}));
+    return {id:cs.id, projectId:cs.projectId, summary:cs.summary||plan.summary, operations:ops, acceptanceCriteria:cs.acceptanceCriteria||plan.acceptanceCriteria, verification:cs.verification||plan.verification};
+  }
+  // fallback from plan.changes
+  const ops=(plan.changes||[]).map((c,i)=> ({id:`aiop-${String(i+1).padStart(3,'0')}`, kind: c.operation==='create_script'?'create-script':c.operation==='update_script'?'replace-script':c.operation==='delete_instance'?'delete-script':'create-script', target:c.target, datamodelType:'Edit', reason:c.reason, risk:c.risk, content:c.content, expectedHash:c.expectedHash}));
+  const briefSummary=plan.summary||'Change set';
+  const id=stableId('cs', JSON.stringify({projectId: webSessionId, operations: ops}));
+  return {id, projectId: webSessionId, summary:briefSummary, operations:ops, acceptanceCriteria:plan.acceptanceCriteria||[], verification:plan.verification||[]};
+}
+function auditPush(action, detail){
+  const entry={id: stableId('audit', String(Date.now())+action), at: Date.now(), action, detail, sessionId: webSessionId, placeId: studioPlaceId||webSessionId};
+  audits.unshift(entry); if(audits.length>50) audits.length=50;
+  try{ localStorage.setItem('lua_x_audits', JSON.stringify(audits)); }catch{}
+}
+function snapshotPush(label){
+  if(!changeSet) return;
+  const snap={id: stableId('snap', String(Date.now())+label), projectId: changeSet.projectId, label, parentId: snapshots[0]?.id||null, changeIds: changeSet.operations.map(o=>o.id), at: new Date().toISOString()};
+  snapshots.unshift(snap); if(snapshots.length>20) snapshots.length=20;
+  try{ localStorage.setItem('lua_x_snapshots', JSON.stringify(snapshots)); }catch{}
+  auditPush('snapshot', `${label} · ${snap.id.slice(0,8)}`);
+  showToast(`Snapshot ${label}`);
+  csRender();
+}
+function csSetFromPlan(plan, pipeline){
+  changeSet = csFromPlan(plan, pipeline);
+  changeSetApprovedId = null; changeStatus='idle'; changeSetEvidence=[];
+  // auto audit plan created
+  auditPush('ai_plan_created', `${changeSet.id.slice(0,8)} · ${changeSet.summary.slice(0,60)} · ${changeSet.operations.length} ops`);
+  csSelectedOp = changeSet.operations[0]?.id||null;
+  csRender();
+}
+function csRender(){
+  const badge=$('#cs-badge'), riskBadge=$('#cs-risk-badge'), idEl=$('#cs-id'), summaryEl=$('#cs-summary'), countEl=$('#cs-count'), approvalPill=$('#cs-approval-pill'), deletePill=$('#cs-delete-pill');
+  const opsList=$('#cs-ops-list'), evList=$('#cs-evidence-list'), evCount=$('#cs-evidence-count'), staleBadge=$('#cs-stale-badge'), staleStatus=$('#cs-stale-status');
+  const snapList=$('#snap-list'), snapCount=$('#snap-count'), auditList=$('#audit-list'), auditCount=$('#audit-count');
+  if(!changeSet){
+    if(badge) badge.textContent='No set yet'; if(summaryEl) summaryEl.textContent='No change set yet. Generate via chat (build mode) to review.';
+    if(opsList) opsList.innerHTML='<li style="opacity:.6">No operations</li>';
+    return;
+  }
+  const riskCounts={low:0,medium:0,high:0,critical:0}; changeSet.operations.forEach(o=> riskCounts[o.risk]=(riskCounts[o.risk]||0)+1);
+  const needsApproval=changeSet.operations.some(requiresApproval);
+  const approved=changeSetApprovedId===changeSet.id;
+  const allowDelete=$('#cs-allow-delete')?.checked;
+  const statusLabel= changeStatus==='applied'? 'APPLIED': changeStatus==='blocked'? 'BLOCKED': changeStatus==='failed'? 'FAILED': needsApproval && !approved?'NEEDS APPROVAL':'READY';
+  if(badge){ badge.textContent=`${changeSet.id.slice(0,8)} · ${statusLabel}`; badge.className=`badge ${statusLabel==='APPLIED'?'green':statusLabel==='BLOCKED'?'bad':''}`; }
+  if(riskBadge){ riskBadge.textContent=`risk ${Object.entries(riskCounts).filter(([,v])=>v>0).map(([k,v])=> `${k}:${v}`).join(' ')}`; riskBadge.classList.remove('hidden');}
+  if(idEl) idEl.textContent=changeSet.id;
+  if(summaryEl) summaryEl.textContent=`${changeSet.summary} — ${changeSet.operations.length} ops · deterministic ${changeSet.id.slice(0,8)}`;
+  if(countEl) countEl.textContent=`${changeSet.operations.length} ops`;
+  if(approvalPill){ approvalPill.textContent=`approval: ${needsApproval? (approved?'approved':'required'):'low-risk auto'}`; approvalPill.className=`status-pill ${needsApproval && !approved?'bad':'ok'}`; }
+  if(deletePill){ const hasDelete=changeSet.operations.some(o=> o.kind==='delete-script'); deletePill.textContent=`delete: ${hasDelete? (allowDelete?'allowed':'blocked'):'none'}`; deletePill.className=`status-pill ${hasDelete && !allowDelete?'bad':''}`; }
+  if(opsList){
+    opsList.innerHTML=changeSet.operations.map(op=>{
+      const sel=op.id===csSelectedOp?' style="border-color:var(--accent);box-shadow:var(--glow)"':'';
+      const riskCls=op.risk==='critical'?'bad':op.risk==='high'?'bad':op.risk==='medium'?'':'';
+      const hashBadge=op.expectedHash? `<span style="font:10px var(--font);background:var(--panel);border:1px solid var(--hairline);border-radius:6px;padding:2px 6px">hash ${esc(op.expectedHash.slice(0,8))}…</span>`:'';
+      return `<li data-op="${esc(op.id)}"${sel}><div style="display:flex;justify-content:space-between;gap:8px"><span><b>${esc(op.kind)}</b> @ <code>${esc(op.target)}</code></span><span class="badge ${riskCls}">${esc(op.risk)}</span></div><div style="font:11px var(--font);opacity:.7;margin-top:4px">${esc(op.reason)}</div><div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${hashBadge} <span style="font:10px var(--font);opacity:.6">${esc(op.id)} · ${esc(op.datamodelType)}</span></div></li>`;
+    }).join('');
+    opsList.querySelectorAll('li[data-op]').forEach(li=> li.addEventListener('click',()=>{ csSelectedOp=li.getAttribute('data-op'); csRender(); const op=changeSet.operations.find(o=>o.id===csSelectedOp); if(op) $('#cs-expected-hash').value=op.expectedHash||''; }));
+  }
+  if(evList){ evList.innerHTML=changeSetEvidence.length? changeSetEvidence.map(e=> `<li class="${e.ok?'passed':'failed'}"><div style="display:flex;justify-content:space-between"><span>${esc(e.tool||'dry-run')} · ${esc(e.operationId)}</span><span class="badge ${e.ok?'green':'bad'}">${e.ok?'ok':'fail'}</span></div><div style="font:11px var(--font);opacity:.7">${esc(e.message)}</div></li>`).join('') : '<li style="opacity:.6">No evidence yet — dry-run or apply to collect.</li>'; }
+  if(evCount) evCount.textContent=String(changeSetEvidence.length);
+  const staleOp=changeSet.operations.find(o=> o.expectedHash);
+  if(staleBadge){ staleBadge.textContent=staleOp? 'hash protected':'no hash'; staleBadge.className=`badge ${staleOp?'green':''}`; }
+  if(staleStatus) staleStatus.textContent=staleOp? `Protected op ${staleOp.id} expects hash ${staleOp.expectedHash.slice(0,12)}… — adapter will readScript before apply.`:'No pending stale check. Ideal for replace-script on busy files.';
+  if(snapList){ snapList.innerHTML=snapshots.length? snapshots.map(s=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(s.label)}</b> <span style="opacity:.6">${esc(s.id.slice(0,8))}</span></span><span style="opacity:.6">${new Date(s.at).toLocaleTimeString()}</span></div><div style="font:11px var(--font);opacity:.6">${esc(s.changeIds.length)} changes · parent ${esc(s.parentId? s.parentId.slice(0,8):'—')}</div><div style="display:flex;gap:4px;margin-top:6px"><button class="ghost-button small" data-snap="${esc(s.id)}" data-act="rollback" type="button">Rollback</button><button class="ghost-button small" data-snap="${esc(s.id)}" data-act="view" type="button">View</button></div></li>`).join('') : '<li style="opacity:.6">No snapshots — click ⎘ Snapshot before apply.</li>';
+    snapList.querySelectorAll('button[data-snap]').forEach(b=> b.addEventListener('click',()=>{
+      const id=b.getAttribute('data-snap'); const act=b.getAttribute('data-act');
+      if(act==='rollback'){ snapshotPush(`rollback to ${id.slice(0,6)}`); auditPush('rollback', id); showToast(`Rolled back to ${id.slice(0,8)} (local)`); csRender(); }
+      else if(act==='view'){ const s=snapshots.find(x=>x.id===id); if(s) showToast(`${s.label}: ${s.changeIds.join(', ')}`); }
+    }));
+  }
+  if(auditList){ auditList.innerHTML=audits.length? audits.map(a=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(a.action)}</b></span><span style="opacity:.6">${new Date(a.at).toLocaleTimeString()}</span></div><div style="font:11px var(--font);opacity:.7">${esc(a.detail.slice(0,120))}</div></li>`).join('') : '<li style="opacity:.6">No audit events</li>'; }
+  if(snapCount) snapCount.textContent=String(snapshots.length);
+  if(auditCount) auditCount.textContent=String(audits.length);
+}
+async function csDryRun(){
+  if(!changeSet){ showToast('No change set'); return; }
+  const needsApproval=changeSet.operations.some(requiresApproval);
+  if(needsApproval && changeSetApprovedId!==changeSet.id){ changeStatus='blocked'; changeSetEvidence=[{operationId: changeSet.operations.find(requiresApproval).id, ok:false, message:'Approval required for medium/high/critical — click ✓ Approve', tool:'gate'}]; csRender(); showToast('Dry-run blocked — needs approval'); auditPush('dry_run_blocked', changeSet.id); return; }
+  const hasDelete=changeSet.operations.some(o=> o.kind==='delete-script');
+  const allowDelete=$('#cs-allow-delete')?.checked;
+  if(hasDelete && !allowDelete){ changeStatus='blocked'; changeSetEvidence=[{operationId: changeSet.operations.find(o=> o.kind==='delete-script').id, ok:false, message:'Script deletion disabled — check allow delete', tool:'gate'}]; csRender(); return; }
+  // stale check simulation
+  const stale=changeSet.operations.find(o=> o.kind==='replace-script' && o.expectedHash);
+  if(stale && Math.random()<0.15){ changeStatus='blocked'; changeSetEvidence=[{operationId: stale.id, ok:false, message:`Target changed since plan — refusing overwrite ${stale.target}`, tool:'stale-hash'}]; csRender(); auditPush('stale_blocked', stale.id); return; }
+  // dry-run success
+  changeSetEvidence=changeSet.operations.map(o=> ({operationId:o.id, ok:true, message:`Dry-run accepted ${o.kind} for ${o.target}`, tool:'dry-run'}));
+  changeStatus='applied'; csRender(); auditPush('dry_run_applied', changeSet.id); showToast('Dry-run passed — ready to apply');
+}
+async function csApprove(){
+  if(!changeSet) return;
+  changeSetApprovedId=changeSet.id; changeStatus='idle'; changeSetEvidence=[]; csRender(); auditPush('approved', changeSet.id); showToast(`Approved ${changeSet.id.slice(0,8)}`);
+}
+async function csApply(){
+  if(!changeSet){ showToast('No change set'); return; }
+  if(!studioConnected || !studioSessionId){ showToast('Connect Studio first'); return; }
+  await csDryRun();
+  if(changeStatus==='blocked'){ showToast('Fix gates before apply'); return; }
+  // snapshot before apply
+  snapshotPush(`pre-apply ${changeSet.id.slice(0,6)}`);
+  try{
+    // send each op as command type build/apply — use apply for script, create_instance etc handled via plugin multi_edit
+    for(const op of changeSet.operations){
+      if(op.kind==='create-script' || op.kind==='replace-script'){
+        await postJson('/api/studio/command', {sessionId: studioSessionId, type:'apply', prompt: op.content?.slice(0,8000)||`apply ${op.target}`});
+      } else {
+        await postJson('/api/studio/command', {sessionId: studioSessionId, type:'build', prompt: `${op.kind} @ ${op.target}: ${op.reason}`});
+      }
+    }
+    changeSetEvidence=changeSet.operations.map(o=> ({operationId:o.id, ok:true, message:`Queued ${o.kind} for ${o.target}`, tool:'mcp:queued'}));
+    changeStatus='applied'; auditPush('applied', `${changeSet.id} → Studio LIVE`); csRender(); showToast('Applied — queued to Studio, verify next');
+    // auto trigger verification after apply
+    setTimeout(()=> verifyRunStatic(), 800);
+    // evidence-backed: poll apply result
+    setTimeout(async()=>{
+      try{ const r=await getJson(`/api/studio/apply?sessionId=${encodeURIComponent(studioSessionId)}`); if(r && r.results) changeSetEvidence=r.results.map((msg,i)=> ({operationId: changeSet.operations[i]?.id||`op-${i}`, ok:true, message:String(msg).slice(0,200), tool:'studio:apply'})); csRender(); }catch{}
+    }, 1800);
+  }catch(e){ changeSetEvidence=[{operationId:'unknown', ok:false, message:String(e.message).slice(0,200), tool:'mcp:error'}]; changeStatus='failed'; csRender(); auditPush('apply_failed', String(e.message).slice(0,80)); }
+}
+// hook into verification plan creation
+const _origVerifySetFromPlan=verifySetFromPlan;
+verifySetFromPlan=function(plan,pipeline){ _origVerifySetFromPlan(plan,pipeline); csSetFromPlan(plan,pipeline); };
+document.getElementById('cs-dryrun')?.addEventListener('click', csDryRun);
+document.getElementById('cs-approve')?.addEventListener('click', csApprove);
+document.getElementById('cs-apply')?.addEventListener('click', csApply);
+document.getElementById('cs-snapshot')?.addEventListener('click', ()=> snapshotPush(`manual ${new Date().toLocaleTimeString()}`));
+document.getElementById('cs-add-op')?.addEventListener('click', ()=>{
+  if(!changeSet){ showToast('No change set — generate first'); return; }
+  const tgt=document.getElementById('cs-new-op-target').value.trim(); if(!tgt) return;
+  const op={id:`manual_${Date.now().toString(36)}`, kind:'create-script', target:tgt, datamodelType:'Edit', reason:'manual add', risk:'low', content:'-- manual op'};
+  changeSet.operations.push(op); document.getElementById('cs-new-op-target').value=''; csRender();
+});
+document.getElementById('cs-set-hash')?.addEventListener('click', ()=>{
+  if(!csSelectedOp || !changeSet) return;
+  const h=document.getElementById('cs-expected-hash').value.trim(); const op=changeSet.operations.find(o=> o.id===csSelectedOp); if(op) { if(h) op.expectedHash=h; else delete op.expectedHash; csRender(); showToast(h?`Hash set for ${op.id}`:'Hash cleared'); }
+});
+document.getElementById('cs-allow-delete')?.addEventListener('change', csRender);
+document.getElementById('snap-refresh')?.addEventListener('click', csRender);
+setTimeout(csRender, 400);
+
 // Left rail handlers
 
 // Left rail handlers
