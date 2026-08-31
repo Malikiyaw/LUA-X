@@ -131,6 +131,11 @@ export class StdioMcpTransport implements RobloxMcpTransport {
     });
   }
 
+  private notify(method: string, params: Record<string, unknown> = {}): void {
+    if (!this.proc?.stdin?.writable) throw new Error('Roblox Studio MCP process is not writable.');
+    this.proc.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
+  }
+
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
     const result = await this.rpc('initialize', {
@@ -140,7 +145,7 @@ export class StdioMcpTransport implements RobloxMcpTransport {
     });
     const error = asRecord(result).__rpcError;
     if (error) throw new Error(String(asRecord(error).message ?? 'MCP initialize failed.'));
-    await this.rpc('notifications/initialized', {});
+    this.notify('notifications/initialized');
     this.initialized = true;
   }
 
