@@ -16,26 +16,24 @@ function headers(token?: string): Record<string, string> {
   return value;
 }
 
-async function postJson(url: string, body: unknown, token?: string): Promise<any> {
+async function postJson(url: string, body: unknown, token?: string): Promise<Record<string, unknown>> {
   const response = await fetch(url, { method: 'POST', headers: headers(token), body: JSON.stringify(body) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status}: ${JSON.stringify(payload)}`);
-  return payload;
+  return payload as Record<string, unknown>;
 }
 
-async function getJson(url: string, token?: string): Promise<any> {
+async function getJson(url: string, token?: string): Promise<Record<string, unknown>> {
   const response = await fetch(url, { headers: headers(token) });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(`${response.status}: ${JSON.stringify(payload)}`);
-  return payload;
+  return payload as Record<string, unknown>;
 }
 
 function parsePlan(prompt?: string): BuildPlan | null {
-  if (!prompt) return null;
-  const prefix = 'LUA_X_PLAN:';
-  if (!prompt.startsWith(prefix)) return null;
+  if (!prompt?.startsWith('LUA_X_PLAN:')) return null;
   try {
-    const value = JSON.parse(prompt.slice(prefix.length)) as BuildPlan;
+    const value = JSON.parse(prompt.slice('LUA_X_PLAN:'.length)) as BuildPlan;
     return value && typeof value === 'object' ? value : null;
   } catch {
     return null;
@@ -53,56 +51,49 @@ export async function pollAndBridge(config: ProxyConfig): Promise<void> {
     maxRepairAttempts: 1,
     onEvent: async (event) => console.log(`[lua-x:${event.role}] ${event.message}`),
   });
-  const tokenHeaders = headers(config.token);
   const apiBase = config.apiBase.replace(/\/$/, '');
   let sessionId: string | null = null;
   let running = false;
 
-  try {
-    await bridge.connect();
-    const studios = await bridge.listStudios();
-    console.log(`[lua-x] native Roblox Studio MCP connected; discovered ${Array.isArray(studios.data) ? studios.data.length : 'available'} studio record(s)`);
-  } catch (error) {
-    console.error('[lua-x] MCP connection failed:', error instanceof Error ? error.message : error);
-    throw error;
-  }
+  await bridge.connect();
+  const discovered = await bridge.listTools();
+  console.log(`[lua-x] native MCP connected; ${discovered.length} tools discovered.`);
 
   async function registerOrRefresh(): Promise<void> {
     try {
       if (!sessionId) {
         const pending = await getJson(`${apiBase}/api/studio/connect/pending`, config.token);
-        const request = pending.request;
-        if (request) {
-          const proxyId = `agent-${process.pid}-${Date.now().toString(36)}`;
+        const request = pending.request as { requestId?: string; projectId?: string } | null;
+        if (request?.requestId) {
+          const clientId = `agent-${process.pid}-${Date.now().toString(36)}`;
           const reg = await postJson(`${apiBase}/api/studio/register`, {
             projectId: request.projectId || config.projectId || 'lua-x-local',
-            sessionId: proxyId,
+            sessionId: clientId,
             placeName: 'Roblox Studio (native MCP)',
-            pluginVersion: 'native-mcp',
+            pluginVersion: '2.2.0',
             capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
-            clientId: proxyId,
+            clientId,
             requestId: request.requestId,
           }, config.token);
-          sessionId = reg.sessionId || proxyId;
-          console.log(`[lua-x] claimed Studio connection request ${request.requestId}`);
+          sessionId = typeof reg.sessionId === 'string' ? reg.sessionId : clientId;
+          console.log(`[lua-x] claimed connection ${request.requestId}`);
         } else {
           const status = await getJson(`${apiBase}/api/studio/status?projectId=${encodeURIComponent(config.projectId || 'lua-x-local')}`, config.token);
-          if (status.connected) sessionId = status.sessionId;
+          if (status.connected === true && typeof status.sessionId === 'string') sessionId = status.sessionId;
         }
       }
-      if (sessionId) {
-        const state = await bridge.studioState(true);
-        const place = state.data && typeof state.data === 'object' ? state.data as Record<string, unknown> : {};
-        await postJson(`${apiBase}/api/studio/heartbeat`, {
-          sessionId,
-          projectId: config.projectId || String(place.placeId || 'lua-x-local'),
-          placeName: String(place.name || 'Roblox Studio'),
-          placeId: place.placeId,
-          pluginVersion: 'native-mcp',
-          capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
-          context: { selection: 0, scripts: 0 },
-        }, config.token);
-      }
+      if (!sessionId) return;
+      const state = await bridge.studioState(true);
+      const place = state.data && typeof state.data === 'object' ? state.data as Record<string, unknown> : {};
+      await postJson(`${apiBase}/api/studio/heartbeat`, {
+        sessionId,
+        projectId: config.projectId || String(place.placeId || 'lua-x-local'),
+        placeName: String(place.name || 'Roblox Studio'),
+        placeId: place.placeId,
+        pluginVersion: '2.2.0',
+        capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
+        context: { selection: 0, scripts: 0 },
+      }, config.token);
     } catch (error) {
       console.error('[lua-x] registration/heartbeat failed:', error instanceof Error ? error.message : error);
     }
@@ -110,55 +101,74 @@ export async function pollAndBridge(config: ProxyConfig): Promise<void> {
 
   async function consume(): Promise<void> {
     if (!sessionId || running) return;
-    let command: { type: string; prompt?: string } | undefined;
+    let command: { type?: string; prompt?: string } | undefined;
     try {
       const result = await getJson(`${apiBase}/api/studio/command?sessionId=${encodeURIComponent(sessionId)}`, config.token);
-      command = result.command;
+      command = result.command as { type?: string; prompt?: string } | undefined;
     } catch (error) {
       console.error('[lua-x] command poll failed:', error instanceof Error ? error.message : error);
       return;
     }
-    if (!command) return;
+    if (!command?.type) return;
     running = true;
     console.log(`[lua-x] executing ${command.type}`);
     try {
       let results: unknown[] = [];
       let success = 1;
       let failed = 0;
-      if (command.type === 'ping') {
-        const state = await bridge.studioState(true);
-        results = [state.data ?? state.raw ?? state];
-        success = state.ok ? 1 : 0;
-        failed = state.ok ? 0 : 1;
-      } else if (command.type === 'refresh_context') {
-        const inspection = await agent.inspect();
-        results = [inspection.studios.data, inspection.tree.data, inspection.console.data];
-        if (sessionId) await postJson(`${apiBase}/api/studio/context`, { sessionId, context: { ...inspection.tree.data && { workspaceTree: inspection.tree.data }, ...inspection.console.data && { console: inspection.console.data } } }, config.token);
-      } else if (command.type === 'build' || command.type === 'apply') {
-        const plan = parsePlan(command.prompt);
-        if (!plan) throw new Error('Build command did not contain an appliable LUA-X plan. Generate a plan in the web workspace, then click Apply via MCP.');
-        const result = await agent.executePlan(plan, config.studioId);
-        results = result.results;
-        success = result.ok ? 1 : 0;
-        failed = result.failed;
-      } else if (command.type === 'verify') {
-        const state = await bridge.studioState(true);
-        const console = await bridge.consoleOutput();
-        results = [state.data ?? state.raw ?? state, console.data ?? console.raw ?? console];
-        success = state.ok && console.ok ? 1 : 0;
-        failed = success ? 0 : 1;
-      } else if (command.type === 'stop') {
-        const result = await bridge.play('stop', true, config.studioId);
-        results = [result.data ?? result.raw ?? result];
-        success = result.ok ? 1 : 0;
-        failed = result.ok ? 0 : 1;
-      } else if (command.type === 'analyze') {
-        const inspection = await agent.inspect();
-        results = [inspection.studios.data, inspection.tree.data, inspection.console.data];
-        success = 1;
-        failed = 0;
-      } else {
-        throw new Error(`Unsupported command ${command.type}`);
+      switch (command.type) {
+        case 'ping': {
+          const result = await bridge.studioState(true);
+          results = [result.data ?? result.raw ?? result];
+          success = result.ok ? 1 : 0;
+          failed = result.ok ? 0 : 1;
+          break;
+        }
+        case 'refresh_context': {
+          const inspection = await agent.inspect();
+          results = [inspection.studios.data, inspection.tree.data, inspection.console.data];
+          await postJson(`${apiBase}/api/studio/context`, {
+            sessionId,
+            context: {
+              workspaceTree: inspection.tree.data,
+              console: inspection.console.data,
+              studios: inspection.studios.data,
+            },
+          }, config.token);
+          break;
+        }
+        case 'build':
+        case 'apply': {
+          const plan = parsePlan(command.prompt);
+          if (!plan) throw new Error('No executable LUA-X plan found. Generate a plan in the web workspace first.');
+          const result = await agent.executePlan(plan, config.studioId);
+          results = result.results;
+          success = result.ok ? 1 : 0;
+          failed = result.failed;
+          break;
+        }
+        case 'verify': {
+          const state = await bridge.studioState(true);
+          const console = await bridge.consoleOutput();
+          results = [state.data ?? state.raw ?? state, console.data ?? console.raw ?? console];
+          success = state.ok && console.ok ? 1 : 0;
+          failed = success ? 0 : 1;
+          break;
+        }
+        case 'stop': {
+          const result = await bridge.play('stop', true, config.studioId);
+          results = [result.data ?? result.raw ?? result];
+          success = result.ok ? 1 : 0;
+          failed = result.ok ? 0 : 1;
+          break;
+        }
+        case 'analyze': {
+          const inspection = await agent.inspect();
+          results = [inspection.studios.data, inspection.tree.data, inspection.console.data];
+          break;
+        }
+        default:
+          throw new Error(`Unsupported command ${command.type}`);
       }
       await postJson(`${apiBase}/api/studio/apply`, {
         sessionId,
