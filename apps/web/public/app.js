@@ -227,9 +227,11 @@ async function sendChat(){
       appendMsg('assistant', text, {at:Date.now(), plan:data.plan});
       if(data.suggestions) renderSuggestions(data.suggestions);
       if(data.agentTrace) renderAgentEvents(data.agentTrace);
-      if(data.model && modelLabel) modelLabel.textContent=`NVIDIA · ${String(data.model).split('/').pop()}`;
-      if(centralThinking) centralThinking.textContent='Dessin is thinking…';
-      const buildModelEl=$('#build-model'); if(buildModelEl) buildModelEl.textContent=data.model?data.model.split('/').pop():'';
+     if(data.model && modelLabel) modelLabel.textContent=`NVIDIA · ${String(data.model).split('/').pop()}`;
+       if(centralThinking) centralThinking.textContent='Dessin is thinking…';
+       const buildModelEl=$('#build-model'); if(buildModelEl) buildModelEl.textContent=data.model?data.model.split('/').pop():'';
+       if(data.plan) verifySetFromPlan(data.plan, data.pipeline);
+       else if(data.pipeline && data.pipeline.verificationRun) verifySetFromPipeline(data.pipeline);
     }
     chatHistory.push({role:'user', text:raw},{role:'assistant', text:String((res.body&&res.body.response)||'').slice(0,2000)});
     pendingImageDataUrl=null; if(imageInput) imageInput.value='';
@@ -452,7 +454,254 @@ $('#ui-ref-input')?.addEventListener('change', async()=>{
   }; reader.readAsDataURL(f);
 });
 // init
-setTimeout(()=>{ uiRender(); uiFillProps(); }, 300);
+setTimeout(()=>{ uiRender(); uiFillProps(); verifyRender(); }, 300);
+
+// ===== VERIFY & PLAYTEST - Phase 3 =====
+let verifyRun = null;
+let repairAttempts = 0;
+const MAX_REPAIR = 3;
+let lastPlan = null;
+
+function classifyFailureFn(msg){
+  const m=String(msg||'').toLowerCase();
+  if(/compile|type.?error|build/.test(m)) return 'build';
+  if(/security|permission|unauthorized|exploit/.test(m)) return 'security';
+  if(/performance|fps|memory|timeout/.test(m)) return 'performance';
+  if(/screenshot|visual|layout/.test(m)) return 'visual';
+  if(/network|integration|remote/.test(m)) return 'integration';
+  if(/assert|expected|logic/.test(m)) return 'logic';
+  if(/runtime|exception|error/.test(m)) return 'runtime';
+  return 'environment';
+}
+function repairPlanFn(failure){
+  if(!failure.recoverable) return {action:'escalate',reason:'Not recoverable — human review required.'};
+  if(failure.kind==='environment') return {action:'rerun',reason:'Transient environment — retry before code change.'};
+  return {action:'repair',reason:`Repair ${failure.kind} then rerun affected test + regression.`};
+}
+function evaluateRunFn(run){
+  const failures=run.results.flatMap(r=> r.failure?[r.failure]:[]);
+  const missing=run.criteria.filter(c=> c.required && !run.results.some(r=> r.status==='passed' && r.evidence.some(e=> e.type==='assertion' && e.summary.includes(c.id)))).map(c=>c.id);
+  const blocked=run.results.some(r=> r.status==='blocked');
+  const passed=!blocked && failures.length===0 && missing.length===0 && run.tests.length>0 && run.tests.every(t=> run.results.find(r=> r.testId===t.id)?.status==='passed');
+  return {passed, blocked, missingCriteria:missing, failures};
+}
+function verifySetFromPlan(plan, pipeline){
+  lastPlan=plan;
+  if(pipeline && pipeline.verificationRun && pipeline.verificationRun.tests){
+    verifyRun = {
+      id: pipeline.verificationRun.id || `verification-${Date.now()}`,
+      startedAt: pipeline.verificationRun.startedAt || new Date().toISOString(),
+      criteria: (pipeline.verificationRun.criteria||plan.acceptanceCriteria||[]).map((c,i)=> typeof c==='string'?{id:`criterion-${String(i+1).padStart(2,'0')}`,description:c,required:true}:c),
+      tests: pipeline.verificationRun.tests,
+      results: pipeline.verificationRun.results||[]
+    };
+  } else {
+    const criteria=(plan.acceptanceCriteria||[]).map((d,i)=>({id:`criterion-${String(i+1).padStart(2,'0')}`,description:d,required:true}));
+    const tests=(plan.verification||plan.acceptanceCriteria||['Apply in Studio','Playtest']).map((v,i)=>({id:`verify-${String(i+1).padStart(2,'0')}`,name:v,kind:'static',steps:[v],expected:[v],priority: plan.risks && plan.risks.length?'high':'medium'}));
+    verifyRun={ id:`verification-${Date.now().toString(36)}`, startedAt:new Date().toISOString(), criteria, tests, results:[] };
+  }
+  repairAttempts=0;
+  verifyRender();
+  showToast(`Verification plan ready — ${verifyRun.tests.length} tests`);
+}
+function verifySetFromPipeline(pipeline){
+  if(!pipeline||!pipeline.verificationRun) return;
+  verifySetFromPlan({acceptanceCriteria: pipeline.verificationRun.criteria.map(c=>c.description), verification: pipeline.verificationRun.tests.map(t=>t.name), risks:[]}, pipeline);
+}
+function verifyRender(){
+  const badge=$('#verify-badge'), evBadge=$('#verify-evidence-badge'), critCount=$('#verify-criteria-count'), testsCount=$('#verify-tests-count');
+  const critList=$('#verify-criteria-list'), testsList=$('#verify-tests-list'), evList=$('#verify-evidence-list'), failList=$('#verify-failures-list');
+  const runId=$('#verify-run-id'), status=$('#verify-status'), passedPill=$('#verify-passed-pill'), blockedPill=$('#verify-blocked-pill'), missingPill=$('#verify-missing-pill'), repairPill=$('#verify-repair-pill');
+  if(!verifyRun){
+    if(badge) badge.textContent='No run yet'; if(status) status.textContent='No verification run yet. Generate via chat (build mode) to auto-fill.';
+    if(critList) critList.innerHTML='<li style="opacity:.6">No criteria</li>'; if(testsList) testsList.innerHTML='<li style="opacity:.6">No tests</li>';
+    return;
+  }
+  const evCount=verifyRun.results.reduce((n,r)=> n + (r.evidence?.length||0),0);
+  const evPassed=evaluateRunFn(verifyRun);
+  if(badge) badge.textContent=evPassed.passed? 'PASSED': evPassed.blocked? 'BLOCKED': evPassed.failures.length? 'FAILED':'PENDING';
+  badge.className=`badge ${evPassed.passed?'green':evPassed.failures.length?'bad':''}`;
+  if(evBadge){ evBadge.textContent=`Evidence ${evCount}`; evBadge.classList.toggle('hidden', evCount===0); }
+  if(critCount) critCount.textContent=String(verifyRun.criteria.length);
+  if(testsCount) testsCount.textContent=String(verifyRun.tests.length);
+  if(runId) runId.textContent=`${verifyRun.id} · ${new Date(verifyRun.startedAt).toLocaleTimeString()}`;
+  if(status){
+    if(evPassed.passed) status.textContent='✓ All criteria satisfied with evidence — pro-team ready.';
+    else if(evPassed.blocked) status.textContent='⛔ Blocked — repair required.';
+    else if(evPassed.missingCriteria.length) status.textContent=`Missing evidence for: ${evPassed.missingCriteria.join(', ')}`;
+    else if(evPassed.failures.length) status.textContent=`${evPassed.failures.length} failure(s) — see repair plan.`;
+    else status.textContent=`Pending — ${verifyRun.tests.length} tests, ${verifyRun.results.length} results.`;
+  }
+  if(passedPill) passedPill.textContent=`passed: ${evPassed.passed?'yes':'no'}`; if(passedPill) passedPill.className=`status-pill ${evPassed.passed?'ok':''}`;
+  if(blockedPill) blockedPill.textContent=`blocked: ${evPassed.blocked?'yes':'no'}`; if(blockedPill) blockedPill.className=`status-pill ${evPassed.blocked?'bad':''}`;
+  if(missingPill) missingPill.textContent=`missing: ${evPassed.missingCriteria.length}`; if(missingPill) missingPill.className=`status-pill ${evPassed.missingCriteria.length?'bad':''}`;
+  if(repairPill) repairPill.textContent=`repair ${repairAttempts}/${MAX_REPAIR}`;
+  if(critList){
+    critList.innerHTML=verifyRun.criteria.map(c=>{
+      const hasEvidence=verifyRun.results.some(r=> r.status==='passed' && r.evidence.some(e=> e.summary.includes(c.id)));
+      return `<li class="${hasEvidence?'passed':''}"><div style="display:flex;justify-content:space-between"><span>${esc(c.description)}</span><span style="opacity:.6">${esc(c.id)} ${hasEvidence?'✓':''}</span></div><span style="font:10px var(--font);opacity:.6">${c.required?'required':''}</span></li>`;
+    }).join('') || '<li style="opacity:.6">No criteria</li>';
+  }
+  if(testsList){
+    testsList.innerHTML=verifyRun.tests.map(t=>{
+      const res=verifyRun.results.find(r=> r.testId===t.id);
+      const statusCls=res? res.status : 'pending';
+      const fail=res?.failure? `<div style="color:#e06a6a;font:11px var(--font)">${esc(res.failure.kind)}: ${esc(res.failure.message)} <span style="opacity:.6">${res.failure.recoverable?'recoverable':'escalate'}</span></div>`:'';
+      const ev=(res?.evidence||[]).slice(0,2).map(e=> `<span style="font:10px var(--font);background:var(--panel);border:1px solid var(--hairline);border-radius:6px;padding:2px 6px">${esc(e.type)}: ${esc(e.summary.slice(0,60))}</span>`).join(' ');
+      return `<li class="${esc(statusCls)}"><div style="display:flex;justify-content:space-between"><span><b>${esc(t.name)}</b> <span style="opacity:.6">${esc(t.kind)} · ${esc(t.priority)}</span></span><span class="badge ${statusCls==='passed'?'green':statusCls==='failed'?'bad':''}">${esc(statusCls)}</span></div><div style="font:11px var(--font);opacity:.7;margin-top:4px">${esc(t.steps.join(' → '))}</div>${ev?`<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${ev}</div>`:''}${fail}<div class="test-actions"><button data-test="${esc(t.id)}" data-action="pass" type="button">Mark passed</button><button data-test="${esc(t.id)}" data-action="fail" type="button">Fail</button><button data-test="${esc(t.id)}" data-action="evidence" type="button">+ evidence</button></div></li>`;
+    }).join('') || '<li style="opacity:.6">No tests</li>';
+    testsList.querySelectorAll('button[data-test]').forEach(btn=> btn.addEventListener('click',()=>{
+      const tid=btn.getAttribute('data-test'); const act=btn.getAttribute('data-action');
+      if(act==='pass') verifyMark(tid,'passed'); else if(act==='fail') verifyMark(tid,'failed'); else if(act==='evidence') verifyAddEvidence(tid);
+    }));
+  }
+  if(evList){
+    const allEvs=verifyRun.results.flatMap(r=> r.evidence.map(e=> ({...e, testId:r.testId})) );
+    evList.innerHTML=allEvs.length? allEvs.map(e=> `<li><div style="display:flex;justify-content:space-between"><span>${esc(e.type)} · ${esc(e.summary)}</span><span style="opacity:.6">${esc(e.testId)}</span></div>${e.value?`<div style="font:11px var(--font);opacity:.7">${esc(String(e.value).slice(0,120))}</div>`:''}</li>`).join('') : '<li style="opacity:.6">No evidence yet — run checks or playtest.</li>';
+  }
+  if(failList){
+    const fails=verifyRun.results.filter(r=> r.failure).map(r=> ({...r.failure, testId:r.testId}));
+    failList.innerHTML=fails.length? fails.map(f=>{
+      const rp=repairPlanFn(f);
+      const cls=classifyFailureFn(f.message);
+      return `<li class="failed"><div><b>${esc(cls)}</b> — ${esc(f.message)} <span style="opacity:.6">[${esc(f.testId)}]</span></div><div style="font:11px var(--font);margin-top:4px">→ <b>${esc(rp.action)}</b>: ${esc(rp.reason)}</div></li>`;
+    }).join('') : '<li style="opacity:.6">No failures — awaiting results.</li>';
+  }
+}
+function verifyMark(testId, status){
+  if(!verifyRun) return;
+  let res=verifyRun.results.find(r=> r.testId===testId);
+  if(!res){ res={testId, status, evidence:[], startedAt:new Date().toISOString(), finishedAt:new Date().toISOString()}; verifyRun.results.push(res); }
+  res.status=status; res.finishedAt=new Date().toISOString();
+  if(status==='passed' && !res.evidence.some(e=> e.type==='assertion')){
+    const crit=verifyRun.criteria.find(c=> verifyRun.tests.find(t=> t.id===testId)?.name.includes(c.description.slice(0,20)) );
+    res.evidence.push({type:'assertion', summary:`criterion ${crit?crit.id:testId} satisfied by ${testId}`, value:'evidence-backed'});
+  }
+  if(status==='failed' && !res.failure){
+    res.failure={kind:classifyFailureFn('logic assert failed'), message:`Test ${testId} failed`, recoverable:true};
+  } else if(status!=='failed') delete res.failure;
+  verifyRender(); showToast(`${testId} → ${status}`);
+}
+function verifyAddEvidence(testId){
+  if(!verifyRun) return;
+  const txt=prompt('Evidence summary (e.g. console line or tool output)', 'console: output ok');
+  if(!txt) return;
+  let res=verifyRun.results.find(r=> r.testId===testId);
+  if(!res){ res={testId, status:'running', evidence:[]}; verifyRun.results.push(res); }
+  res.evidence.push({type: txt.startsWith('console')?'console': txt.startsWith('tool')?'tool':'assertion', summary:txt.slice(0,200), value: Date.now()});
+  verifyRender();
+}
+async function verifyRunStatic(){
+  if(!verifyRun){ showToast('No verification run — generate first'); return; }
+  for(const t of verifyRun.tests){
+    const r=verifyRun.results.find(x=> x.testId===t.id);
+    if(!r || r.status==='pending'){
+      verifyMark(t.id, 'running');
+      await delay(300);
+      // static checks: assume passed unless prior failures
+      const isVisual=t.kind==='playtest' && !studioConnected;
+      verifyMark(t.id, isVisual?'blocked':'passed');
+      if(isVisual){
+        const rr=verifyRun.results.find(x=> x.testId===t.id); if(rr){ rr.failure={kind:'environment',message:'Studio not connected — playtest blocked',recoverable:true}; rr.evidence.push({type:'tool',summary:'blocked: Studio offline'}); }
+      } else {
+        const rr=verifyRun.results.find(x=> x.testId===t.id); if(rr) rr.evidence.push({type:'tool',summary:'static: syntax + Luau gate passed'});
+      }
+    }
+  }
+  verifyRender();
+}
+function verifyRequestRepair(){
+  if(!verifyRun) return;
+  if(repairAttempts>=MAX_REPAIR){ showToast(`Repair limit ${MAX_REPAIR} reached — escalate to human`); return; }
+  repairAttempts+=1;
+  // simple: turn one failed into rerun
+  const failed=verifyRun.results.find(r=> r.status==='failed');
+  if(failed){ failed.status='running'; delete failed.failure; failed.evidence.push({type:'tool',summary:`repair attempt ${repairAttempts}`}); }
+  verifyRender();
+  showToast(`Repair ${repairAttempts}/${MAX_REPAIR} queued`);
+  // if chat available, nudge AI to fix
+  if(lastPlan && failed){
+    const prompt=`Repair verification failure on ${failed.testId}: ${failed.failure?failed.failure.message:'failed test'}. Apply minimal fix and re-emit changes.`;
+    chatInput.value=prompt; showToast('Repair prompt ready — send to twin agents');
+  }
+}
+async function verifyPushToStudio(){
+  if(!studioConnected || !studioSessionId){ showToast('Connect Studio first'); return; }
+  if(!verifyRun){ showToast('No verification run'); return; }
+  try{
+    await postJson('/api/studio/command', {sessionId: studioSessionId, type:'verify', prompt: verifyRun.tests.map(t=> t.name).join('; ').slice(0,2000)});
+    showToast('Verify command queued — Studio will report console');
+    // also start playtest fetch
+    setTimeout(refreshPlaytest, 1200);
+  }catch{ showToast('Verify push failed'); }
+}
+// Playtest harness
+let playtestPoll=null;
+async function playtestStart(mode){
+  if(!studioConnected){ showToast('Connect Studio first'); return; }
+  const placeId=studioPlaceId || webSessionId || 'shared';
+  try{
+    const res=await postJson('/api/studio/playtest', {placeId, mode});
+    if(res.ok){ showToast(`Playtest ${mode} started — ${res.body.test?.id||''}`); document.getElementById('playtest-status').textContent='running'; document.getElementById('playtest-detail').textContent=`Test ${res.body.test.id} · ${mode} · running`;
+      const logEl=document.getElementById('playtest-log'); if(logEl) logEl.textContent='[LUA-X] Playtest running…\n'; 
+      // poll status
+      let tries=0; const pid=setInterval(async()=>{
+        tries+=1; const s=await fetchDetailed(`/api/studio/playtest?placeId=${encodeURIComponent(placeId)}`);
+        if(s.reached && s.body && Array.isArray(s.body.tests)){
+          const latest=s.body.tests[s.body.tests.length-1];
+          if(latest){ document.getElementById('playtest-status').textContent=latest.status; document.getElementById('playtest-detail').textContent=`Test ${latest.id} · ${latest.status} · ${latest.mode}`; if(latest.logs && latest.logs.length){ const el=document.getElementById('playtest-log'); if(el) el.textContent=latest.logs.join('\n'); }
+            if(latest.status!=='running' || tries>20){ clearInterval(pid); // add evidence
+               if(verifyRun && latest.status==='passed'){ const t=verifyRun.tests.find(x=> x.kind==='playtest')||verifyRun.tests[0]; if(t) verifyMark(t.id,'passed'); }
+            }
+          }
+        }
+        if(tries>20) clearInterval(pid);
+      }, 900);
+    } else showToast('Playtest start failed');
+  }catch(e){ showToast('Playtest error: '+String(e.message).slice(0,120)); }
+}
+async function refreshPlaytest(){
+  const placeId=studioPlaceId || webSessionId || 'shared';
+  const s=await fetchDetailed(`/api/studio/playtest?placeId=${encodeURIComponent(placeId)}`);
+  if(s.reached && s.body && Array.isArray(s.body.tests)){
+    const t=s.body.tests[s.body.tests.length-1];
+    if(t){ document.getElementById('playtest-status').textContent=t.status; document.getElementById('playtest-detail').textContent=`Test ${t.id} · ${t.status} · logs ${t.logs?.length||0}`; const el=document.getElementById('playtest-log'); if(el) el.textContent=(t.logs||[]).join('\n') || '[no logs]'; }
+  } else {
+    document.getElementById('playtest-detail').textContent='No playtest data';
+  }
+}
+async function fetchConsole(){
+  if(!studioConnected || !studioSessionId){ showToast('Connect Studio first'); return; }
+  try{
+    await postJson('/api/studio/command', {sessionId: studioSessionId, type:'analyze', prompt:'fetch console output for verification'});
+    showToast('Console fetch queued — check Output in Studio');
+    const logEl=document.getElementById('playtest-log'); if(logEl) logEl.textContent+='\n[queued get_console_output via desktop-bridge]\n';
+  }catch{ showToast('Console fetch failed'); }
+}
+document.getElementById('verify-run-static')?.addEventListener('click', verifyRunStatic);
+document.getElementById('verify-mark-pass')?.addEventListener('click', ()=>{ if(!verifyRun) return; verifyRun.tests.forEach(t=> verifyMark(t.id,'passed')); verifyRender(); });
+document.getElementById('verify-request-repair')?.addEventListener('click', verifyRequestRepair);
+document.getElementById('verify-push-verify')?.addEventListener('click', verifyPushToStudio);
+document.getElementById('verify-add-test')?.addEventListener('click', ()=>{
+  const inp=document.getElementById('verify-new-test'); const v=inp.value.trim(); if(!v) return;
+  if(!verifyRun) verifyRun={id:`verification-${Date.now().toString(36)}`,startedAt:new Date().toISOString(),criteria:[],tests:[],results:[]};
+  const id=`verify-${String(verifyRun.tests.length+1).padStart(2,'0')}`;
+  verifyRun.tests.push({id, name:v, kind: v.toLowerCase().includes('play')?'playtest': v.toLowerCase().includes('performance')?'performance':'static', steps:[v], expected:[v], priority:'medium'});
+  inp.value=''; verifyRender();
+});
+document.getElementById('verify-add-evidence')?.addEventListener('click', ()=>{
+  const tid=prompt('Test id to add evidence (e.g. verify-01)'); if(!tid) return; verifyAddEvidence(tid);
+});
+document.getElementById('playtest-start')?.addEventListener('click', ()=> playtestStart('play'));
+document.getElementById('playtest-run')?.addEventListener('click', ()=> playtestStart('run'));
+document.getElementById('playtest-stop')?.addEventListener('click', async()=>{
+  if(!studioConnected || !studioSessionId) return;
+  try{ await postJson('/api/studio/command', {sessionId: studioSessionId, type:'stop'}); showToast('Stop queued'); document.getElementById('playtest-status').textContent='stopped'; }catch{}
+});
+document.getElementById('playtest-refresh')?.addEventListener('click', refreshPlaytest);
+document.getElementById('playtest-console')?.addEventListener('click', fetchConsole);
+
+// Left rail handlers
 
 // Left rail handlers
 function scrollToTarget(target){

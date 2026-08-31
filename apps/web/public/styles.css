@@ -203,6 +203,23 @@ code{font-family:ui-monospace,Consolas,monospace; font-size:.92em; background:va
 .props-form input,.props-form select{background:var(--field); border:1px solid var(--hairline); color:var(--text); border-radius:6px; padding:6px 8px; font:12px var(--font)}
 @media(max-width:1100px){.ui-studio-grid{grid-template-columns:1fr} .ui-palette,.ui-props{border:none; border-top:1px solid var(--hairline)}}
 
+/* Verify & Playtest - Phase 3 */
+.verify-studio{background:var(--bg); border:1px solid var(--hairline); border-radius:16px; overflow:hidden}
+.verify-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:0; min-height:480px}
+.verify-col{padding:12px; border-right:1px solid var(--hairline); overflow:auto; max-height:720px}
+.verify-col:last-child{border-right:none}
+.verify-list{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:6px}
+.verify-list li{background:var(--field); border:1px solid var(--hairline); border-radius:8px; padding:8px 10px; font:12px/1.4 var(--font)}
+.verify-list li.pending{opacity:.7}
+.verify-list li.passed{border-color:rgba(88,190,125,.4); background:rgba(88,190,125,.08)}
+.verify-list li.failed{border-color:rgba(224,106,106,.35); background:rgba(224,106,106,.08)}
+.verify-list li.blocked{border-color:rgba(255,180,60,.35); background:rgba(255,180,60,.08)}
+.verify-status{font:11px/1.4 var(--font); color:var(--muted); background:var(--field); border:1px solid var(--hairline); border-radius:8px; padding:8px}
+.verify-log{white-space:pre-wrap; word-break:break-word}
+.test-actions{display:flex; gap:4px; flex-wrap:wrap; margin-top:6px}
+.test-actions button{font:11px var(--font); padding:4px 8px; border-radius:6px; border:1px solid var(--hairline); background:var(--panel); color:var(--muted); cursor:pointer}
+@media(max-width:1100px){.verify-grid{grid-template-columns:1fr} .verify-col{border-right:none; border-top:1px solid var(--hairline)}}
+
 
 /* Responsive */
 @media(max-width:1100px){
