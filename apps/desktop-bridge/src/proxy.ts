@@ -41,61 +41,67 @@ function parsePlan(prompt?: string): BuildPlan | null {
 }
 
 export function createBridge(studioId?: string) {
-  const transport = new StdioMcpTransport({ ...(studioId ? { studioId } : {}) });
+  const transport = new StdioMcpTransport({
+    ...(studioId ? { studioId } : {}),
+    requestTimeoutMs: 30000,
+    toolDiscoveryAttempts: 12,
+    toolDiscoveryDelayMs: 1000,
+  });
   return new RobloxMcpBridge({ transport, requireConfirmation: true });
 }
 
 export async function pollAndBridge(config: ProxyConfig): Promise<void> {
   const bridge = createBridge(config.studioId);
   const agent = new AgentRuntime(bridge, {
-    maxRepairAttempts: 1,
+    maxRepairAttempts: 2,
     onEvent: async (event) => console.log(`[lua-x:${event.role}] ${event.message}`),
   });
   const apiBase = config.apiBase.replace(/\/$/, '');
   let sessionId: string | null = null;
   let running = false;
+  const clientId = `agent-${process.pid}-${Date.now().toString(36)}`;
 
   await bridge.connect();
   const discovered = await bridge.listTools();
-  console.log(`[lua-x] native MCP connected; ${discovered.length} tools discovered.`);
+  console.log(`[lua-x] native Roblox MCP connected; ${discovered.length} tools discovered.`);
 
   async function registerOrRefresh(): Promise<void> {
     try {
-      if (!sessionId) {
-        const pending = await getJson(`${apiBase}/api/studio/connect/pending`, config.token);
-        const request = pending.request as { requestId?: string; projectId?: string } | null;
-        if (request?.requestId) {
-          const clientId = `agent-${process.pid}-${Date.now().toString(36)}`;
-          const reg = await postJson(`${apiBase}/api/studio/register`, {
-            projectId: request.projectId || config.projectId || 'lua-x-local',
-            sessionId: clientId,
-            placeName: 'Roblox Studio (native MCP)',
-            pluginVersion: '2.2.0',
-            capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
-            clientId,
-            requestId: request.requestId,
-          }, config.token);
-          sessionId = typeof reg.sessionId === 'string' ? reg.sessionId : clientId;
-          console.log(`[lua-x] claimed connection ${request.requestId}`);
-        } else {
-          const status = await getJson(`${apiBase}/api/studio/status?projectId=${encodeURIComponent(config.projectId || 'lua-x-local')}`, config.token);
-          if (status.connected === true && typeof status.sessionId === 'string') sessionId = status.sessionId;
-        }
-      }
-      if (!sessionId) return;
       const state = await bridge.studioState(true);
       const place = state.data && typeof state.data === 'object' ? state.data as Record<string, unknown> : {};
+
+      if (!sessionId) {
+        const pending = await getJson(`${apiBase}/api/studio/connect/pending`, config.token).catch(() => ({ request: null }));
+        const request = pending.request as { requestId?: string; projectId?: string } | null;
+        const projectId = request?.projectId || config.projectId || String(place.placeId || 'lua-x-local');
+        const reg = await postJson(`${apiBase}/api/studio/register`, {
+          projectId,
+          sessionId: clientId,
+          placeName: String(place.name || 'Roblox Studio'),
+          ...(place.placeId ? { placeId: String(place.placeId) } : {}),
+          pluginVersion: '2.2.0',
+          capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
+          clientId,
+          ...(request?.requestId ? { requestId: request.requestId } : {}),
+        }, config.token);
+        sessionId = typeof reg.sessionId === 'string' ? reg.sessionId : clientId;
+        console.log(`[lua-x] Studio session registered: ${sessionId}`);
+      }
+
+      if (!sessionId) return;
       await postJson(`${apiBase}/api/studio/heartbeat`, {
         sessionId,
         projectId: config.projectId || String(place.placeId || 'lua-x-local'),
         placeName: String(place.name || 'Roblox Studio'),
-        placeId: place.placeId,
+        ...(place.placeId ? { placeId: String(place.placeId) } : {}),
         pluginVersion: '2.2.0',
         capabilities: ['mcp-native', 'agent', 'sync', 'playtest', 'assets', 'vision'],
+        clientId,
         context: { selection: 0, scripts: 0 },
       }, config.token);
     } catch (error) {
       console.error('[lua-x] registration/heartbeat failed:', error instanceof Error ? error.message : error);
+      sessionId = null;
     }
   }
 
@@ -194,6 +200,6 @@ export async function pollAndBridge(config: ProxyConfig): Promise<void> {
 
   await registerOrRefresh();
   setInterval(() => { void registerOrRefresh(); }, 4000);
-  setInterval(() => { void consume(); }, config.pollMs ?? 1200);
+  setInterval(() => { void consume(); }, Math.max(500, config.pollMs ?? 1000));
   await consume();
 }
