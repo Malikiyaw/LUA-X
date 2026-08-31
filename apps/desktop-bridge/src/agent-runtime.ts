@@ -1,4 +1,4 @@
-import { RobloxMcpBridge, type RobloxMcpResult } from '@lua-x/roblox-mcp-bridge';
+import { RobloxMcpBridge, type RobloxMcpResult, type RobloxMcpTool } from '@lua-x/roblox-mcp-bridge';
 
 export type BuildChange = {
   operation: string;
@@ -35,8 +35,8 @@ function cleanPath(path: string): string {
   return path.trim().startsWith('game.') ? path.trim() : `game.${path.trim().replace(/^game\.?/, '')}`;
 }
 
-function wholeFileEdit(content: string): unknown[] {
-  return [{ start_line: 1, end_line: 1000000, new_text: content }];
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' ? value as Record<string, unknown> : {};
 }
 
 function orderedChanges(changes: BuildChange[]): BuildChange[] {
@@ -45,16 +45,36 @@ function orderedChanges(changes: BuildChange[]): BuildChange[] {
   const applied = new Set<string>();
   const keyFor = (change: BuildChange, index: number) => change.target || `#${index}`;
   while (pending.length > 0) {
-    const ready = pending.find(({ change, index }) =>
-      (change.dependsOn ?? []).every((dependency) => applied.has(dependency)),
-    );
+    const ready = pending.find(({ change }) => (change.dependsOn ?? []).every((dependency) => applied.has(dependency)));
     const item = ready ?? pending[0]!;
     pending.splice(pending.indexOf(item), 1);
     output.push(item.change);
     applied.add(keyFor(item.change, item.index));
-    if (pending.length && !pending.some(({ change }) => (change.dependsOn ?? []).some((dependency) => !applied.has(dependency)))) continue;
   }
   return output;
+}
+
+function buildWholeFileEdit(tool: RobloxMcpTool | undefined, content: string): Record<string, unknown> {
+  const schema = asRecord(tool?.inputSchema);
+  const properties = asRecord(schema.properties);
+  const editsSchema = asRecord(properties.edits);
+  const items = asRecord(editsSchema.items);
+  const editProperties = asRecord(items.properties);
+  const edit: Record<string, unknown> = {};
+  const names = Object.keys(editProperties);
+  const set = (candidates: string[], value: unknown) => {
+    const key = candidates.find((candidate) => names.includes(candidate));
+    if (key) edit[key] = value;
+  };
+  set(['start_line', 'startLine', 'start'], 1);
+  set(['end_line', 'endLine', 'end'], 2147483647);
+  set(['new_text', 'newText', 'text', 'replacement', 'content'], content);
+  if (Object.keys(edit).length === 0) {
+    edit.start_line = 1;
+    edit.end_line = 2147483647;
+    edit.new_text = content;
+  }
+  return edit;
 }
 
 export class AgentRuntime {
@@ -72,6 +92,18 @@ export class AgentRuntime {
     const result = await this.bridge.call({ tool, arguments: args }, confirmed);
     await this.event({ stage: 'execute', role: 'MCP', message: result.ok ? `${tool} completed` : `${tool} failed: ${result.error ?? 'unknown error'}`, tool, ok: result.ok });
     return result;
+  }
+
+  private async replaceScript(path: string, content: string, studioId?: string): Promise<RobloxMcpResult> {
+    const tools = await this.bridge.listTools();
+    const tool = tools.find((candidate) => candidate.name === 'multi_edit');
+    const edit = buildWholeFileEdit(tool, content);
+    return this.call('multi_edit', {
+      path,
+      edits: [edit],
+      datamodel_type: 'Edit',
+      ...(studioId ? { studio_id: studioId } : {}),
+    }, true);
   }
 
   async inspect(): Promise<{ studios: RobloxMcpResult; tree: RobloxMcpResult; console: RobloxMcpResult }> {
@@ -94,19 +126,15 @@ export class AgentRuntime {
       let result: RobloxMcpResult;
 
       if ((operation === 'create_script' || operation === 'update_script') && target && typeof change.content === 'string') {
-        result = await this.bridge.editScript(target, wholeFileEdit(change.content), true, studioId);
+        result = await this.replaceScript(target, change.content, studioId);
       } else if (operation === 'delete_instance' && target) {
         result = await this.call('execute_luau', {
           datamodel_type: 'Edit',
           code: `local target = ${target}\nif target and target.Destroy then target:Destroy() end`,
           ...(studioId ? { studio_id: studioId } : {}),
         }, true);
-      } else if (operation === 'create_instance' || operation === 'update_instance' || operation === 'create_ui' || operation === 'create_vfx' || operation === 'create_sound' || operation === 'create_animation') {
-        result = await this.call('execute_luau', {
-          datamodel_type: 'Edit',
-          code: typeof change.content === 'string' ? change.content : '-- LUA-X instance change requires Luau content',
-          ...(studioId ? { studio_id: studioId } : {}),
-        }, true);
+      } else if (operation === 'execute_luau' && typeof change.content === 'string') {
+        result = await this.call('execute_luau', { datamodel_type: 'Edit', code: change.content, ...(studioId ? { studio_id: studioId } : {}) }, true);
       } else if (operation === 'create_mesh') {
         result = await this.call('generate_mesh', { prompt: change.content ?? change.reason ?? target, ...(studioId ? { studio_id: studioId } : {}) }, true);
       } else if (operation === 'create_material') {
@@ -115,6 +143,8 @@ export class AgentRuntime {
         result = await this.call('generate_procedural_model', { prompt: change.content ?? change.reason ?? target, ...(studioId ? { studio_id: studioId } : {}) }, true);
       } else if (operation === 'note') {
         result = { ok: true, tool: 'note', data: { target: change.target, reason: change.reason } };
+      } else if (operation === 'create_instance' || operation === 'update_instance' || operation === 'create_ui' || operation === 'create_vfx' || operation === 'create_sound' || operation === 'create_animation') {
+        result = { ok: false, tool: operation, error: 'This plan operation requires executable Luau content. Add an execute_luau change or use a provider prompt that emits executable Luau.' };
       } else {
         result = { ok: false, tool: operation || 'unknown', error: `Unsupported plan operation: ${operation}` };
       }
