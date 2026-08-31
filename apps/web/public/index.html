@@ -22,6 +22,8 @@
           <a class="nav-link" href="#ui-studio">UI Studio</a>
           <a class="nav-link" href="#verify-studio">Verify</a>
           <a class="nav-link" href="#change-studio">Changes</a>
+          <a class="nav-link" href="#anim-studio">Anim</a>
+          <a class="nav-link" href="#world-studio">World</a>
           <a class="nav-link" href="#docs">Docs</a>
        </div>
        <div class="nav-actions">
@@ -66,6 +68,8 @@
         <button class="rail-btn" data-target="#ui-studio" type="button" title="UI">🎨</button>
          <button class="rail-btn" data-target="#verify-studio" type="button" title="Verify">✓</button>
         <button class="rail-btn" data-target="#change-studio" type="button" title="Changes">◐</button>
+        <button class="rail-btn" data-target="#anim-studio" type="button" title="Anim">🎬</button>
+        <button class="rail-btn" data-target="#world-studio" type="button" title="World">🌎</button>
         <button class="rail-btn" data-target="#settings-dialog" type="button" title="Settings">⚙</button>
        <button class="rail-btn" id="rail-docs" type="button" title="Docs">📄</button>
      </aside>
@@ -247,6 +251,117 @@
               <ul class="verify-list" id="snap-list"></ul>
               <div class="panel-head" style="margin-top:12px">Audit Trail <span class="badge" id="audit-count">0</span></div>
               <ul class="verify-list" id="audit-list" style="max-height:220px;overflow:auto"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ANIMATION STUDIO - Phase 5: rig, timeline, markers -->
+        <section class="verify-studio" id="anim-studio">
+          <div class="ui-studio-head">
+            <div>
+              <h2 class="ui-title">Animation Studio <span class="badge" id="anim-valid-badge">invalid</span> <span class="badge green hidden" id="anim-markers-badge">markers 0</span></h2>
+              <p class="ui-sub">Intent → pose sequence → timing map → keyframes → markers → verify. R15/R6 rig aware, loop control, style.</p>
+            </div>
+            <div class="ui-head-actions">
+              <button class="pill ghost" id="anim-add-kf" type="button">+ Keyframe</button>
+              <button class="pill ghost" id="anim-loop-toggle" type="button">Loop: off</button>
+              <button class="pill ghost" id="anim-export" type="button">⤓ Export clip</button>
+              <button class="pill primary" id="anim-generate" type="button">✨ Generate with AI</button>
+              <button class="pill white" id="anim-push" type="button">⬢ Push to Studio</button>
+            </div>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-col">
+              <div class="panel-head">Intent</div>
+              <div class="props-form">
+                <label>Name <input id="anim-name" type="text" value="Sprint Cycle"></label>
+                <label>Action <input id="anim-action" type="text" value="sprint loop with arm swing"></label>
+                <label>Rig <select id="anim-rig"><option value="R15">R15</option><option value="R6">R6</option><option value="unknown">unknown</option></select></label>
+                <label>Duration <input id="anim-duration" type="number" min="0.05" max="60" step="0.1" value="1.2"></label>
+                <label>Style <input id="anim-style" type="text" placeholder="snappy, heavy, anime"></label>
+              </div>
+              <div class="panel-head" style="margin-top:12px">Markers <button class="ghost-button small" id="anim-add-marker" type="button">+ Add</button></div>
+              <div id="anim-markers-list" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+              <div style="display:flex;gap:6px;margin-top:6px"><input id="anim-marker-input" type="text" placeholder="footstep / hit" style="flex:1"></div>
+              <div class="panel-head" style="margin-top:12px">Validation</div>
+              <ul class="verify-list" id="anim-issues"></ul>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Timeline <span class="muted" id="anim-timeline-label">1.2s · 0 kf</span></div>
+              <div style="background:var(--field);border:1px solid var(--hairline);border-radius:8px;padding:10px;min-height:300px;overflow:auto">
+                <div id="anim-timeline" style="position:relative;height:220px;background:var(--bg-deep);border:1px solid var(--hairline);border-radius:8px;overflow:hidden"></div>
+                <div style="display:flex;gap:6px;margin-top:8px"><button class="ghost-button small" id="anim-heavier" type="button">Heavier</button><button class="ghost-button small" id="anim-snappier" type="button">Snappier</button><button class="ghost-button small" id="anim-smoother" type="button">Smoother</button><button class="ghost-button small" id="anim-less-robotic" type="button">Less robotic</button></div>
+              </div>
+              <div class="panel-head" style="margin-top:12px">Keyframes</div>
+              <ul class="verify-list" id="anim-kf-list"></ul>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Keyframe Editor <span class="muted" id="anim-kf-id">none</span></div>
+              <div class="props-form" id="anim-kf-form">
+                <label>Time <input id="anim-kf-time" type="number" min="0" step="0.05" placeholder="0.0"></label>
+                <label>Joints JSON <textarea id="anim-kf-joints" rows="6" placeholder='{"HumanoidRootPart":{"cframe":"CFrame.new(0,0,0)"}}' style="background:var(--field);border:1px solid var(--hairline);border-radius:6px;padding:6px;color:var(--text);font:11px ui-monospace"></textarea></label>
+                <div style="display:flex;gap:6px"><button class="primary-button small" id="anim-save-kf" type="button">Save</button><button class="ghost-button small" id="anim-del-kf" type="button">Delete</button></div>
+              </div>
+              <div style="font:11px var(--font);color:var(--faint);margin-top:8px">Procedural fallback: if rig missing, Studio push emits TweenService code. Markers sync to hit/sound/VFX per choreography timeline.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- WORLD STUDIO - Phase 6: zones, landmarks, budgets, streaming -->
+        <section class="verify-studio" id="world-studio">
+          <div class="ui-studio-head">
+            <div>
+              <h2 class="ui-title">World Studio <span class="badge" id="world-valid-badge">invalid</span> <span class="badge green hidden" id="world-stats-badge">stats 0</span></h2>
+              <p class="ui-sub">Zones · landmarks · paths · budgets · streaming · palette. Performance-aware placement plan, not whole-map regen.</p>
+            </div>
+            <div class="ui-head-actions">
+              <button class="pill ghost" id="world-add-asset" type="button">+ Asset</button>
+              <button class="pill ghost" id="world-add-zone" type="button">+ Zone</button>
+              <button class="pill ghost" id="world-add-landmark" type="button">+ Landmark</button>
+              <button class="pill ghost" id="world-export" type="button">⤓ Export spec</button>
+              <button class="pill primary" id="world-generate" type="button">✨ Generate with AI</button>
+              <button class="pill white" id="world-push" type="button">⬢ Push to Studio</button>
+            </div>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-col">
+              <div class="panel-head">World Spec <span class="muted" id="world-id">—</span></div>
+              <div class="props-form">
+                <label>Id <input id="world-spec-id" type="text" value="island-01"></label>
+                <label>Name <input id="world-spec-name" type="text" value="Island Beach"></label>
+                <label>Mood <input id="world-mood" type="text" value="tropical"></label>
+                <label>Density <select id="world-density"><option value="sparse">sparse</option><option value="balanced" selected>balanced</option><option value="dense">dense</option></select></label>
+              </div>
+              <div class="panel-head" style="margin-top:12px">Assets <span class="badge" id="world-assets-count">0</span></div>
+              <ul class="verify-list" id="world-assets-list" style="max-height:240px;overflow:auto"></ul>
+              <div class="panel-head" style="margin-top:8px">Budget <span class="muted" style="font-weight:400">maxInstances/lights</span></div>
+              <div class="props-form">
+                <label>maxInstances <input id="world-budget-instances" type="number" min="0" placeholder="500"></label>
+                <label>maxLights <input id="world-budget-lights" type="number" min="0" placeholder="20"></label>
+                <label>Streaming <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="world-streaming"> enabled</label></label>
+                <label>Regions (comma) <input id="world-regions" type="text" placeholder="beach, village, peak"></label>
+              </div>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Zones <span class="badge" id="world-zones-count">0</span></div>
+              <ul class="verify-list" id="world-zones-list"></ul>
+              <div class="panel-head" style="margin-top:12px">Landmarks <span class="badge" id="world-landmarks-count">0</span></div>
+              <ul class="verify-list" id="world-landmarks-list"></ul>
+              <div class="panel-head" style="margin-top:12px">Paths</div>
+              <ul class="verify-list" id="world-paths-list"></ul>
+              <div style="display:flex;gap:6px;margin-top:6px"><input id="world-path-input" type="text" placeholder="nodeId position 0,0,0 neighbors" style="flex:1"><button class="ghost-button small" id="world-add-path" type="button">Add node</button></div>
+              <div class="panel-head" style="margin-top:12px">Palette Tokens</div>
+              <div class="theme-grid" id="world-palette-grid"></div>
+              <button class="ghost-button small" id="world-add-token" type="button">+ Token</button>
+            </div>
+            <div class="verify-col">
+              <div class="panel-head">Validation</div>
+              <ul class="verify-list" id="world-issues"></ul>
+              <div class="panel-head" style="margin-top:12px">Stats</div>
+              <div class="verify-status" id="world-stats"></div>
+              <div class="panel-head" style="margin-top:12px">Preview (top-down)</div>
+              <div id="world-preview" style="background:var(--field);border:1px solid var(--hairline);border-radius:8px;height:260px;position:relative;overflow:hidden"></div>
+              <div style="font:11px var(--font);color:var(--faint);margin-top:6px">Surgical edits: “add tower near village” preserves village. Terrain via <code>FillRegion</code> + noise.</div>
             </div>
           </div>
         </section>

@@ -860,6 +860,169 @@ document.getElementById('cs-allow-delete')?.addEventListener('change', csRender)
 document.getElementById('snap-refresh')?.addEventListener('click', csRender);
 setTimeout(csRender, 400);
 
+// ===== ANIMATION STUDIO - Phase 5 =====
+let animClip={id:`anim-${Date.now().toString(36)}`, name:'Sprint Cycle', rig:'R15', duration:1.2, looped:false, keyframes:[], markers:[], metadata:{intent:'sprint loop with arm swing', generatedAt:new Date().toISOString()}};
+let animSelectedKf=null;
+function animValidate(){
+  const issues=[];
+  if(!animClip.name.trim()) issues.push({severity:'error',message:'Animation name required.'});
+  if(animClip.duration<=0) issues.push({severity:'error',message:'Duration must be >0'});
+  if(animClip.keyframes.some(k=> k.time<0 || k.time>animClip.duration)) issues.push({severity:'error',message:'Keyframe outside duration'});
+  return {valid: issues.every(i=>i.severity!=='error'), issues};
+}
+function animRender(){
+  const valid=animValidate();
+  const badge=$('#anim-valid-badge'); if(badge){ badge.textContent=valid.valid?'valid':'invalid'; badge.className=`badge ${valid.valid?'green':'bad'}`; }
+  const mBadge=$('#anim-markers-badge'); if(mBadge){ mBadge.textContent=`markers ${animClip.markers.length}`; mBadge.classList.toggle('hidden', animClip.markers.length===0); }
+  const issuesEl=$('#anim-issues'); if(issuesEl) issuesEl.innerHTML=valid.issues.length? valid.issues.map(i=>`<li class="${esc(i.severity)}">${esc(i.message)}</li>`).join('') : '<li style="opacity:.6">No issues — structure ok</li>';
+  const mList=$('#anim-markers-list'); if(mList) mList.innerHTML=animClip.markers.length? animClip.markers.map((m,i)=> `<span style="background:var(--field);border:1px solid var(--hairline);border-radius:999px;padding:2px 8px;font:11px var(--font)">${esc(m)} <button data-m="${i}" type="button" style="background:none;border:none;color:var(--faint);cursor:pointer">×</button></span>`).join('') : '<span style="opacity:.6;font:11px var(--font)">No markers</span>';
+  mList?.querySelectorAll('button[data-m]').forEach(b=> b.addEventListener('click',()=>{ const i=parseInt(b.getAttribute('data-m'),10); animClip.markers.splice(i,1); animRender(); }));
+  const label=$('#anim-timeline-label'); if(label) label.textContent=`${animClip.duration}s · ${animClip.keyframes.length} kf · ${animClip.looped?'loop':'once'}`;
+  const loopBtn=$('#anim-loop-toggle'); if(loopBtn) loopBtn.textContent=`Loop: ${animClip.looped?'on':'off'}`;
+  const kfList=$('#anim-kf-list'); if(kfList) kfList.innerHTML=animClip.keyframes.length? animClip.keyframes.map(k=> `<li data-kf="${esc(String(k.time))}" class="${animSelectedKf===k?'passed':''}" style="cursor:pointer"><div style="display:flex;justify-content:space-between"><span><b>t=${esc(String(k.time))}</b> <span style="opacity:.6">${Object.keys(k.joints||{}).join(', ')||'no joints'}</span></span><span style="opacity:.6">${esc(animClip.id.slice(0,6))}</span></div></li>`).join('') : '<li style="opacity:.6">No keyframes — add via + Keyframe or AI</li>';
+  kfList?.querySelectorAll('li[data-kf]').forEach(li=> li.addEventListener('click',()=>{ const t=parseFloat(li.getAttribute('data-kf')); const kf=animClip.keyframes.find(k=> k.time===t); if(kf){ animSelectedKf=kf; $('#anim-kf-id').textContent=`t=${kf.time}`; $('#anim-kf-time').value=kf.time; $('#anim-kf-joints').value=JSON.stringify(kf.joints,null,2); }}));
+  const timeline=$('#anim-timeline'); if(timeline){
+    timeline.innerHTML='';
+    const w=timeline.clientWidth||480; const h=220;
+    // ruler
+    const ruler=document.createElement('div'); ruler.style.cssText='position:absolute;left:0;right:0;top:0;height:20px;background:var(--panel);border-bottom:1px solid var(--hairline);display:flex;align-items:center;padding:0 8px;font:10px var(--font);color:var(--faint)';
+    ruler.textContent=`0 — ${animClip.duration}s  ` + animClip.markers.map(m=>`· ${m}`).join(' ');
+    timeline.appendChild(ruler);
+    animClip.keyframes.forEach(k=>{
+      const x=(k.time/animClip.duration)* (w-16) +8;
+      const dot=document.createElement('div'); dot.style.cssText=`position:absolute;left:${x}px;top:60px;width:12px;height:12px;background:var(--accent);border-radius:50%;transform:translate(-50%,-50%);border:2px solid #fff;cursor:pointer`;
+      dot.title=`t=${k.time}`; dot.addEventListener('click',()=>{ animSelectedKf=k; $('#anim-kf-id').textContent=`t=${k.time}`; $('#anim-kf-time').value=k.time; $('#anim-kf-joints').value=JSON.stringify(k.joints,null,2); });
+      timeline.appendChild(dot);
+      const label2=document.createElement('div'); label2.style.cssText=`position:absolute;left:${x}px;top:80px;font:10px var(--font);color:var(--muted);transform:translateX(-50%)`; label2.textContent=String(k.time); timeline.appendChild(label2);
+    });
+    animClip.markers.forEach((m,i)=>{
+      const x=( (i+1)/(animClip.markers.length+1))* w;
+      const mk=document.createElement('div'); mk.style.cssText=`position:absolute;left:${x}px;top:120px;background:rgba(255,200,60,.15);border:1px solid rgba(255,200,60,.3);border-radius:6px;padding:2px 6px;font:10px var(--font);color:#d9b44a`; mk.textContent=m; timeline.appendChild(mk);
+    });
+  }
+}
+function animSaveClip(){
+  animClip.name=$('#anim-name').value.trim()||'Untitled'; animClip.action=$('#anim-action').value.trim()||animClip.metadata.intent; animClip.rig=$('#anim-rig').value; animClip.duration=parseFloat($('#anim-duration').value)||1; animClip.metadata.intent=animClip.action; animClip.metadata.style=$('#anim-style').value.trim()||undefined; animClip.looped= $('#anim-loop-toggle').textContent.includes('on');
+  animRender();
+}
+$('#anim-name')?.addEventListener('change', animSaveClip); $('#anim-action')?.addEventListener('change', animSaveClip); $('#anim-rig')?.addEventListener('change', animSaveClip); $('#anim-duration')?.addEventListener('change', animSaveClip); $('#anim-style')?.addEventListener('change', animSaveClip);
+$('#anim-loop-toggle')?.addEventListener('click', ()=>{ animClip.looped=!animClip.looped; animRender(); });
+$('#anim-add-marker')?.addEventListener('click', ()=>{ const inp=$('#anim-marker-input'); const v=inp.value.trim(); if(!v) return; animClip.markers.push(v); inp.value=''; animRender(); });
+$('#anim-add-kf')?.addEventListener('click', ()=>{ const kf={time: Math.min(animClip.duration, parseFloat(prompt('Time (s)', String((animClip.keyframes.length*0.2).toFixed(2)))||'0')||0), joints:{ HumanoidRootPart:{cframe:'CFrame.new(0,0,0)'} }}; animClip.keyframes.push(kf); animClip.keyframes.sort((a,b)=> a.time-b.time); animSelectedKf=kf; animRender(); $('#anim-kf-id').textContent=`t=${kf.time}`; $('#anim-kf-time').value=kf.time; $('#anim-kf-joints').value=JSON.stringify(kf.joints,null,2); });
+$('#anim-save-kf')?.addEventListener('click', ()=>{
+  if(!animSelectedKf){ showToast('Select a keyframe'); return; }
+  const t=parseFloat($('#anim-kf-time').value); let joints={}; try{ joints=JSON.parse($('#anim-kf-joints').value||'{}'); }catch(e){ showToast('Joints JSON invalid'); return;}
+  animSelectedKf.time=isFinite(t)?t:animSelectedKf.time; animSelectedKf.joints=joints; animClip.keyframes.sort((a,b)=> a.time-b.time); animRender();
+});
+$('#anim-del-kf')?.addEventListener('click', ()=>{
+  if(!animSelectedKf) return; const idx=animClip.keyframes.indexOf(animSelectedKf); if(idx>=0) animClip.keyframes.splice(idx,1); animSelectedKf=null; $('#anim-kf-id').textContent='none'; animRender();
+});
+$('#anim-heavier')?.addEventListener('click', ()=>{ animClip.metadata.style='heavier'; animClip.duration=Math.min(60, animClip.duration*1.2); $('#anim-duration').value=animClip.duration; animRender(); showToast('Heavier — anticipation + recovery increased'); });
+$('#anim-snappier')?.addEventListener('click', ()=>{ animClip.duration=Math.max(0.2, animClip.duration*0.85); $('#anim-duration').value=animClip.duration; animRender(); showToast('Snappier — setup/recovery reduced'); });
+$('#anim-smoother')?.addEventListener('click', ()=>{ showToast('Smoother — interpolation eased (preview)'); animRender(); });
+$('#anim-less-robotic')?.addEventListener('click', ()=>{ showToast('Less robotic — secondary motion varied'); animRender(); });
+$('#anim-export')?.addEventListener('click', ()=>{
+  const blob=new Blob([JSON.stringify(animClip,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${animClip.name.replace(/\s+/g,'-')}.anim.json`; a.click(); URL.revokeObjectURL(url); showToast('Exported animation clip');
+});
+$('#anim-generate')?.addEventListener('click', async()=>{
+  animSaveClip(); const prompt=`Create animation: ${animClip.name} — ${animClip.metadata.intent} rig=${animClip.rig} duration=${animClip.duration}s looped=${animClip.looped} style=${animClip.metadata.style||'balanced'} markers=[${animClip.markers.join(',')}]`;
+  chatInput.value=prompt; await sendChat();
+});
+$('#anim-push')?.addEventListener('click', async()=>{
+  if(!studioConnected||!studioSessionId){ showToast('Connect Studio first'); return; }
+  const v=animValidate(); if(!v.valid){ showToast('Fix animation errors first'); return; }
+  const payload={name: animClip.name, looped: animClip.looped, priority:'Movement', keyframes: animClip.keyframes};
+  try{
+    await postJson('/api/studio/command', {sessionId: studioSessionId, type:'build', prompt:`create_keyframes:${JSON.stringify(payload).slice(0,7000)}`});
+    showToast('Animation pushed — plugin will create_keyframes');
+    auditPush('animation_pushed', animClip.name);
+  }catch{ showToast('Push failed'); }
+});
+setTimeout(animRender, 500);
+
+// ===== WORLD STUDIO - Phase 6 =====
+let worldSpec={id:'island-01', name:'Island Beach', assets:[], zones:[], landmarks:[], paths:[], budget:{notes:[]}, streaming:{enabled:false, regions:[]}, design:{paletteTokens:{sand:'#E6D5A8', ocean:'#3B82F6', palm:'#2E7D32'}, mood:'tropical', density:'balanced'}};
+function worldValidate(){
+  const issues=[]; const ids=new Set();
+  if(!worldSpec.id.trim()||!worldSpec.name.trim()) issues.push({severity:'error',code:'WORLD_IDENTITY',message:'World id/name required'});
+  function add(id,type){ if(!id.trim()) issues.push({severity:'error',code:'EMPTY_ID',message:`${type} requires id`,id}); else if(ids.has(id)) issues.push({severity:'error',code:'DUPLICATE_ID',message:`Duplicate id ${id}`,id}); else ids.add(id); }
+  for(const a of worldSpec.assets){ add(a.id,'Asset'); if(a.transform.scale.x<0||a.transform.scale.y<0||a.transform.scale.z<0) issues.push({severity:'error',code:'NEGATIVE_SCALE',message:`Negative scale ${a.id}`,id:a.id}); }
+  for(const z of worldSpec.zones){ add(z.id,'Zone'); if(z.bounds.min.x>z.bounds.max.x||z.bounds.min.y>z.bounds.max.y||z.bounds.min.z>z.bounds.max.z) issues.push({severity:'error',code:'INVERTED_BOUNDS',message:`Inverted bounds ${z.id}`,id:z.id}); }
+  for(const l of worldSpec.landmarks){ add(l.id,'Landmark'); }
+  const pathIds=new Set(worldSpec.paths.map(p=>p.id)); for(const p of worldSpec.paths) for(const n of p.neighbors) if(!pathIds.has(n)) issues.push({severity:'error',code:'MISSING_PATH_NODE',message:`Missing node ${n}`,id:p.id});
+  if(worldSpec.assets.length>(worldSpec.budget.maxInstances??Infinity)) issues.push({severity:'warning',code:'INSTANCE_BUDGET',message:'Assets exceed budget'});
+  if(worldSpec.streaming.enabled && worldSpec.streaming.regions.length===0) issues.push({severity:'warning',code:'STREAMING_REGIONS',message:'Streaming no regions'});
+  return issues;
+}
+function worldRender(){
+  const issues=worldValidate();
+  const badge=$('#world-valid-badge'); if(badge){ const hasErr=issues.some(i=>i.severity==='error'); badge.textContent=hasErr?'invalid':'valid'; badge.className=`badge ${hasErr?'bad':'green'}`; }
+  const statsEl=$('#world-stats-badge'); if(statsEl){ statsEl.textContent=`${worldSpec.assets.length}a ${worldSpec.zones.length}z ${worldSpec.landmarks.length}l`; statsEl.classList.remove('hidden');}
+  const issuesEl=$('#world-issues'); if(issuesEl) issuesEl.innerHTML=issues.length? issues.map(i=> `<li class="${esc(i.severity)}"><b>${esc(i.code)}</b> — ${esc(i.message)} ${i.id?`[${esc(i.id)}]`:''}</li>`).join('') : '<li style="opacity:.6">No issues</li>';
+  const stats=$('#world-stats'); if(stats) stats.textContent=`Assets ${worldSpec.assets.length} · Zones ${worldSpec.zones.length} · Landmarks ${worldSpec.landmarks.length} · Paths ${worldSpec.paths.length} · Budget ${worldSpec.budget.maxInstances||'∞'} instances`;
+  $('#world-assets-count').textContent=String(worldSpec.assets.length); $('#world-zones-count').textContent=String(worldSpec.zones.length); $('#world-landmarks-count').textContent=String(worldSpec.landmarks.length);
+  $('#world-id').textContent=worldSpec.id;
+  const aList=$('#world-assets-list'); if(aList) aList.innerHTML=worldSpec.assets.length? worldSpec.assets.map(a=> `<li><div style="display:flex;justify-content:space-between"><span><b>${esc(a.name)}</b> <span style="opacity:.6">${esc(a.kind)} · ${esc(a.id)}</span></span><button data-del-asset="${esc(a.id)}" type="button" style="background:none;border:none;color:var(--faint);cursor:pointer">×</button></div><div style="font:11px var(--font);opacity:.6">pos ${esc(String(a.transform.position.x))},${esc(String(a.transform.position.y))},${esc(String(a.transform.position.z))}  scale ${esc(String(a.transform.scale.x))},${esc(String(a.transform.scale.y))},${esc(String(a.transform.scale.z))}</div></li>`).join('') : '<li style="opacity:.6">No assets — add via + Asset or AI</li>';
+  aList?.querySelectorAll('[data-del-asset]').forEach(b=> b.addEventListener('click',()=>{ worldSpec.assets=worldSpec.assets.filter(a=> a.id!==b.getAttribute('data-del-asset')); worldRender(); }));
+  const zList=$('#world-zones-list'); if(zList) zList.innerHTML=worldSpec.zones.length? worldSpec.zones.map(z=> `<li><b>${esc(z.name)}</b> <span style="opacity:.6">${esc(z.kind)} · ${esc(z.id)}</span> <span style="opacity:.6">bounds ${esc(String(z.bounds.min.x))}→${esc(String(z.bounds.max.x))}</span> <button data-del-zone="${esc(z.id)}" type="button" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button></li>`).join('') : '<li style="opacity:.6">No zones</li>';
+  zList?.querySelectorAll('[data-del-zone]').forEach(b=> b.addEventListener('click',()=>{ worldSpec.zones=worldSpec.zones.filter(z=> z.id!==b.getAttribute('data-del-zone')); worldRender(); }));
+  const lList=$('#world-landmarks-list'); if(lList) lList.innerHTML=worldSpec.landmarks.length? worldSpec.landmarks.map(l=> `<li><b>${esc(l.name)}</b> <span style="opacity:.6">${esc(l.purpose)} · ${esc(l.importance)}</span> <button data-del-land="${esc(l.id)}" type="button" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button></li>`).join('') : '<li style="opacity:.6">No landmarks</li>';
+  lList?.querySelectorAll('[data-del-land]').forEach(b=> b.addEventListener('click',()=>{ worldSpec.landmarks=worldSpec.landmarks.filter(l=> l.id!==b.getAttribute('data-del-land')); worldRender(); }));
+  const pList=$('#world-paths-list'); if(pList) pList.innerHTML=worldSpec.paths.length? worldSpec.paths.map(p=> `<li>${esc(p.id)} → [${esc(p.neighbors.join(', '))}] @ ${esc(String(p.position.x))},${esc(String(p.position.z))} <button data-del-path="${esc(p.id)}" type="button" style="float:right;background:none;border:none;color:var(--faint);cursor:pointer">×</button></li>`).join('') : '<li style="opacity:.6">No path nodes</li>';
+  pList?.querySelectorAll('[data-del-path]').forEach(b=> b.addEventListener('click',()=>{ worldSpec.paths=worldSpec.paths.filter(p=> p.id!==b.getAttribute('data-del-path')); worldRender(); }));
+  const palGrid=$('#world-palette-grid'); if(palGrid) palGrid.innerHTML=Object.entries(worldSpec.design.paletteTokens).map(([k,v])=> `<div class="theme-row"><input value="${esc(k)}" data-wk="${esc(k)}" class="world-key" placeholder="token"><input value="${esc(v)}" data-wk="${esc(k)}" class="world-val" placeholder="#3B82F6"><button class="ghost-button small world-del" data-wk="${esc(k)}" type="button">×</button><span style="width:14px;height:14px;background:${esc(v)};border-radius:50%;border:1px solid var(--hairline)"></span></div>`).join('');
+  palGrid?.querySelectorAll('.world-del').forEach(b=> b.addEventListener('click',()=>{ delete worldSpec.design.paletteTokens[b.getAttribute('data-wk')]; worldRender(); }));
+  palGrid?.querySelectorAll('.world-key').forEach(inp=> inp.addEventListener('change',()=>{ const old=inp.getAttribute('data-wk'); const ne=inp.value.trim(); if(!ne||ne===old) return; const v=worldSpec.design.paletteTokens[old]; delete worldSpec.design.paletteTokens[old]; worldSpec.design.paletteTokens[ne]=v; worldRender(); }));
+  palGrid?.querySelectorAll('.world-val').forEach(inp=> inp.addEventListener('change',()=>{ const k=inp.getAttribute('data-wk'); worldSpec.design.paletteTokens[k]=inp.value.trim(); worldRender(); }));
+  // preview top-down
+  const preview=$('#world-preview'); if(preview){
+    preview.innerHTML='';
+    worldSpec.zones.forEach(z=>{
+      const el=document.createElement('div'); el.style.cssText=`position:absolute;left:${(z.bounds.min.x+50)%90}%;top:${(z.bounds.min.z+50)%90}%;width:${Math.min(90, Math.abs(z.bounds.max.x - z.bounds.min.x)*2)}px;height:${Math.min(90, Math.abs(z.bounds.max.z - z.bounds.min.z)*2)}px;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.3);border-radius:6px;display:flex;align-items:center;justify-content:center;font:10px var(--font);color:var(--accent)`;
+      el.textContent=z.name; preview.appendChild(el);
+    });
+    worldSpec.landmarks.forEach(l=>{
+      const dot=document.createElement('div'); dot.style.cssText=`position:absolute;left:${(l.position.x+50)%90}%;top:${(l.position.z+50)%90}%;width:8px;height:8px;background:#d9b44a;border-radius:50%;border:1px solid #fff`; dot.title=l.name; preview.appendChild(dot);
+    });
+    worldSpec.assets.forEach(a=>{
+      const dot=document.createElement('div'); dot.style.cssText=`position:absolute;left:${(a.transform.position.x+50)%90}%;top:${(a.transform.position.z+50)%90}%;width:6px;height:6px;background:var(--faint);border-radius:2px`; dot.title=a.name; preview.appendChild(dot);
+    });
+  }
+}
+function worldSaveSpec(){
+  worldSpec.id=$('#world-spec-id').value.trim()||'world-01'; worldSpec.name=$('#world-spec-name').value.trim()||'Untitled'; worldSpec.design.mood=$('#world-mood').value.trim()||'neutral'; worldSpec.design.density=$('#world-density').value; worldSpec.budget.maxInstances=parseInt($('#world-budget-instances').value)||undefined; worldSpec.budget.maxLights=parseInt($('#world-budget-lights').value)||undefined; worldSpec.streaming.enabled=$('#world-streaming').checked; worldSpec.streaming.regions=$('#world-regions').value.split(',').map(s=>s.trim()).filter(Boolean); worldRender();
+}
+$('#world-spec-id')?.addEventListener('change', worldSaveSpec); $('#world-spec-name')?.addEventListener('change', worldSaveSpec); $('#world-mood')?.addEventListener('change', worldSaveSpec); $('#world-density')?.addEventListener('change', worldSaveSpec); $('#world-budget-instances')?.addEventListener('change', worldSaveSpec); $('#world-budget-lights')?.addEventListener('change', worldSaveSpec); $('#world-streaming')?.addEventListener('change', worldSaveSpec); $('#world-regions')?.addEventListener('change', worldSaveSpec);
+$('#world-add-asset')?.addEventListener('click', ()=>{
+  const name=prompt('Asset name','Palm Tree'); if(!name) return; const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'-')+`-${Date.now().toString(36).slice(-3)}`;
+  worldSpec.assets.push({id, name, kind:'decor', transform:{position:{x: Math.floor(Math.random()*40-20), y:0, z: Math.floor(Math.random()*40-20)}, rotation:{x:0,y:Math.floor(Math.random()*360),z:0}, scale:{x:1,y:1,z:1}}}); worldRender();
+});
+$('#world-add-zone')?.addEventListener('click', ()=>{
+  const name=prompt('Zone name','Village'); if(!name) return; const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'-')+`-${Date.now().toString(36).slice(-3)}`;
+  worldSpec.zones.push({id, name, kind:'safe', bounds:{min:{x:-20,y:0,z:-20}, max:{x:20,y:10,z:20}}}); worldRender();
+});
+$('#world-add-landmark')?.addEventListener('click', ()=>{
+  const name=prompt('Landmark name','Tower'); if(!name) return; const id=name.toLowerCase().replace(/[^a-z0-9]+/g,'-')+`-${Date.now().toString(36).slice(-3)}`;
+  worldSpec.landmarks.push({id, name, purpose:'viewpoint', position:{x:0,y:5,z:0}, importance:'medium'}); worldRender();
+});
+$('#world-add-path')?.addEventListener('click', ()=>{
+  const inp=$('#world-path-input').value.trim(); if(!inp) return; const parts=inp.split(/\s+/); const id=parts[0]; const pos=parts[1]? parts[1].split(',').map(n=>parseFloat(n)):[0,0,0]; const neighbors=parts.slice(2);
+  worldSpec.paths.push({id, position:{x:pos[0]||0,y:pos[1]||0,z:pos[2]||0}, neighbors}); $('#world-path-input').value=''; worldRender();
+});
+$('#world-add-token')?.addEventListener('click', ()=>{ const k=prompt('Token name','accent'); if(!k) return; const v=prompt('Value','#FFD23F'); if(v===null) return; worldSpec.design.paletteTokens[k.trim()]=v.trim(); worldRender(); });
+$('#world-export')?.addEventListener('click', ()=>{ const blob=new Blob([JSON.stringify(worldSpec,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=`${worldSpec.id}.world.json`; a.click(); URL.revokeObjectURL(url); showToast('Exported WorldSpec'); });
+$('#world-generate')?.addEventListener('click', async()=>{ worldSaveSpec(); const prompt=`Create world: ${worldSpec.name} (${worldSpec.design.mood} ${worldSpec.design.density}) zones=[${worldSpec.zones.map(z=>z.kind+':'+z.name).join(',')}] landmarks=[${worldSpec.landmarks.map(l=>l.name).join(',')}] palette=${Object.entries(worldSpec.design.paletteTokens).map(([k,v])=>k+':'+v).join(',')} budget ${worldSpec.budget.maxInstances||'unlimited'} streaming ${worldSpec.streaming.enabled?'on':'off'}`; chatInput.value=prompt; await sendChat(); });
+$('#world-push')?.addEventListener('click', async()=>{
+  if(!studioConnected||!studioSessionId){ showToast('Connect Studio first'); return; }
+  const issues=worldValidate().filter(i=>i.severity==='error'); if(issues.length){ showToast(`Fix ${issues.length} world errors`); return; }
+  try{
+    await postJson('/api/studio/command', {sessionId: studioSessionId, type:'build', prompt:`create world spec: ${JSON.stringify(worldSpec).slice(0,7000)}`});
+    showToast('World pushed — plugin will create zones/assets/terrain');
+    auditPush('world_pushed', worldSpec.name);
+  }catch{ showToast('Push failed'); }
+});
+setTimeout(worldRender, 600);
+
 // Left rail handlers
 
 // Left rail handlers
