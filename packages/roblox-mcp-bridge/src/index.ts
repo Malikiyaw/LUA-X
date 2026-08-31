@@ -4,7 +4,14 @@ export type RobloxStudioState = {
   studioId: string;
   name: string;
   active: boolean;
+  placeId?: string;
   playState?: string;
+};
+
+export type RobloxMcpTool = {
+  name: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
 };
 
 export type RobloxMcpRequest = {
@@ -17,9 +24,12 @@ export type RobloxMcpResult = {
   tool: string;
   data?: unknown;
   error?: string;
+  raw?: unknown;
 };
 
 export interface RobloxMcpTransport {
+  connect?(): Promise<void>;
+  listTools?(): Promise<RobloxMcpTool[]>;
   call(request: RobloxMcpRequest): Promise<RobloxMcpResult>;
   close?(): Promise<void>;
 }
@@ -39,6 +49,8 @@ const READ_TOOLS = new Set([
   'script_grep',
   'get_console_output',
   'screen_capture',
+  'http_get',
+  'skill',
 ]);
 
 const WRITE_TOOLS = new Set([
@@ -61,6 +73,14 @@ const WRITE_TOOLS = new Set([
 
 export class RobloxMcpBridge {
   constructor(private readonly config: BridgeConfig) {}
+
+  async connect(): Promise<void> {
+    await this.config.transport.connect?.();
+  }
+
+  async listTools(): Promise<RobloxMcpTool[]> {
+    return (await this.config.transport.listTools?.()) ?? [];
+  }
 
   async call(request: RobloxMcpRequest, confirmed = false): Promise<RobloxMcpResult> {
     const category = this.classify(request.tool);
@@ -109,36 +129,49 @@ export class RobloxMcpBridge {
     return this.call({ tool: 'inspect_instance', arguments: { path } });
   }
 
-  async studioState(): Promise<RobloxMcpResult> {
-    return this.call({ tool: 'get_studio_state', arguments: {} });
+  async studioState(confirmed = true): Promise<RobloxMcpResult> {
+    return this.call({ tool: 'get_studio_state', arguments: {} }, confirmed);
+  }
+
+  async listStudios(): Promise<RobloxMcpResult> {
+    return this.call({ tool: 'list_roblox_studios', arguments: {} });
   }
 
   async consoleOutput(): Promise<RobloxMcpResult> {
     return this.call({ tool: 'get_console_output', arguments: {} });
   }
 
-  async editScript(path: string, edits: unknown[], confirmed = false): Promise<RobloxMcpResult> {
+  async editScript(path: string, edits: unknown[], confirmed = false, studioId?: string): Promise<RobloxMcpResult> {
     return this.call(
       {
         tool: 'multi_edit',
-        arguments: { path, edits, datamodel_type: 'Edit' satisfies DataModelType },
+        arguments: {
+          path,
+          edits,
+          datamodel_type: 'Edit' satisfies DataModelType,
+          ...(studioId ? { studio_id: studioId } : {}),
+        },
       },
       confirmed,
     );
   }
 
-  async executeLuau(code: string, datamodelType: DataModelType, confirmed = false): Promise<RobloxMcpResult> {
+  async executeLuau(code: string, datamodelType: DataModelType, confirmed = false, studioId?: string): Promise<RobloxMcpResult> {
     return this.call(
-      { tool: 'execute_luau', arguments: { code, datamodel_type: datamodelType } },
+      { tool: 'execute_luau', arguments: { code, datamodel_type: datamodelType, ...(studioId ? { studio_id: studioId } : {}) } },
       confirmed,
     );
   }
 
-  async play(action: 'start' | 'stop', confirmed = false): Promise<RobloxMcpResult> {
+  async play(action: 'start' | 'stop', confirmed = false, studioId?: string): Promise<RobloxMcpResult> {
     return this.call(
-      { tool: 'start_stop_play', arguments: { action } },
+      { tool: 'start_stop_play', arguments: { action, ...(studioId ? { studio_id: studioId } : {}) } },
       confirmed,
     );
+  }
+
+  async setActiveStudio(studioId: string, confirmed = false): Promise<RobloxMcpResult> {
+    return this.call({ tool: 'set_active_studio', arguments: { studio_id: studioId } }, confirmed);
   }
 }
 
@@ -148,8 +181,8 @@ export function createNoopTransport(): RobloxMcpTransport {
       return {
         ok: false,
         tool: request.tool,
-        error: 'No Roblox Studio MCP transport is connected. Connect a trusted MCP client to an open Studio session.',
+        error: 'No Roblox Studio MCP transport is connected. Enable Studio as an MCP server and connect the LUA-X local agent.',
       };
     },
   };
-}
+};

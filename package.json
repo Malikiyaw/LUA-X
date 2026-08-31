@@ -5,13 +5,8 @@
   "description": "LUA-X — AI-native development studio for Roblox creators.",
   "license": "MIT",
   "packageManager": "npm@11.5.1",
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "engines": { "node": ">=18.0.0" },
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "sync:plugin": "node scripts/sync-plugin.mjs",
     "sync:plugin:check": "node scripts/sync-plugin.mjs --check",
@@ -21,7 +16,7 @@
     "check:plugin-lua": "node scripts/check-plugin-lua.mjs",
     "smoke:prod": "node scripts/smoke-test.mjs",
     "check:api": "node scripts/check-api.mjs",
-    "build:packages": "npm run build --workspace=@lua-x/shared && npm run build --workspace=@lua-x/animation-engine && npm run build --workspace=@lua-x/autonomous-engine && npm run build --workspace=@lua-x/cloud-core && npm run build --workspace=@lua-x/execution-engine && npm run build --workspace=@lua-x/fusion-core && npm run build --workspace=@lua-x/hardening-core && npm run build --workspace=@lua-x/nvidia-provider && npm run build --workspace=@lua-x/orchestrator && npm run build --workspace=@lua-x/project-index && npm run build --workspace=@lua-x/roblox-mcp-bridge && npm run build --workspace=@lua-x/sync-engine && npm run build --workspace=@lua-x/ui-engine && npm run build --workspace=@lua-x/verification-engine && npm run build --workspace=@lua-x/world-engine && npm run build --workspace=@lua-x/api-core",
+    "build:packages": "npm run build --workspace=@lua-x/shared && npm run build --workspace=@lua-x/animation-engine && npm run build --workspace=@lua-x/autonomous-engine && npm run build --workspace=@lua-x/cloud-core && npm run build --workspace=@lua-x/execution-engine && npm run build --workspace=@lua-x/fusion-core && npm run build --workspace=@lua-x/hardening-core && npm run build --workspace=@lua-x/nvidia-provider && npm run build --workspace=@lua-x/orchestrator && npm run build --workspace=@lua-x/project-index && npm run build --workspace=@lua-x/roblox-mcp-bridge && npm run build --workspace=@lua-x/sync-engine && npm run build --workspace=@lua-x/ui-engine && npm run build --workspace=@lua-x/verification-engine && npm run build --workspace=@lua-x/world-engine && npm run build --workspace=@lua-x/api-core && npm run build --workspace=@lua-x/desktop-bridge",
     "build": "npm run build:packages && npm run build --workspace=@lua-x/api && npm run build --workspace=@lua-x/web",
     "build:vercel": "npm run sync:studio-handler && npm run sync:plugin && npm run build:packages && npm run build --workspace=@lua-x/web",
     "test": "npm run test --workspaces --if-present",
@@ -30,9 +25,9 @@
     "check": "npm run sync:check && npm run check:api && npm run typecheck && npm run lint && npm run test && npm run build",
     "dev": "npm run dev --workspace=@lua-x/web",
     "dev:api": "npm run dev --workspace=@lua-x/api",
-    "start:api": "npm run start --workspace=@lua-x/api"
+    "start:api": "npm run start --workspace=@lua-x/api",
+    "agent": "npm run build --workspace=@lua-x/desktop-bridge && npm run agent --workspace=@lua-x/desktop-bridge",
+    "check:mcp": "npm run build --workspace=@lua-x/desktop-bridge && npm run check:mcp --workspace=@lua-x/desktop-bridge"
   },
-  "devDependencies": {
-    "luaparse": "^0.3.1"
-  }
+  "devDependencies": { "luaparse": "^0.3.1" }
 }
