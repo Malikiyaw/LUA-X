@@ -20,7 +20,7 @@
         <button class="nav-item" data-view="verify"><span>04</span>Verify</button>
       </nav>
       <div class="sidebar-bottom">
-        <a class="nav-item link" href="/LUA-X.lua" download="LUA-X.lua"><span>↧</span>Legacy plugin</a>
+        <a class="nav-item link" href="/LUA-X.lua" download="LUA-X.lua"><span>↧</span>Optional Studio UI</a>
         <button class="nav-item" id="setup-nav"><span>05</span>Setup</button>
       </div>
     </aside>
@@ -43,7 +43,7 @@
           <div class="intro" id="intro">
             <div class="intro-label">LUA-X AGENT</div>
             <h2>Tell it what to build, inspect, fix, or verify.</h2>
-            <p>The agent reads your live Roblox project through Studio's native MCP server, plans the change, and sends approved work back through the same bridge.</p>
+            <p>The local LUA-X agent connects directly to Roblox Studio's native MCP server. Once the agent is running, LUA-X can inspect, plan, execute approved changes, and verify the result.</p>
             <div class="quick-actions">
               <button data-prompt="Inspect the current project and summarize the important systems.">Inspect project</button>
               <button data-prompt="Find broken or suspicious scripts and explain what needs fixing.">Find problems</button>
@@ -57,7 +57,7 @@
             <div class="composer-context" id="composer-context">No Studio context yet</div>
             <textarea id="chat-input" rows="3" placeholder="Ask LUA-X to build or inspect something…"></textarea>
             <div class="composer-footer">
-              <div class="composer-note">Plans are reviewable. Studio writes require local MCP.</div>
+              <div class="composer-note">Plans are reviewable. Studio writes require native MCP through the local agent.</div>
               <button class="button primary" id="send-button">Send ↗</button>
             </div>
           </div>
@@ -67,7 +67,7 @@
           <section class="panel connection-panel">
             <div class="panel-header"><span>Studio connection</span><span class="status-text" id="agent-state">offline</span></div>
             <div class="status-card" id="studio-card">
-              <div class="status-main"><span class="big-dot" id="studio-dot"></span><div><strong id="studio-name">Roblox Studio</strong><small id="studio-place">Waiting for the local agent</small></div></div>
+              <div class="status-main"><span class="big-dot" id="studio-dot"></span><div><strong id="studio-name">Roblox Studio</strong><small id="studio-place">Waiting for the LUA-X Local Agent</small></div></div>
               <button class="button small" id="ping-button">Ping Studio</button>
             </div>
             <div class="metric-grid">
@@ -115,18 +115,18 @@
       <section class="setup-overlay hidden" id="setup-overlay">
         <div class="setup-card">
           <div class="topbar-kicker">FIRST RUN</div>
-          <h2>Connect LUA-X to native Roblox Studio MCP</h2>
-          <p>Roblox Studio hosts the MCP server locally. LUA-X's local agent is the MCP client that connects the web workspace to your open Studio session.</p>
+          <h2>Connect LUA-X to Roblox Studio</h2>
+          <p>LUA-X now uses the same simple local-agent pattern: Roblox Studio exposes its native MCP server locally, and the LUA-X Local Agent is the MCP client. You do not need the LUA-X Studio plugin for MCP.</p>
           <ol>
             <li>Open Roblox Studio and a place.</li>
             <li>Open <strong>Assistant → … → Manage MCP Servers</strong>.</li>
             <li>Turn on <strong>Enable Studio as MCP server</strong>.</li>
-            <li>From this repo, run <code>npm run build --workspace=@lua-x/desktop-bridge</code>, then start the local agent with <code>node apps/desktop-bridge/dist/index.js</code>.</li>
-            <li>Return here and click <strong>Connect Studio</strong>.</li>
+            <li>From the LUA-X repo, run <code>npm run agent</code>. The agent automatically finds the installed Studio MCP executable.</li>
+            <li>Return here. The web app will discover the connected Studio automatically.</li>
           </ol>
-          <div class="setup-code"><code>cmd.exe /c %LOCALAPPDATA%\Roblox\mcp.bat</code><span>Windows</span></div>
-          <div class="setup-code"><code>/Applications/RobloxStudio.app/Contents/MacOS/StudioMCP</code><span>macOS</span></div>
-          <div class="modal-actions"><button class="button ghost" id="close-setup">Close</button><button class="button primary" id="check-mcp">Check MCP</button></div>
+          <div class="setup-code"><code>npm run agent</code><span>Developer mode</span></div>
+          <div class="setup-code"><code>npm run check:mcp</code><span>Connection test</span></div>
+          <div class="modal-actions"><button class="button ghost" id="close-setup">Close</button><button class="button primary" id="check-mcp">Check backend</button></div>
           <div id="setup-result" class="setup-result"></div>
         </div>
       </section>
