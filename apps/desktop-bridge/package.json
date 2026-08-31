@@ -1,14 +1,16 @@
 {
   "name": "@lua-x/desktop-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "LUA-X Desktop Bridge - local MCP stdio proxy (CLI)",
+  "description": "LUA-X Local Agent — native Roblox Studio MCP client",
   "bin": { "lua-x": "./bin/lua-x.js" },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts --help",
+    "agent": "node dist/index.js",
+    "check:mcp": "node dist/index.js --check-mcp",
     "start": "node dist/index.js"
   },
   "dependencies": {
